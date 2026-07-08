@@ -1,0 +1,6 @@
+# Normalize line endings. Shell scripts and Docker/nginx configs must stay LF
+# so the Linux container build never gets CRLF (which breaks the shebang).
+* text=auto eol=lf
+*.sh text eol=lf
+Dockerfile text eol=lf
+*.conf text eol=lf

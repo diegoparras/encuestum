@@ -61,6 +61,19 @@ docker compose up --build
 - Frontend: <http://localhost:3000>
 - Backend (API + docs): <http://localhost:8000/docs>
 
+Ese compose levanta backend y frontend como **dos servicios** (ideal para
+desarrollo). Para **producción** hay además una **imagen all-in-one** (nginx +
+Next.js + FastAPI en un solo contenedor, puerto 80) pensada para EasyPanel:
+
+```bash
+docker build -t encuestum:local .
+docker run --rm -p 8080:80 -v encuestum_data:/app_data encuestum:local
+# http://localhost:8080
+```
+
+Publicada en `ghcr.io/diegoparras/encuestum`. Ver
+[docs/DEPLOY_EASYPANEL.md](docs/DEPLOY_EASYPANEL.md).
+
 ## Desarrollo local (sin Docker)
 
 **Backend**
