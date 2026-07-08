@@ -1,0 +1,348 @@
+"use client";
+
+import React, { useEffect, useMemo, useState } from "react";
+import { useParams } from "next/navigation";
+import Link from "next/link";
+import {
+  ArrowLeft,
+  ExternalLink,
+  Loader2,
+  Save,
+  Send,
+  Lock,
+  Copy,
+  Check,
+  Pencil,
+} from "lucide-react";
+import {
+  surveyApi,
+  SurveyDetail,
+  ResponseItem,
+  SURVEY_ACCENT,
+} from "../../surveyApi";
+import { GradesPanel } from "../../GradesPanel";
+import { InsightsPanel } from "../../InsightsPanel";
+import { themeToAccent } from "../../builder/model";
+
+export default function SurveyDetailPage() {
+  const { id } = useParams<{ id: string }>();
+  const [survey, setSurvey] = useState<SurveyDetail | null>(null);
+  const [title, setTitle] = useState("");
+  const [schemaText, setSchemaText] = useState("");
+  const [responses, setResponses] = useState<ResponseItem[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  async function loadAll() {
+    try {
+      const s = await surveyApi.get(id);
+      setSurvey(s);
+      setTitle(s.title || "");
+      setSchemaText(JSON.stringify(s.json_schema, null, 2));
+      setResponses(await surveyApi.responses(id));
+      setError(null);
+    } catch (e: any) {
+      setError(e?.message || "No se pudo cargar la encuesta.");
+    }
+  }
+
+  useEffect(() => {
+    loadAll();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [id]);
+
+  const parsed = useMemo(() => {
+    try {
+      return { value: JSON.parse(schemaText) as Record<string, any>, error: null };
+    } catch (e: any) {
+      return { value: null, error: e?.message as string };
+    }
+  }, [schemaText]);
+
+  const publicUrl = survey
+    ? `${typeof window !== "undefined" ? window.location.origin : ""}/s/${survey.slug}`
+    : "";
+
+  async function save() {
+    if (!parsed.value) {
+      setError("El JSON del formulario no es válido.");
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      const updated = await surveyApi.update(id, {
+        title,
+        json_schema: parsed.value,
+      });
+      setSurvey(updated);
+      setNotice("Cambios guardados.");
+      setTimeout(() => setNotice(null), 2500);
+    } catch (e: any) {
+      setError(e?.message || "No se pudo guardar.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function togglePublish() {
+    if (!survey) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const updated =
+        survey.status === "published"
+          ? await surveyApi.close(id)
+          : await surveyApi.publish(id);
+      setSurvey(updated);
+    } catch (e: any) {
+      setError(e?.message || "No se pudo cambiar el estado.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  function copyLink() {
+    navigator.clipboard?.writeText(publicUrl).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1800);
+    });
+  }
+
+  if (error && !survey) {
+    return (
+      <div className="max-w-3xl mx-auto px-6 py-10">
+        <BackLink />
+        <div className="mt-6 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          {error}
+        </div>
+      </div>
+    );
+  }
+
+  if (!survey) {
+    return (
+      <div className="max-w-3xl mx-auto px-6 py-10 flex items-center gap-2 text-neutral-500 text-sm">
+        <Loader2 className="w-4 h-4 animate-spin" /> Cargando…
+      </div>
+    );
+  }
+
+  const isPublished = survey.status === "published";
+
+  return (
+    <div className="max-w-3xl mx-auto px-6 py-10">
+      <BackLink />
+
+      <div className="mt-4 flex items-start justify-between gap-4">
+        <input
+          value={title}
+          onChange={(e) => setTitle(e.target.value)}
+          placeholder="Título de la encuesta"
+          className="text-2xl font-semibold bg-transparent outline-none w-full border-b border-transparent focus:border-neutral-300 pb-1"
+        />
+        <span
+          className={`shrink-0 rounded-full px-3 py-1 text-xs font-medium ${
+            isPublished
+              ? "bg-green-100 text-green-700"
+              : survey.status === "closed"
+              ? "bg-amber-100 text-amber-700"
+              : "bg-neutral-100 text-neutral-600"
+          }`}
+        >
+          {isPublished ? "Publicada" : survey.status === "closed" ? "Cerrada" : "Borrador"}
+        </span>
+      </div>
+
+      {/* Public link */}
+      <div className="mt-4 flex items-center gap-2 rounded-lg border border-neutral-200 bg-white px-3 py-2 text-sm">
+        <span className="font-mono text-neutral-600 truncate">{publicUrl}</span>
+        <button
+          onClick={copyLink}
+          className="ml-auto inline-flex items-center gap-1 text-neutral-500 hover:text-neutral-900"
+        >
+          {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+          {copied ? "Copiado" : "Copiar"}
+        </button>
+        {isPublished && (
+          <a
+            href={`/s/${survey.slug}`}
+            target="_blank"
+            rel="noreferrer"
+            className="inline-flex items-center gap-1 text-neutral-500 hover:text-neutral-900"
+          >
+            Abrir <ExternalLink className="w-3.5 h-3.5" />
+          </a>
+        )}
+      </div>
+
+      {/* Actions */}
+      <div className="mt-4 flex items-center gap-3">
+        <Link
+          href={`/surveys/${id}/edit`}
+          className="inline-flex items-center gap-2 rounded-lg border border-neutral-300 px-4 py-2 text-sm font-medium hover:bg-neutral-50"
+        >
+          <Pencil className="w-4 h-4" /> Editor visual
+        </Link>
+        <button
+          onClick={save}
+          disabled={saving || !!parsed.error}
+          className="inline-flex items-center gap-2 rounded-lg px-4 py-2 text-white text-sm font-medium disabled:opacity-60"
+          style={{ backgroundColor: SURVEY_ACCENT }}
+        >
+          {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+          Guardar
+        </button>
+        <button
+          onClick={togglePublish}
+          disabled={busy}
+          className="inline-flex items-center gap-2 rounded-lg border border-neutral-300 px-4 py-2 text-sm font-medium hover:bg-neutral-50 disabled:opacity-60"
+        >
+          {busy ? (
+            <Loader2 className="w-4 h-4 animate-spin" />
+          ) : isPublished ? (
+            <Lock className="w-4 h-4" />
+          ) : (
+            <Send className="w-4 h-4" />
+          )}
+          {isPublished ? "Cerrar" : "Publicar"}
+        </button>
+      </div>
+
+      {notice && <p className="mt-3 text-sm text-green-700">{notice}</p>}
+      {error && <p className="mt-3 text-sm text-red-700">{error}</p>}
+
+      {/* Schema editor */}
+      <div className="mt-8">
+        <div className="flex items-center justify-between mb-2">
+          <h2 className="text-sm font-semibold text-neutral-700">
+            Definición del formulario (SurveyJS JSON)
+          </h2>
+          {parsed.error ? (
+            <span className="text-xs text-red-600">JSON inválido: {parsed.error}</span>
+          ) : (
+            <span className="text-xs text-green-600">JSON válido</span>
+          )}
+        </div>
+        <textarea
+          value={schemaText}
+          onChange={(e) => setSchemaText(e.target.value)}
+          spellCheck={false}
+          className="w-full h-80 font-mono text-xs rounded-lg border border-neutral-300 bg-white p-3 outline-none focus:border-neutral-400"
+        />
+        <p className="mt-2 text-xs text-neutral-400">
+          Edición avanzada del modelo SurveyJS. Para la mayoría de los casos usá
+          el <Link href={`/surveys/${id}/edit`} className="underline">editor visual</Link>;
+          acá podés pegar cualquier modelo válido o ajustar detalles finos.
+        </p>
+      </div>
+
+      {/* Responses / grades */}
+      <div className="mt-10">
+        {survey.evaluation?.enabled ? (
+          <>
+            <h2 className="text-sm font-semibold text-neutral-700 mb-3">
+              Notas y correcciones
+            </h2>
+            <GradesPanel surveyId={id} accent={themeToAccent(survey.theme)} />
+          </>
+        ) : (
+          <>
+            <h2 className="text-sm font-semibold text-neutral-700 mb-3">
+              Respuestas {responses ? `(${responses.length})` : ""}
+            </h2>
+            {responses === null ? (
+              <div className="text-sm text-neutral-400">Cargando…</div>
+            ) : responses.length === 0 ? (
+              <div className="rounded-lg border border-dashed border-neutral-300 py-10 text-center text-neutral-400 text-sm">
+                Todavía no hay respuestas.
+              </div>
+            ) : (
+              <ResponsesTable responses={responses} />
+            )}
+          </>
+        )}
+      </div>
+
+      {hasOpenText(survey.json_schema) && (
+        <div className="mt-12">
+          <InsightsPanel surveyId={id} accent={themeToAccent(survey.theme)} />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function hasOpenText(schema: Record<string, any> | null | undefined): boolean {
+  for (const p of schema?.pages ?? []) {
+    for (const el of p?.elements ?? []) {
+      if (el?.type === "comment") return true;
+      if (el?.type === "text" && el?.inputType !== "email") return true;
+    }
+  }
+  return false;
+}
+
+function ResponsesTable({ responses }: { responses: ResponseItem[] }) {
+  // Union of all answer keys across responses, preserving first-seen order.
+  const columns = useMemo(() => {
+    const seen: string[] = [];
+    for (const r of responses) {
+      for (const k of Object.keys(r.answers || {})) {
+        if (!seen.includes(k)) seen.push(k);
+      }
+    }
+    return seen;
+  }, [responses]);
+
+  return (
+    <div className="overflow-x-auto rounded-lg border border-neutral-200 bg-white">
+      <table className="min-w-full text-sm">
+        <thead className="bg-neutral-50 text-neutral-500">
+          <tr>
+            <th className="text-left font-medium px-3 py-2 whitespace-nowrap">Fecha</th>
+            {columns.map((c) => (
+              <th key={c} className="text-left font-medium px-3 py-2 whitespace-nowrap">
+                {c}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-neutral-100">
+          {responses.map((r) => (
+            <tr key={r.id}>
+              <td className="px-3 py-2 whitespace-nowrap text-neutral-400">
+                {new Date(r.submitted_at).toLocaleString()}
+              </td>
+              {columns.map((c) => (
+                <td key={c} className="px-3 py-2 align-top">
+                  {formatCell(r.answers?.[c])}
+                </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
+
+function formatCell(value: any): string {
+  if (value === undefined || value === null) return "—";
+  if (typeof value === "object") return JSON.stringify(value);
+  return String(value);
+}
+
+function BackLink() {
+  return (
+    <Link
+      href="/surveys"
+      className="inline-flex items-center gap-1 text-sm text-neutral-500 hover:text-neutral-900"
+    >
+      <ArrowLeft className="w-4 h-4" /> Encuestas
+    </Link>
+  );
+}

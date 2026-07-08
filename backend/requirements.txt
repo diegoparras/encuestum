@@ -1,0 +1,6 @@
+fastapi>=0.110
+uvicorn[standard]>=0.29
+sqlmodel>=0.0.16
+aiosqlite>=0.19
+httpx>=0.27
+pydantic>=2.6

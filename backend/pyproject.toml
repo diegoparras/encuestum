@@ -1,0 +1,16 @@
+[project]
+name = "encuestum-backend"
+version = "0.1.0"
+description = "Encuestum API — encuestas y evaluaciones con corrección por IA"
+requires-python = ">=3.11"
+dependencies = [
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.29",
+    "sqlmodel>=0.0.16",
+    "aiosqlite>=0.19",
+    "httpx>=0.27",
+    "pydantic>=2.6",
+]
+
+[project.optional-dependencies]
+postgres = ["asyncpg>=0.29"]
