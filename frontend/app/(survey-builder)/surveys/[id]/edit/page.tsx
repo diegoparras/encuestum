@@ -63,6 +63,8 @@ export default function SurveyEditorPage() {
         const accent = themeToAccent(s.theme);
         const built = schemaToBuilder(s.json_schema, s.title || "", accent, s.evaluation);
         built.design = themeToDesign(s.theme);
+        built.closesAt = s.closes_at;
+        built.maxResponses = s.max_responses;
         setState(built);
         setStatus(s.status);
         setSlug(s.slug);
@@ -197,6 +199,8 @@ export default function SurveyEditorPage() {
         json_schema: builderToSchema(state),
         theme: designToTheme(state.accent, state.design),
         evaluation: builderToEvaluation(state),
+        closes_at: state.closesAt,
+        max_responses: state.maxResponses,
         language,
       });
       setDirty(false);
@@ -418,6 +422,8 @@ export default function SurveyEditorPage() {
             description={state.description}
             onePerPage={state.onePerPage}
             showProgress={state.showProgress}
+            closesAt={state.closesAt}
+            maxResponses={state.maxResponses}
             onSurveyChange={(patch) => mutate((prev) => ({ ...prev, ...patch }))}
             evaluation={state.evaluation}
             onEvaluationChange={setEvaluation}

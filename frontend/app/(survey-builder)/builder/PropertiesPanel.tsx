@@ -27,7 +27,15 @@ interface Props {
   description: string;
   onePerPage: boolean;
   showProgress: boolean;
-  onSurveyChange: (patch: { description?: string; onePerPage?: boolean; showProgress?: boolean }) => void;
+  closesAt: string | null;
+  maxResponses: number | null;
+  onSurveyChange: (patch: {
+    description?: string;
+    onePerPage?: boolean;
+    showProgress?: boolean;
+    closesAt?: string | null;
+    maxResponses?: number | null;
+  }) => void;
   evaluation: EvaluationSettings;
   onEvaluationChange: (evaluation: EvaluationSettings) => void;
   accent: string;
@@ -40,11 +48,19 @@ export function PropertiesPanel({
   description,
   onePerPage,
   showProgress,
+  closesAt,
+  maxResponses,
   onSurveyChange,
   evaluation,
   onEvaluationChange,
   accent,
 }: Props) {
+  const toDateInput = (iso: string | null) => {
+    if (!iso) return "";
+    const d = new Date(iso);
+    if (isNaN(d.getTime())) return "";
+    return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+  };
   if (!question) {
     return (
       <div className="p-5">
@@ -72,6 +88,39 @@ export function PropertiesPanel({
             onChange={(v) => onSurveyChange({ showProgress: v })}
           />
         )}
+
+        <div className="mt-5 border-t border-neutral-100 pt-4">
+          <SectionTitle>Cierre automático</SectionTitle>
+          <Field label="Cerrar en una fecha (opcional)">
+            <input
+              type="datetime-local"
+              value={toDateInput(closesAt)}
+              onChange={(e) =>
+                onSurveyChange({
+                  closesAt: e.target.value ? new Date(e.target.value).toISOString() : null,
+                })
+              }
+              className="w-full rounded-md border border-neutral-200 px-2.5 py-2 text-sm outline-none focus:border-neutral-400"
+            />
+          </Field>
+          <Field label="Máximo de respuestas (opcional)">
+            <input
+              type="number"
+              min={1}
+              value={maxResponses ?? ""}
+              placeholder="Sin límite"
+              onChange={(e) =>
+                onSurveyChange({
+                  maxResponses: e.target.value ? Math.max(1, parseInt(e.target.value, 10) || 1) : null,
+                })
+              }
+              className="w-full rounded-md border border-neutral-200 px-2.5 py-2 text-sm outline-none focus:border-neutral-400"
+            />
+          </Field>
+          <p className="text-xs text-neutral-400">
+            La encuesta deja de aceptar respuestas al llegar la fecha o el cupo.
+          </p>
+        </div>
 
         <ExamSettings
           evaluation={evaluation}

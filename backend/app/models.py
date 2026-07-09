@@ -10,6 +10,7 @@ from sqlalchemy import (
     DateTime,
     Float,
     ForeignKey,
+    Integer,
     String,
     UniqueConstraint,
 )
@@ -155,6 +156,11 @@ class Survey(SQLModel, table=True):
     json_schema: dict = Field(sa_column=Column(JSON, nullable=False), default_factory=dict)
     status: str = Field(sa_column=Column(String, nullable=False), default="draft")
     language: Optional[str] = Field(sa_column=Column(String), default=None)
+    # Auto-close controls: after this date, or once this many responses arrive.
+    closes_at: Optional[datetime] = Field(
+        sa_column=Column(DateTime(timezone=True)), default=None
+    )
+    max_responses: Optional[int] = Field(sa_column=Column(Integer), default=None)
     theme: Optional[dict] = Field(sa_column=Column(JSON), default=None)
     # Answer keys / rubrics / exam settings. SERVER-SIDE ONLY.
     evaluation: Optional[dict] = Field(sa_column=Column(JSON), default=None)

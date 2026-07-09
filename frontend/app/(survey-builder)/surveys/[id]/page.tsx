@@ -14,7 +14,9 @@ import {
   Check,
   Pencil,
   Download,
+  QrCode,
 } from "lucide-react";
+import { QRCodeSVG } from "qrcode.react";
 import { toast } from "sonner";
 import {
   surveyApi,
@@ -38,6 +40,7 @@ export default function SurveyDetailPage() {
   const [saving, setSaving] = useState(false);
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [showQr, setShowQr] = useState(false);
   const [exporting, setExporting] = useState<"csv" | "xlsx" | null>(null);
 
   async function loadAll() {
@@ -183,6 +186,13 @@ export default function SurveyDetailPage() {
           {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
           {copied ? "Copiado" : "Copiar"}
         </button>
+        <button
+          onClick={() => setShowQr((v) => !v)}
+          className="inline-flex items-center gap-1 text-neutral-500 hover:text-neutral-900"
+          title="Código QR"
+        >
+          <QrCode className="w-4 h-4" /> QR
+        </button>
         {isPublished && (
           <a
             href={`/s/${survey.slug}`}
@@ -194,6 +204,13 @@ export default function SurveyDetailPage() {
           </a>
         )}
       </div>
+
+      {showQr && (
+        <div className="mt-3 flex flex-col items-center gap-2 rounded-lg border border-neutral-200 bg-white p-5">
+          <QRCodeSVG value={publicUrl} size={168} level="M" includeMargin />
+          <p className="text-xs text-neutral-500">Escaneá para abrir la encuesta</p>
+        </div>
+      )}
 
       {/* Actions */}
       <div className="mt-4 flex items-center gap-3">

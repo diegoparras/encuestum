@@ -14,11 +14,41 @@ LOGGER = logging.getLogger(__name__)
 router = APIRouter(prefix="/public", tags=["public"])
 
 
-async def _published(slug: str, session: AsyncSession) -> Survey:
+async def _visible(slug: str, session: AsyncSession) -> Survey:
+    """A survey that has been published at least once (published or closed).
+    Drafts / unknown slugs are 404 — they never existed publicly."""
     s = await session.scalar(select(Survey).where(Survey.slug == slug))
-    if not s or s.status != "published":
+    if not s or s.status == "draft":
         raise HTTPException(status_code=404, detail="Survey not available")
     return s
+
+
+async def _response_count(survey_id, session: AsyncSession) -> int:
+    from sqlalchemy import func
+
+    return int(
+        await session.scalar(
+            select(func.count(SurveyResponse.id)).where(SurveyResponse.survey_id == survey_id)
+        )
+        or 0
+    )
+
+
+async def _availability(s: Survey, session: AsyncSession) -> tuple[bool, str | None]:
+    from datetime import timezone
+
+    if s.status == "closed":
+        return False, "Esta encuesta fue cerrada."
+    if s.closes_at is not None:
+        closes = s.closes_at
+        if closes.tzinfo is None:  # SQLite returns naive datetimes
+            closes = closes.replace(tzinfo=timezone.utc)
+        if _utcnow() > closes:
+            return False, "Esta encuesta cerró por fecha."
+    if s.max_responses:
+        if await _response_count(s.id, session) >= s.max_responses:
+            return False, "Esta encuesta alcanzó el máximo de respuestas."
+    return True, None
 
 
 def _titles(schema: dict) -> dict:
@@ -49,17 +79,24 @@ def _respondent_view(grade: dict, evaluation: dict, schema: dict) -> dict:
 
 @router.get("/{slug}", response_model=PublicSurvey)
 async def get_public_survey(slug: str, session: AsyncSession = Depends(get_session)):
-    s = await _published(slug, session)
+    s = await _visible(slug, session)
+    available, reason = await _availability(s, session)
     return PublicSurvey(
         slug=s.slug, title=s.title, language=s.language,
-        json_schema=s.json_schema or {}, theme=s.theme,
-        evaluation=public_evaluation_meta(s.evaluation),
+        # When closed, don't ship the form — just the reason.
+        json_schema=(s.json_schema or {}) if available else {},
+        theme=s.theme,
+        evaluation=public_evaluation_meta(s.evaluation) if available else None,
+        available=available, closed_reason=reason,
     )
 
 
 @router.post("/{slug}/submit", status_code=201)
 async def submit(slug: str, payload: SubmitResponseRequest, session: AsyncSession = Depends(get_session)):
-    s = await _published(slug, session)
+    s = await _visible(slug, session)
+    available, reason = await _availability(s, session)
+    if not available:
+        raise HTTPException(status_code=403, detail=reason or "Esta encuesta está cerrada.")
     r = SurveyResponse(
         survey_id=s.id, answers=payload.answers or {}, completed=payload.completed, meta=payload.meta
     )
@@ -96,7 +133,7 @@ async def submit(slug: str, payload: SubmitResponseRequest, session: AsyncSessio
 
 @router.post("/{slug}/grade-question")
 async def grade_question(slug: str, payload: GradeQuestionRequest, session: AsyncSession = Depends(get_session)):
-    s = await _published(slug, session)
+    s = await _visible(slug, session)
     evaluation = s.evaluation or {}
     if not evaluation.get("enabled") or evaluation.get("feedbackTiming") != "immediate":
         raise HTTPException(status_code=404, detail="Immediate feedback not enabled")

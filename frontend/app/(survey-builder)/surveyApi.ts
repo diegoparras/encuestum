@@ -23,6 +23,8 @@ export interface SurveyDetail {
   json_schema: Record<string, any>;
   theme: Record<string, any> | null;
   evaluation: Record<string, any> | null;
+  closes_at: string | null;
+  max_responses: number | null;
   created_at: string;
   updated_at: string;
 }
@@ -125,7 +127,10 @@ export const surveyApi = {
   update: (
     id: string,
     body: Partial<
-      Pick<SurveyDetail, "title" | "json_schema" | "status" | "language" | "theme" | "evaluation">
+      Pick<
+        SurveyDetail,
+        "title" | "json_schema" | "status" | "language" | "theme" | "evaluation" | "closes_at" | "max_responses"
+      >
     >
   ) =>
     request<SurveyDetail>(`/api/v1/survey/surveys/${id}`, {

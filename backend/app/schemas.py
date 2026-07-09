@@ -36,6 +36,8 @@ class SurveyUpdateRequest(BaseModel):
     language: Optional[str] = None
     theme: Optional[dict[str, Any]] = None
     evaluation: Optional[dict[str, Any]] = None
+    closes_at: Optional[datetime] = None
+    max_responses: Optional[int] = None
 
 
 class SurveySummary(BaseModel):
@@ -59,6 +61,8 @@ class SurveyDetail(BaseModel):
     json_schema: dict[str, Any]
     theme: Optional[dict[str, Any]]
     evaluation: Optional[dict[str, Any]]
+    closes_at: Optional[datetime] = None
+    max_responses: Optional[int] = None
     created_at: datetime
     updated_at: datetime
 
@@ -67,6 +71,7 @@ class SurveyDetail(BaseModel):
         return cls(
             id=s.id, title=s.title, slug=s.slug, status=s.status, language=s.language,
             json_schema=s.json_schema or {}, theme=s.theme, evaluation=s.evaluation,
+            closes_at=s.closes_at, max_responses=s.max_responses,
             created_at=s.created_at, updated_at=s.updated_at,
         )
 
@@ -78,6 +83,8 @@ class PublicSurvey(BaseModel):
     json_schema: dict[str, Any]
     theme: Optional[dict[str, Any]]
     evaluation: Optional[dict[str, Any]] = None
+    available: bool = True
+    closed_reason: Optional[str] = None
 
 
 class SubmitResponseRequest(BaseModel):

@@ -222,6 +222,8 @@ export interface BuilderState {
   accent: string;
   onePerPage: boolean; // Typeform-style one question per screen
   showProgress: boolean; // show "Pregunta X de Y" (only meaningful with onePerPage)
+  closesAt: string | null; // ISO datetime; auto-close after this moment
+  maxResponses: number | null; // auto-close after this many responses
   questions: BuilderQuestion[];
   evaluation: EvaluationSettings;
   design: DesignSettings;
@@ -692,6 +694,8 @@ export function schemaToBuilder(
     accent,
     onePerPage,
     showProgress,
+    closesAt: null,
+    maxResponses: null,
     questions,
     evaluation: hydrateEvaluationSettings(evaluation),
     design: { ...DEFAULT_DESIGN },

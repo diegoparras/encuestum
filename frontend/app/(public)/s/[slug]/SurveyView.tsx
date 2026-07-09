@@ -34,6 +34,8 @@ interface PublicSurvey {
   json_schema: Record<string, any>;
   theme: Record<string, any> | null;
   evaluation: EvaluationMeta | null;
+  available?: boolean;
+  closed_reason?: string | null;
 }
 
 interface GradedResult {
@@ -135,6 +137,40 @@ export default function SurveyView({ slug }: { slug: string }) {
       }
     });
 
+    // Save & resume: keep partial answers on this device and restore them, so a
+    // respondent can close the tab and come back. Cleared on submit.
+    const resumeKey = `enc_resume_${slug}`;
+    try {
+      const saved =
+        typeof window !== "undefined" ? window.localStorage.getItem(resumeKey) : null;
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed && parsed.data) survey.data = parsed.data;
+        if (typeof parsed?.page === "number") survey.currentPageNo = parsed.page;
+      }
+    } catch {
+      /* ignore corrupt resume state */
+    }
+    const persist = () => {
+      try {
+        window.localStorage.setItem(
+          resumeKey,
+          JSON.stringify({ data: survey.data, page: survey.currentPageNo })
+        );
+      } catch {
+        /* storage may be unavailable */
+      }
+    };
+    survey.onValueChanged.add(persist);
+    survey.onCurrentPageChanged.add(persist);
+    survey.onComplete.add(() => {
+      try {
+        window.localStorage.removeItem(resumeKey);
+      } catch {
+        /* ignore */
+      }
+    });
+
     // Integrity options for assessments.
     if (isExam) {
       const integ = evalMeta.integrity || {};
@@ -230,6 +266,18 @@ export default function SurveyView({ slug }: { slug: string }) {
     );
 
   const accent = data?.theme?.cssVariables?.["--sjs-primary-backcolor"] || "#e25a4e";
+
+  if (data && data.available === false) {
+    return (
+      <Centered>
+        {data.title && <h1 className="text-xl font-semibold">{data.title}</h1>}
+        <p className="mt-3 text-base text-neutral-700">
+          {data.closed_reason || "Esta encuesta está cerrada."}
+        </p>
+        <p className="mt-2 text-sm text-neutral-400">Gracias por tu interés.</p>
+      </Centered>
+    );
+  }
 
   if (results) {
     return <ResultsScreen results={results} accent={accent} />;
