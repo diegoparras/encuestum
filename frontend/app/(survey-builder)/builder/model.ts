@@ -66,6 +66,17 @@ export interface BuilderQuestion {
 
   // imagepicker: allow selecting more than one image.
   multiSelect?: boolean;
+
+  // Conditional logic: show this question only when the rule holds.
+  visibilityRule?: VisibilityRule;
+}
+
+export type LogicOperator = "=" | "<>" | "contains" | ">" | "<" | "empty" | "notempty";
+
+export interface VisibilityRule {
+  questionName: string; // the question this depends on (SurveyJS name)
+  operator: LogicOperator;
+  value: string; // ignored for empty/notempty
 }
 
 export interface EvaluationSettings {
@@ -364,12 +375,40 @@ function defaultTitle(type: QuestionType): string {
 
 // ---- Serialization: builder → SurveyJS JSON --------------------------------
 
+// Turn a visibility rule into a SurveyJS `visibleIf` expression.
+export function ruleToExpr(rule: VisibilityRule): string {
+  const q = `{${rule.questionName}}`;
+  const esc = (v: string) => String(v).replace(/'/g, "\\'");
+  const num = (v: string) => (Number.isFinite(Number(v)) ? Number(v) : 0);
+  switch (rule.operator) {
+    case "empty":
+      return `${q} empty`;
+    case "notempty":
+      return `${q} notempty`;
+    case "contains":
+      return `${q} contains '${esc(rule.value)}'`;
+    case ">":
+      return `${q} > ${num(rule.value)}`;
+    case "<":
+      return `${q} < ${num(rule.value)}`;
+    case "<>":
+      return `${q} <> '${esc(rule.value)}'`;
+    default:
+      return `${q} = '${esc(rule.value)}'`;
+  }
+}
+
 function questionToElement(q: BuilderQuestion): Record<string, any> {
   const el: Record<string, any> = {
     type: q.type === "email" ? "text" : q.type,
     name: q.name,
     title: q.title,
   };
+  if (q.visibilityRule && q.visibilityRule.questionName) {
+    el.visibleIf = ruleToExpr(q.visibilityRule);
+    // Kept so the visual builder can round-trip the structured rule.
+    el.encVisibility = q.visibilityRule;
+  }
   if (q.description) el.description = q.description;
   if (q.isRequired) el.isRequired = true;
   if (q.type === "email") {
@@ -501,6 +540,10 @@ function elementToQuestion(el: Record<string, any>, index: number): BuilderQuest
     isRequired: !!el.isRequired,
     placeholder: el.placeholder || undefined,
   };
+
+  if (el.encVisibility && typeof el.encVisibility === "object" && el.encVisibility.questionName) {
+    q.visibilityRule = el.encVisibility as VisibilityRule;
+  }
 
   if (type === "imagepicker" && Array.isArray(el.choices)) {
     q.choices = el.choices.map((c: any) => {

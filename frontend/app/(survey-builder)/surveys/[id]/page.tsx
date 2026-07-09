@@ -13,12 +13,15 @@ import {
   Copy,
   Check,
   Pencil,
+  Download,
 } from "lucide-react";
+import { toast } from "sonner";
 import {
   surveyApi,
   SurveyDetail,
   ResponseItem,
   SURVEY_ACCENT,
+  downloadResponses,
 } from "../../surveyApi";
 import { GradesPanel } from "../../GradesPanel";
 import { InsightsPanel } from "../../InsightsPanel";
@@ -35,6 +38,7 @@ export default function SurveyDetailPage() {
   const [saving, setSaving] = useState(false);
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [exporting, setExporting] = useState<"csv" | "xlsx" | null>(null);
 
   async function loadAll() {
     try {
@@ -102,6 +106,18 @@ export default function SurveyDetailPage() {
       setError(e?.message || "No se pudo cambiar el estado.");
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function exportResponses(format: "csv" | "xlsx") {
+    if (exporting) return;
+    setExporting(format);
+    try {
+      await downloadResponses(id, format);
+    } catch (e: any) {
+      toast.error(e?.message || "No se pudo exportar las respuestas.");
+    } finally {
+      setExporting(null);
     }
   }
 
@@ -244,16 +260,30 @@ export default function SurveyDetailPage() {
       <div className="mt-10">
         {survey.evaluation?.enabled ? (
           <>
-            <h2 className="text-sm font-semibold text-neutral-700 mb-3">
-              Notas y correcciones
-            </h2>
+            <div className="flex items-center justify-between gap-3 mb-3">
+              <h2 className="text-sm font-semibold text-neutral-700">
+                Notas y correcciones
+              </h2>
+              <ExportButtons
+                exporting={exporting}
+                disabled={!responses || responses.length === 0}
+                onExport={exportResponses}
+              />
+            </div>
             <GradesPanel surveyId={id} accent={themeToAccent(survey.theme)} />
           </>
         ) : (
           <>
-            <h2 className="text-sm font-semibold text-neutral-700 mb-3">
-              Respuestas {responses ? `(${responses.length})` : ""}
-            </h2>
+            <div className="flex items-center justify-between gap-3 mb-3">
+              <h2 className="text-sm font-semibold text-neutral-700">
+                Respuestas {responses ? `(${responses.length})` : ""}
+              </h2>
+              <ExportButtons
+                exporting={exporting}
+                disabled={!responses || responses.length === 0}
+                onExport={exportResponses}
+              />
+            </div>
             {responses === null ? (
               <div className="text-sm text-neutral-400">Cargando…</div>
             ) : responses.length === 0 ? (
@@ -272,6 +302,49 @@ export default function SurveyDetailPage() {
           <InsightsPanel surveyId={id} accent={themeToAccent(survey.theme)} />
         </div>
       )}
+    </div>
+  );
+}
+
+function ExportButtons({
+  exporting,
+  disabled,
+  onExport,
+}: {
+  exporting: "csv" | "xlsx" | null;
+  disabled: boolean;
+  onExport: (format: "csv" | "xlsx") => void;
+}) {
+  const btn =
+    "inline-flex items-center gap-1.5 rounded-lg border border-neutral-300 px-3 py-1.5 text-xs font-medium hover:bg-neutral-50 disabled:opacity-50 disabled:cursor-not-allowed";
+  return (
+    <div className="flex items-center gap-2 shrink-0">
+      <button
+        onClick={() => onExport("csv")}
+        disabled={disabled || !!exporting}
+        className={btn}
+        title={disabled ? "No hay respuestas para exportar" : "Descargar CSV"}
+      >
+        {exporting === "csv" ? (
+          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+        ) : (
+          <Download className="w-3.5 h-3.5" />
+        )}
+        CSV
+      </button>
+      <button
+        onClick={() => onExport("xlsx")}
+        disabled={disabled || !!exporting}
+        className={btn}
+        title={disabled ? "No hay respuestas para exportar" : "Descargar Excel"}
+      >
+        {exporting === "xlsx" ? (
+          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+        ) : (
+          <Download className="w-3.5 h-3.5" />
+        )}
+        Excel
+      </button>
     </div>
   );
 }

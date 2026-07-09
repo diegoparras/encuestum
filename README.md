@@ -20,7 +20,10 @@ formularios. Backend FastAPI, frontend Next.js. Bring-your-own-key para el LLM.
 - **Roles**: `owner` · `admin` · `member`. Gestión de miembros (invitar por
   email, cambiar rol, quitar) para admin o superior.
 - **Editor visual** drag-and-drop de encuestas y exámenes (opción, texto,
-  comentario, escala…), con vista previa en vivo.
+  comentario, escala…), con vista previa en vivo, **plantillas listas para usar**
+  (NPS, feedback, registro a evento, evaluación de curso, quiz…) y **lógica
+  condicional** (mostrar una pregunta según la respuesta a otra).
+- **Exportar respuestas** a **CSV** y **Excel (XLSX)**.
 - **Diseño superior a Google/Microsoft Forms**: panel de diseño con **temas
   predefinidos** de un clic, **tipografía** (fuentes curadas), color de acento y
   de fondo, **imágenes** (portada, logo, fondo con opacidad, e imagen por

@@ -413,6 +413,7 @@ export default function SurveyEditorPage() {
         <aside className="w-[340px] shrink-0 border-l border-neutral-200 bg-white overflow-y-auto">
           <PropertiesPanel
             question={selectedQuestion}
+            questions={state.questions}
             onQuestionChange={patchQuestion}
             description={state.description}
             onePerPage={state.onePerPage}

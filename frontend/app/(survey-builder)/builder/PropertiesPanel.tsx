@@ -5,8 +5,10 @@ import { Switch } from "@/components/ui/switch";
 import {
   BuilderQuestion,
   EvaluationSettings,
+  LogicOperator,
   QUESTION_TYPE_LABEL,
   typeHasChoices,
+  VisibilityRule,
 } from "./model";
 import { ChoicesEditor } from "./ChoicesEditor";
 import { ImageChoicesEditor } from "./ImageChoicesEditor";
@@ -16,6 +18,7 @@ import { Film } from "lucide-react";
 
 interface Props {
   question: BuilderQuestion | null;
+  questions: BuilderQuestion[];
   onQuestionChange: (patch: Partial<BuilderQuestion>) => void;
   // Survey-level settings (shown when no question is selected).
   description: string;
@@ -28,6 +31,7 @@ interface Props {
 
 export function PropertiesPanel({
   question,
+  questions,
   onQuestionChange,
   description,
   onePerPage,
@@ -219,6 +223,12 @@ export function PropertiesPanel({
         <GradingSection question={q} accent={accent} onChange={onQuestionChange} />
       )}
 
+      <VisibilitySection
+        question={q}
+        questions={questions}
+        onQuestionChange={onQuestionChange}
+      />
+
       <details className="mt-4 group">
         <summary className="cursor-pointer text-xs font-medium text-neutral-400 hover:text-neutral-600 select-none">
           Avanzado
@@ -235,6 +245,133 @@ export function PropertiesPanel({
           />
         </Field>
       </details>
+    </div>
+  );
+}
+
+const OPERATOR_OPTIONS: { value: LogicOperator; label: string }[] = [
+  { value: "=", label: "es igual a" },
+  { value: "<>", label: "es distinto de" },
+  { value: "contains", label: "contiene" },
+  { value: ">", label: "es mayor que" },
+  { value: "<", label: "es menor que" },
+  { value: "empty", label: "está vacía" },
+  { value: "notempty", label: "fue respondida" },
+];
+
+function VisibilitySection({
+  question,
+  questions,
+  onQuestionChange,
+}: {
+  question: BuilderQuestion;
+  questions: BuilderQuestion[];
+  onQuestionChange: (patch: Partial<BuilderQuestion>) => void;
+}) {
+  // Other questions that can be referenced (exclude the current one).
+  const others = questions.filter((x) => x.id !== question.id);
+  const rule = question.visibilityRule;
+  const enabled = !!rule;
+
+  function toggle(on: boolean) {
+    if (on) {
+      const first = others[0];
+      if (!first) return;
+      onQuestionChange({
+        visibilityRule: { questionName: first.name, operator: "=", value: "" },
+      });
+    } else {
+      onQuestionChange({ visibilityRule: undefined });
+    }
+  }
+
+  function patchRule(patch: Partial<VisibilityRule>) {
+    if (!rule) return;
+    onQuestionChange({ visibilityRule: { ...rule, ...patch } });
+  }
+
+  const referenced = rule
+    ? others.find((x) => x.name === rule.questionName)
+    : undefined;
+  const referencedChoices = referenced?.choices ?? [];
+  const needsValue = rule
+    ? rule.operator !== "empty" && rule.operator !== "notempty"
+    : false;
+
+  return (
+    <div className="mt-4 rounded-xl border border-neutral-200 p-3">
+      <ToggleRow
+        label="Lógica de visibilidad"
+        hint="Mostrar esta pregunta sólo si…"
+        checked={enabled}
+        onChange={toggle}
+      />
+
+      {others.length === 0 && !enabled && (
+        <p className="mt-1 text-[11px] text-neutral-400">
+          Necesitás otra pregunta antes para condicionar esta.
+        </p>
+      )}
+
+      {enabled && rule && (
+        <div className="mt-2 space-y-3">
+          <Field label="Pregunta">
+            <select
+              value={rule.questionName}
+              onChange={(e) => patchRule({ questionName: e.target.value })}
+              className="w-full rounded-md border border-neutral-200 px-2.5 py-1.5 text-sm outline-none focus:border-neutral-400 bg-white"
+            >
+              {others.map((x) => (
+                <option key={x.id} value={x.name}>
+                  {x.title || x.name}
+                </option>
+              ))}
+            </select>
+          </Field>
+
+          <Field label="Condición">
+            <select
+              value={rule.operator}
+              onChange={(e) =>
+                patchRule({ operator: e.target.value as LogicOperator })
+              }
+              className="w-full rounded-md border border-neutral-200 px-2.5 py-1.5 text-sm outline-none focus:border-neutral-400 bg-white"
+            >
+              {OPERATOR_OPTIONS.map((o) => (
+                <option key={o.value} value={o.value}>
+                  {o.label}
+                </option>
+              ))}
+            </select>
+          </Field>
+
+          {needsValue && (
+            <Field label="Valor">
+              {referencedChoices.length > 0 ? (
+                <select
+                  value={rule.value}
+                  onChange={(e) => patchRule({ value: e.target.value })}
+                  className="w-full rounded-md border border-neutral-200 px-2.5 py-1.5 text-sm outline-none focus:border-neutral-400 bg-white"
+                >
+                  <option value="">Elegí una opción…</option>
+                  {referencedChoices.map((c) => (
+                    <option key={c.id} value={c.text}>
+                      {c.text}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  value={rule.value}
+                  onChange={(e) => patchRule({ value: e.target.value })}
+                  placeholder="Valor a comparar"
+                  className="w-full rounded-md border border-neutral-200 px-2.5 py-2 text-sm outline-none focus:border-neutral-400"
+                />
+              )}
+            </Field>
+          )}
+        </div>
+      )}
     </div>
   );
 }

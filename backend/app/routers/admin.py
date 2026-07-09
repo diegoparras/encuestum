@@ -1,7 +1,11 @@
+import csv
+import io
 import uuid
+from datetime import datetime, timezone
 from typing import List
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import StreamingResponse
 from sqlalchemy import delete, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
@@ -13,6 +17,52 @@ from app.schemas import (
     VALID_STATUSES, ResponseItem, SurveyCreateRequest, SurveyDetail,
     SurveySummary, SurveyUpdateRequest,
 )
+
+
+# Columns (name, title) for the real questions in a schema, skipping companion
+# media elements and non-input display elements.
+def _survey_columns(schema: dict) -> List[tuple]:
+    cols: List[tuple] = []
+    for page in (schema or {}).get("pages", []) or []:
+        for el in page.get("elements", []) or []:
+            name = el.get("name")
+            if not name or name.endswith("__img") or name.endswith("__vid"):
+                continue
+            if el.get("type") in ("html", "image", "expression"):
+                continue
+            cols.append((name, el.get("title") or name))
+    return cols
+
+
+def _cell(value) -> str:
+    if value is None:
+        return ""
+    if isinstance(value, list):
+        return "; ".join(str(v) for v in value)
+    if isinstance(value, dict):
+        import json
+        return json.dumps(value, ensure_ascii=False)
+    return str(value)
+
+
+_META = ["id", "submitted_at", "completed", "score", "max_score", "percent", "needs_review"]
+
+
+def _export_rows(survey: Survey, responses: List[SurveyResponse]):
+    cols = _survey_columns(survey.json_schema or {})
+    header = _META + [title for (_n, title) in cols]
+    rows = [header]
+    for r in responses:
+        answers = r.answers or {}
+        grade = r.grade or {}
+        meta = [
+            str(r.id), r.submitted_at.isoformat() if r.submitted_at else "",
+            "sí" if r.completed else "no",
+            _cell(r.score), _cell(r.max_score), _cell(grade.get("percent")),
+            "sí" if r.needs_review else "no",
+        ]
+        rows.append(meta + [_cell(answers.get(name)) for (name, _t) in cols])
+    return rows
 
 router = APIRouter(prefix="/surveys", tags=["surveys"])
 
@@ -173,3 +223,51 @@ async def get_response(
     if not r or r.survey_id != sid:
         raise HTTPException(status_code=404, detail="Response not found")
     return ResponseItem.from_model(r)
+
+
+@router.get("/{sid}/export")
+async def export_responses(
+    sid: uuid.UUID,
+    format: str = Query("csv", pattern="^(csv|xlsx)$"),
+    ctx: OrgContext = Depends(current_context),
+    session: AsyncSession = Depends(get_session),
+):
+    s = await _survey_or_404(sid, ctx.org.id, session)
+    responses = (
+        await session.scalars(
+            select(SurveyResponse)
+            .where(SurveyResponse.survey_id == sid)
+            .order_by(SurveyResponse.submitted_at.asc())
+        )
+    ).all()
+    rows = _export_rows(s, responses)
+    stamp = datetime.now(timezone.utc).strftime("%Y%m%d")
+    base = (s.slug or "encuesta")
+
+    if format == "xlsx":
+        from openpyxl import Workbook
+
+        wb = Workbook()
+        ws = wb.active
+        ws.title = "Respuestas"
+        for row in rows:
+            ws.append(row)
+        bio = io.BytesIO()
+        wb.save(bio)
+        bio.seek(0)
+        return StreamingResponse(
+            bio,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f'attachment; filename="{base}-{stamp}.xlsx"'},
+        )
+
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerows(rows)
+    # UTF-8 BOM so Excel opens accented text correctly.
+    data = buf.getvalue().encode("utf-8-sig")
+    return StreamingResponse(
+        iter([data]),
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{base}-{stamp}.csv"'},
+    )

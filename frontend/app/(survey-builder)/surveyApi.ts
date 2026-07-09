@@ -111,7 +111,13 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 export const surveyApi = {
   list: () => request<SurveySummary[]>("/api/v1/survey/surveys"),
   get: (id: string) => request<SurveyDetail>(`/api/v1/survey/surveys/${id}`),
-  create: (body: { title?: string; json_schema?: Record<string, any>; language?: string }) =>
+  create: (body: {
+    title?: string;
+    json_schema?: Record<string, any>;
+    language?: string;
+    theme?: Record<string, any> | null;
+    evaluation?: Record<string, any> | null;
+  }) =>
     request<SurveyDetail>("/api/v1/survey/surveys", {
       method: "POST",
       body: JSON.stringify(body),
@@ -169,6 +175,26 @@ export const surveyApi = {
       { method: "POST", body: JSON.stringify(body) }
     ),
 };
+
+// Download the responses of a survey as CSV or XLSX (sends the session cookie).
+export async function downloadResponses(id: string, format: "csv" | "xlsx"): Promise<void> {
+  const res = await fetch(
+    getApiUrl(`/api/v1/survey/surveys/${id}/export?format=${format}`),
+    { credentials: "include", cache: "no-store" }
+  );
+  if (!res.ok) {
+    throw new Error((await res.text().catch(() => "")) || `No se pudo exportar (${res.status})`);
+  }
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = `respuestas.${format}`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
 
 // A minimal, valid SurveyJS model used as the starting point for a new survey.
 export const STARTER_SCHEMA = {
