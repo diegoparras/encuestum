@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
@@ -16,6 +16,8 @@ import {
   SurveyTemplate,
   templatePayload,
 } from "../builder/templates";
+import { useAsyncData } from "@/lib/useAsyncData";
+import { LoadError } from "@/components/LoadError";
 
 const STATUS_LABEL: Record<SurveySummary["status"], string> = {
   draft: "Borrador",
@@ -31,24 +33,15 @@ const STATUS_STYLE: Record<SurveySummary["status"], string> = {
 
 export default function SurveysListPage() {
   const router = useRouter();
-  const [surveys, setSurveys] = useState<SurveySummary[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const {
+    data: surveys,
+    status,
+    error,
+    reload,
+  } = useAsyncData(() => surveyApi.list(), []);
   const [creating, setCreating] = useState(false);
   const [galleryOpen, setGalleryOpen] = useState(false);
   const [creatingId, setCreatingId] = useState<string | null>(null);
-
-  async function load() {
-    try {
-      setSurveys(await surveyApi.list());
-      setError(null);
-    } catch (e: any) {
-      setError(e?.message || "No se pudo cargar la lista de encuestas.");
-    }
-  }
-
-  useEffect(() => {
-    load();
-  }, []);
 
   async function createSurvey() {
     setCreating(true);
@@ -60,7 +53,7 @@ export default function SurveysListPage() {
       });
       window.location.href = `/surveys/${created.id}/edit`;
     } catch (e: any) {
-      setError(e?.message || "No se pudo crear la encuesta.");
+      toast.error(e?.message || "No se pudo crear la encuesta.");
       setCreating(false);
     }
   }
@@ -110,16 +103,14 @@ export default function SurveysListPage() {
         </div>
       </div>
 
-      {error && (
-        <div className="mb-6 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-          {error}
-        </div>
-      )}
-
-      {surveys === null && !error && (
+      {status === "loading" && (
         <div className="flex items-center gap-2 text-neutral-500 text-sm">
           <Loader2 className="w-4 h-4 animate-spin" /> Cargando…
         </div>
+      )}
+
+      {status === "error" && (
+        <LoadError message={error} onRetry={reload} compact />
       )}
 
       {surveys && surveys.length === 0 && (

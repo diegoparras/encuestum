@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import {
@@ -26,17 +26,25 @@ import {
   downloadResponses,
 } from "../../surveyApi";
 import { getMe, type Me } from "@/utils/auth";
+import { useAsyncData } from "@/lib/useAsyncData";
+import { LoadError } from "@/components/LoadError";
 import { GradesPanel } from "../../GradesPanel";
 import { InsightsPanel } from "../../InsightsPanel";
 import { themeToAccent } from "../../builder/model";
 
 export default function SurveyDetailPage() {
   const { id } = useParams<{ id: string }>();
-  const [survey, setSurvey] = useState<SurveyDetail | null>(null);
+  const { data, status, error, reload, setData } = useAsyncData(async () => {
+    const s = await surveyApi.get(id);
+    const r = await surveyApi.responses(id);
+    return { survey: s, responses: r };
+  }, [id]);
+  const survey = data?.survey ?? null;
+  const responses = data?.responses ?? null;
+
   const [title, setTitle] = useState("");
   const [schemaText, setSchemaText] = useState("");
-  const [responses, setResponses] = useState<ResponseItem[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -46,23 +54,21 @@ export default function SurveyDetailPage() {
   const [showQr, setShowQr] = useState(false);
   const [exporting, setExporting] = useState<"csv" | "xlsx" | null>(null);
 
-  async function loadAll() {
-    try {
-      const s = await surveyApi.get(id);
-      setSurvey(s);
-      setTitle(s.title || "");
-      setSchemaText(JSON.stringify(s.json_schema, null, 2));
-      setResponses(await surveyApi.responses(id));
-      setError(null);
-    } catch (e: any) {
-      setError(e?.message || "No se pudo cargar la encuesta.");
-    }
-  }
-
+  // Inicializa el título y el JSON editables cuando llega (o se recarga) la encuesta.
   useEffect(() => {
-    loadAll();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [id]);
+    if (survey) {
+      setTitle(survey.title || "");
+      setSchemaText(JSON.stringify(survey.json_schema, null, 2));
+    }
+  }, [survey]);
+
+  // Reemplaza la encuesta cargada tras guardar / publicar / cerrar.
+  const setSurvey = useCallback(
+    (updated: SurveyDetail) => {
+      setData((prev) => (prev ? { ...prev, survey: updated } : prev!));
+    },
+    [setData]
+  );
 
   useEffect(() => {
     getMe()
@@ -90,11 +96,11 @@ export default function SurveyDetailPage() {
 
   async function save() {
     if (!parsed.value) {
-      setError("El JSON del formulario no es válido.");
+      setActionError("El JSON del formulario no es válido.");
       return;
     }
     setSaving(true);
-    setError(null);
+    setActionError(null);
     try {
       const updated = await surveyApi.update(id, {
         title,
@@ -104,7 +110,7 @@ export default function SurveyDetailPage() {
       setNotice("Cambios guardados.");
       setTimeout(() => setNotice(null), 2500);
     } catch (e: any) {
-      setError(e?.message || "No se pudo guardar.");
+      setActionError(e?.message || "No se pudo guardar.");
     } finally {
       setSaving(false);
     }
@@ -113,7 +119,7 @@ export default function SurveyDetailPage() {
   async function togglePublish() {
     if (!survey) return;
     setBusy(true);
-    setError(null);
+    setActionError(null);
     try {
       const updated =
         survey.status === "published"
@@ -121,7 +127,7 @@ export default function SurveyDetailPage() {
           : await surveyApi.publish(id);
       setSurvey(updated);
     } catch (e: any) {
-      setError(e?.message || "No se pudo cambiar el estado.");
+      setActionError(e?.message || "No se pudo cambiar el estado.");
     } finally {
       setBusy(false);
     }
@@ -153,18 +159,18 @@ export default function SurveyDetailPage() {
     });
   }
 
-  if (error && !survey) {
+  if (status === "error") {
     return (
       <div className="max-w-3xl mx-auto px-6 py-10">
         <BackLink />
-        <div className="mt-6 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-          {error}
+        <div className="mt-6">
+          <LoadError message={error} onRetry={reload} />
         </div>
       </div>
     );
   }
 
-  if (!survey) {
+  if (status === "loading" || !survey) {
     return (
       <div className="max-w-3xl mx-auto px-6 py-10 flex items-center gap-2 text-neutral-500 text-sm">
         <Loader2 className="w-4 h-4 animate-spin" /> Cargando…
@@ -288,7 +294,7 @@ export default function SurveyDetailPage() {
       </div>
 
       {notice && <p className="mt-3 text-sm text-green-700">{notice}</p>}
-      {error && <p className="mt-3 text-sm text-red-700">{error}</p>}
+      {actionError && <p className="mt-3 text-sm text-red-700">{actionError}</p>}
 
       {/* Schema editor */}
       <div className="mt-8">

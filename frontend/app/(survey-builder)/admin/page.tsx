@@ -17,6 +17,7 @@ import {
   downloadAdminExport,
   type AdminOverview,
 } from "@/utils/panel";
+import { LoadError, LoadSpinner } from "@/components/LoadError";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 
@@ -107,13 +108,7 @@ export default function AdminPage() {
     }
   }
 
-  if (status === "loading") {
-    return (
-      <div className="flex min-h-[40vh] items-center justify-center text-neutral-400">
-        <Loader2 className="h-6 w-6 animate-spin" />
-      </div>
-    );
-  }
+  if (status === "loading") return <LoadSpinner />;
 
   if (status === "forbidden") {
     return (
@@ -130,16 +125,7 @@ export default function AdminPage() {
   }
 
   if (status === "error") {
-    return (
-      <Card>
-        <CardContent className="py-10 text-center">
-          <p className="text-sm text-red-600">{error}</p>
-          <Button className="mt-4" variant="outline" onClick={() => void load()}>
-            Reintentar
-          </Button>
-        </CardContent>
-      </Card>
-    );
+    return <LoadError message={error} onRetry={() => void load()} />;
   }
 
   if (!data) return null;

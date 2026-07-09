@@ -20,6 +20,8 @@ import {
   type AccessMode,
   type ResultsMode,
 } from "../../../surveyApi";
+import { useAsyncData } from "@/lib/useAsyncData";
+import { LoadError } from "@/components/LoadError";
 import { AccessSettings } from "../../../builder/AccessSettings";
 import { UsageModal } from "../../../builder/UsageModal";
 import {
@@ -61,7 +63,6 @@ export default function SurveyEditorPage() {
   const [resultsMode, setResultsMode] = useState<ResultsMode>("immediate");
   const [resultsReleased, setResultsReleased] = useState(false);
 
-  const [loadError, setLoadError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [publishing, setPublishing] = useState(false);
   const [dirty, setDirty] = useState(false);
@@ -70,29 +71,37 @@ export default function SurveyEditorPage() {
   const [designOpen, setDesignOpen] = useState(false);
   const [lastUsage, setLastUsage] = useState<UsageInfo | null>(null);
 
-  useEffect(() => {
-    (async () => {
-      try {
-        const s = await surveyApi.get(id);
-        const accent = themeToAccent(s.theme);
-        const built = schemaToBuilder(s.json_schema, s.title || "", accent, s.evaluation);
-        built.design = themeToDesign(s.theme);
-        built.closesAt = s.closes_at;
-        built.maxResponses = s.max_responses;
-        setState(built);
-        setStatus(s.status);
-        setSlug(s.slug);
-        setLanguage(s.language ?? "es");
-        setAccessMode(s.access_mode ?? "public");
-        setAccessPin(s.access_pin ?? null);
-        setResultsMode(s.results_mode ?? "immediate");
-        setResultsReleased(s.results_released ?? false);
-        setDirty(false);
-      } catch (e: any) {
-        setLoadError(e?.message || "No se pudo cargar la encuesta.");
-      }
-    })();
+  // Carga la encuesta y arma el estado del builder dentro del fetcher, para que
+  // cualquier fallo (conexión o parseo) quede capturado como estado de error.
+  const {
+    data: loaded,
+    status: loadStatus,
+    error: loadError,
+    reload,
+  } = useAsyncData(async () => {
+    const s = await surveyApi.get(id);
+    const accent = themeToAccent(s.theme);
+    const built = schemaToBuilder(s.json_schema, s.title || "", accent, s.evaluation);
+    built.design = themeToDesign(s.theme);
+    built.closesAt = s.closes_at;
+    built.maxResponses = s.max_responses;
+    return { survey: s, built };
   }, [id]);
+
+  // Inicializa el estado editable cuando llega (o se recarga) la encuesta.
+  useEffect(() => {
+    if (!loaded) return;
+    const s = loaded.survey;
+    setState(loaded.built);
+    setStatus(s.status);
+    setSlug(s.slug);
+    setLanguage(s.language ?? "es");
+    setAccessMode(s.access_mode ?? "public");
+    setAccessPin(s.access_pin ?? null);
+    setResultsMode(s.results_mode ?? "immediate");
+    setResultsReleased(s.results_released ?? false);
+    setDirty(false);
+  }, [loaded]);
 
   // Mutations ---------------------------------------------------------------
   const mutate = useCallback((fn: (prev: BuilderState) => BuilderState) => {
@@ -258,7 +267,7 @@ export default function SurveyEditorPage() {
     return () => window.removeEventListener("beforeunload", handler);
   }, [dirty]);
 
-  if (loadError) {
+  if (loadStatus === "error") {
     return (
       <div className="max-w-3xl mx-auto px-6 py-10">
         <Link
@@ -267,8 +276,8 @@ export default function SurveyEditorPage() {
         >
           <ArrowLeft className="w-4 h-4" /> Encuestas
         </Link>
-        <div className="mt-6 rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-          {loadError}
+        <div className="mt-6">
+          <LoadError message={loadError} onRetry={reload} />
         </div>
       </div>
     );

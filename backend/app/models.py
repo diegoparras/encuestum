@@ -206,6 +206,8 @@ class Survey(SQLModel, table=True):
     results_released: bool = Field(
         sa_column=Column(Boolean, nullable=False, server_default="0"), default=False
     )
+    # Comma-separated emails notified on each new response (empty → no notifs).
+    notify_emails: Optional[str] = Field(sa_column=Column(String), default=None)
     theme: Optional[dict] = Field(sa_column=Column(JSON), default=None)
     # Answer keys / rubrics / exam settings. SERVER-SIDE ONLY.
     evaluation: Optional[dict] = Field(sa_column=Column(JSON), default=None)

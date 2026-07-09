@@ -1,32 +1,25 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useMemo } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, Printer, Loader2, GraduationCap } from "lucide-react";
-import { surveyApi, SurveyDetail, ResponseItem } from "../../../../surveyApi";
+import { surveyApi } from "../../../../surveyApi";
+import { useAsyncData } from "@/lib/useAsyncData";
+import { LoadError } from "@/components/LoadError";
 import { derivePalette, themeToAccent } from "../../../../builder/model";
 
 export default function ReportPage() {
   const { id, rid } = useParams<{ id: string; rid: string }>();
-  const [survey, setSurvey] = useState<SurveyDetail | null>(null);
-  const [response, setResponse] = useState<ResponseItem | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    (async () => {
-      try {
-        const [s, r] = await Promise.all([
-          surveyApi.get(id),
-          surveyApi.response(id, rid),
-        ]);
-        setSurvey(s);
-        setResponse(r);
-      } catch (e: any) {
-        setError(e?.message || "No se pudo cargar el reporte.");
-      }
-    })();
+  const { data, status, error, reload } = useAsyncData(async () => {
+    const [s, r] = await Promise.all([
+      surveyApi.get(id),
+      surveyApi.response(id, rid),
+    ]);
+    return { survey: s, response: r };
   }, [id, rid]);
+  const survey = data?.survey ?? null;
+  const response = data?.response ?? null;
 
   const titles = useMemo(() => {
     const map: Record<string, string> = {};
@@ -38,12 +31,10 @@ export default function ReportPage() {
     return map;
   }, [survey]);
 
-  if (error)
+  if (status === "error")
     return (
       <div className="max-w-3xl mx-auto px-6 py-10">
-        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-          {error}
-        </div>
+        <LoadError message={error} onRetry={reload} />
       </div>
     );
   if (!survey || !response)

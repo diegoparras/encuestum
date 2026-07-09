@@ -114,6 +114,29 @@ async def update_survey(
     return SurveyDetail.from_model(s)
 
 
+@router.post("/{sid}/duplicate", response_model=SurveyDetail)
+async def duplicate_survey(
+    sid: uuid.UUID,
+    ctx: OrgContext = Depends(current_context),
+    session: AsyncSession = Depends(get_session),
+):
+    s = await _survey_or_404(sid, ctx.org.id, session)
+    copy = Survey(
+        org_id=ctx.org.id, created_by=ctx.user.id,
+        title=f"{s.title or 'Encuesta'} (copia)",
+        json_schema=s.json_schema or {}, language=s.language,
+        theme=s.theme, evaluation=s.evaluation,
+        closes_at=s.closes_at, max_responses=s.max_responses,
+        access_mode=s.access_mode, access_pin=s.access_pin,
+        results_mode=s.results_mode, notify_emails=s.notify_emails,
+        status="draft",  # copies start unpublished
+    )
+    session.add(copy)
+    await session.commit()
+    await session.refresh(copy)
+    return SurveyDetail.from_model(copy)
+
+
 @router.post("/{sid}/publish", response_model=SurveyDetail)
 async def publish_survey(
     sid: uuid.UUID,
@@ -183,6 +206,23 @@ async def get_response(
     if not r or r.survey_id != sid:
         raise HTTPException(status_code=404, detail="Response not found")
     return ResponseItem.from_model(r)
+
+
+@router.get("/{sid}/summary")
+async def response_summary(
+    sid: uuid.UUID,
+    ctx: OrgContext = Depends(current_context),
+    session: AsyncSession = Depends(get_session),
+):
+    """Per-question, chart-ready aggregation of all responses (the Resumen view)."""
+    from app.summarizing import build_summary
+    s = await _survey_or_404(sid, ctx.org.id, session)
+    responses = (
+        await session.scalars(
+            select(SurveyResponse).where(SurveyResponse.survey_id == sid)
+        )
+    ).all()
+    return build_summary(s.json_schema or {}, responses)
 
 
 @router.get("/{sid}/export")

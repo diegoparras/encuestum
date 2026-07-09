@@ -33,6 +33,8 @@ import {
   type Member,
   type Role,
 } from "@/utils/auth";
+import { useAsyncData } from "@/lib/useAsyncData";
+import { LoadError, LoadSpinner } from "@/components/LoadError";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Select } from "@/components/ui/input";
@@ -56,10 +58,84 @@ function formatDate(iso: string): string {
 }
 
 export default function MembersPage() {
-  const [me, setMe] = useState<Me | null>(null);
-  const [members, setMembers] = useState<Member[] | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const { data, status, error, reload, setData } = useAsyncData(async () => {
+    const meData = await getMe();
+    if (!meData) throw new Error("Tu sesión expiró.");
+    const members = await listMembers(meData.active_org_id);
+    const active =
+      meData.orgs.find((o) => o.id === meData.active_org_id) ?? meData.orgs[0];
+    let invitations: Invitation[] | null = null;
+    if (active && roleAtLeast(active.role, "admin")) {
+      try {
+        invitations = await listInvitations(meData.active_org_id);
+      } catch {
+        // Invitations are non-critical; ignore load failures here.
+        invitations = [];
+      }
+    }
+    return { me: meData, members, invitations };
+  }, []);
+
+  const me = data?.me ?? null;
+  const members = data?.members ?? null;
+  const invitations = data?.invitations ?? null;
+
+  // Setters que actualizan el objeto cargado, conservando la firma de useState
+  // (aceptan valor o función updater) para no tocar los handlers existentes.
+  const setMe = useCallback(
+    (updater: Me | ((prev: Me) => Me)) => {
+      setData((prev) =>
+        prev
+          ? {
+              ...prev,
+              me:
+                typeof updater === "function"
+                  ? (updater as (p: Me) => Me)(prev.me)
+                  : updater,
+            }
+          : prev!
+      );
+    },
+    [setData]
+  );
+  const setMembers = useCallback(
+    (updater: Member[] | ((prev: Member[]) => Member[])) => {
+      setData((prev) =>
+        prev
+          ? {
+              ...prev,
+              members:
+                typeof updater === "function"
+                  ? (updater as (p: Member[]) => Member[])(prev.members)
+                  : updater,
+            }
+          : prev!
+      );
+    },
+    [setData]
+  );
+  const setInvitations = useCallback(
+    (
+      updater:
+        | Invitation[]
+        | ((prev: Invitation[] | null) => Invitation[] | null)
+    ) => {
+      setData((prev) =>
+        prev
+          ? {
+              ...prev,
+              invitations:
+                typeof updater === "function"
+                  ? (updater as (p: Invitation[] | null) => Invitation[] | null)(
+                      prev.invitations
+                    )
+                  : updater,
+            }
+          : prev!
+      );
+    },
+    [setData]
+  );
 
   // Add-member form
   const [newEmail, setNewEmail] = useState("");
@@ -71,7 +147,6 @@ export default function MembersPage() {
   const [creatingOrg, setCreatingOrg] = useState(false);
 
   // Invitations
-  const [invitations, setInvitations] = useState<Invitation[] | null>(null);
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState<Role>("member");
   const [inviting, setInviting] = useState(false);
@@ -87,43 +162,6 @@ export default function MembersPage() {
   const myRole: Role = activeOrg?.role ?? "member";
   const canManage = roleAtLeast(myRole, "admin");
   const canAssignOwner = myRole === "owner";
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const meData = await getMe();
-      if (!meData) {
-        setError("Tu sesión expiró.");
-        setLoading(false);
-        return;
-      }
-      setMe(meData);
-      const list = await listMembers(meData.active_org_id);
-      setMembers(list);
-      const active =
-        meData.orgs.find((o) => o.id === meData.active_org_id) ?? meData.orgs[0];
-      if (active && roleAtLeast(active.role, "admin")) {
-        try {
-          const invites = await listInvitations(meData.active_org_id);
-          setInvitations(invites);
-        } catch {
-          // Invitations are non-critical; ignore load failures here.
-          setInvitations([]);
-        }
-      } else {
-        setInvitations(null);
-      }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "No se pudieron cargar los datos");
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
 
   // Keep the subdomain field in sync with the active org.
   useEffect(() => {
@@ -159,7 +197,7 @@ export default function MembersPage() {
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "No se pudo cambiar el rol");
       // Reload to restore the true value in the select.
-      void load();
+      void reload();
     } finally {
       setPendingUser(null);
     }
@@ -301,26 +339,8 @@ export default function MembersPage() {
     }
   }
 
-  if (loading) {
-    return (
-      <div className="flex min-h-[40vh] items-center justify-center text-neutral-400">
-        <Loader2 className="h-6 w-6 animate-spin" />
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <Card>
-        <CardContent className="py-10 text-center">
-          <p className="text-sm text-red-600">{error}</p>
-          <Button className="mt-4" variant="outline" onClick={() => void load()}>
-            Reintentar
-          </Button>
-        </CardContent>
-      </Card>
-    );
-  }
+  if (status === "loading") return <LoadSpinner />;
+  if (status === "error") return <LoadError message={error} onRetry={reload} />;
 
   return (
     <div className="space-y-8">

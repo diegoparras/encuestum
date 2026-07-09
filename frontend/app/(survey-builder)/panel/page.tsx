@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import { toast } from "sonner";
 import {
   BarChart3,
@@ -11,12 +11,10 @@ import {
   MessageSquare,
   Users,
 } from "lucide-react";
-import { getMe, type Me } from "@/utils/auth";
-import {
-  downloadOrgExport,
-  orgOverview,
-  type OrgOverview,
-} from "@/utils/panel";
+import { getMe } from "@/utils/auth";
+import { downloadOrgExport, orgOverview } from "@/utils/panel";
+import { useAsyncData } from "@/lib/useAsyncData";
+import { LoadError, LoadSpinner } from "@/components/LoadError";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 
@@ -65,42 +63,20 @@ function MetricCard({
 }
 
 export default function PanelPage() {
-  const [me, setMe] = useState<Me | null>(null);
-  const [data, setData] = useState<OrgOverview | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
   const [exporting, setExporting] = useState(false);
 
-  const activeOrg = me?.orgs.find((o) => o.id === me.active_org_id) ?? me?.orgs[0];
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const meData = await getMe();
-      if (!meData) {
-        setError("Tu sesión expiró.");
-        return;
-      }
-      setMe(meData);
-      const overview = await orgOverview(meData.active_org_id);
-      setData(overview);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "No se pudieron cargar los datos");
-    } finally {
-      setLoading(false);
-    }
+  const { data, status, error, reload } = useAsyncData(async () => {
+    const meData = await getMe();
+    if (!meData) throw new Error("Tu sesión expiró.");
+    const overview = await orgOverview(meData.active_org_id);
+    return { me: meData, overview };
   }, []);
 
-  useEffect(() => {
-    void load();
-  }, [load]);
-
   async function onExport() {
-    if (!me) return;
+    if (!data) return;
     setExporting(true);
     try {
-      await downloadOrgExport(me.active_org_id);
+      await downloadOrgExport(data.me.active_org_id);
       toast.success("Exportación lista");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "No se pudo exportar");
@@ -109,28 +85,12 @@ export default function PanelPage() {
     }
   }
 
-  if (loading) {
-    return (
-      <div className="flex min-h-[40vh] items-center justify-center text-neutral-400">
-        <Loader2 className="h-6 w-6 animate-spin" />
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <Card>
-        <CardContent className="py-10 text-center">
-          <p className="text-sm text-red-600">{error}</p>
-          <Button className="mt-4" variant="outline" onClick={() => void load()}>
-            Reintentar
-          </Button>
-        </CardContent>
-      </Card>
-    );
-  }
-
+  if (status === "loading") return <LoadSpinner />;
+  if (status === "error") return <LoadError message={error} onRetry={reload} />;
   if (!data) return null;
+
+  const { me, overview } = data;
+  const activeOrg = me.orgs.find((o) => o.id === me.active_org_id) ?? me.orgs[0];
 
   return (
     <div className="space-y-8">
@@ -153,9 +113,9 @@ export default function PanelPage() {
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <MetricCard icon={FileText} label="Encuestas" value={data.surveys} />
-        <MetricCard icon={MessageSquare} label="Respuestas" value={data.responses} />
-        <MetricCard icon={Users} label="Miembros" value={data.members} />
+        <MetricCard icon={FileText} label="Encuestas" value={overview.surveys} />
+        <MetricCard icon={MessageSquare} label="Respuestas" value={overview.responses} />
+        <MetricCard icon={Users} label="Miembros" value={overview.members} />
       </div>
 
       <Card>
@@ -168,7 +128,7 @@ export default function PanelPage() {
             {(["draft", "published", "closed"] as const).map((s) => (
               <div key={s} className="rounded-lg border border-neutral-200 p-4 text-center">
                 <div className="text-2xl font-bold text-neutral-900">
-                  {data.by_status[s].toLocaleString("es")}
+                  {overview.by_status[s].toLocaleString("es")}
                 </div>
                 <div className="mt-1 text-xs text-neutral-500">{STATUS_LABEL[s]}</div>
               </div>
@@ -182,7 +142,7 @@ export default function PanelPage() {
           <CardTitle>Encuestas recientes</CardTitle>
         </CardHeader>
         <CardContent>
-          {data.recent.length > 0 ? (
+          {overview.recent.length > 0 ? (
             <div className="overflow-x-auto">
               <table className="w-full min-w-[560px] text-sm">
                 <thead>
@@ -194,7 +154,7 @@ export default function PanelPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-neutral-100">
-                  {data.recent.map((s) => (
+                  {overview.recent.map((s) => (
                     <tr key={s.id}>
                       <td className="py-3 pr-4">
                         <Link

@@ -225,6 +225,12 @@ async def submit(slug: str, payload: SubmitResponseRequest, session: AsyncSessio
 
     # Fire webhooks with the final (graded) state — never blocks the respondent.
     schedule_response_delivery(s.id, r.id)
+    # Email the owner(s) if configured (fire-and-forget).
+    if getattr(s, "notify_emails", None):
+        from app.notify import schedule_response_notification
+        schedule_response_notification(
+            s.notify_emails, s.title, s.id, await _response_count(s.id, session)
+        )
 
     if grade is None:
         return {"id": str(r.id), "status": "recorded"}

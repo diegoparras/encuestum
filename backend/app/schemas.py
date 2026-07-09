@@ -41,6 +41,7 @@ class SurveyUpdateRequest(BaseModel):
     access_mode: Optional[str] = None  # public | pin | list
     access_pin: Optional[str] = None
     results_mode: Optional[str] = None  # immediate | on_release | never
+    notify_emails: Optional[str] = None  # comma-separated owner notification emails
 
 
 class SurveySummary(BaseModel):
@@ -70,6 +71,7 @@ class SurveyDetail(BaseModel):
     access_pin: Optional[str] = None
     results_mode: str = "immediate"
     results_released: bool = False
+    notify_emails: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 
@@ -83,6 +85,7 @@ class SurveyDetail(BaseModel):
             access_pin=getattr(s, "access_pin", None),
             results_mode=getattr(s, "results_mode", "immediate"),
             results_released=getattr(s, "results_released", False),
+            notify_emails=getattr(s, "notify_emails", None),
             created_at=s.created_at, updated_at=s.updated_at,
         )
 

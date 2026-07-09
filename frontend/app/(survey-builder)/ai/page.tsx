@@ -17,7 +17,9 @@ import {
   DollarSign,
   Star,
 } from "lucide-react";
-import { getMe, type Me } from "@/utils/auth";
+import { getMe } from "@/utils/auth";
+import { useAsyncData } from "@/lib/useAsyncData";
+import { LoadError, LoadSpinner } from "@/components/LoadError";
 import {
   aiApi,
   type Provider,
@@ -484,33 +486,21 @@ function ProviderRow({
 // ---------------------------------------------------------------------------
 
 function ProvidersSection({ isSuperadmin }: { isSuperadmin: boolean }) {
-  const [providers, setProviders] = useState<Provider[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const {
+    data: providers,
+    status,
+    error,
+    reload,
+    setData: setProviders,
+  } = useAsyncData(() => aiApi.listProviders(), []);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
-
-  const load = useCallback(async () => {
-    setError(null);
-    try {
-      setProviders(await aiApi.listProviders());
-    } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : "No se pudieron cargar los proveedores"
-      );
-    }
-  }, []);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
 
   function onSaved(saved: Provider) {
     // Recargamos entero: marcar default puede afectar a otros proveedores.
     setShowForm(false);
     setEditingId(null);
-    void load();
+    reload();
     void saved;
   }
 
@@ -531,8 +521,6 @@ function ProvidersSection({ isSuperadmin }: { isSuperadmin: boolean }) {
         )}
       </CardHeader>
       <CardContent className="space-y-4">
-        {error && <p className="text-sm text-red-600">{error}</p>}
-
         {showForm && !editingId && (
           <ProviderForm
             isSuperadmin={isSuperadmin}
@@ -541,10 +529,10 @@ function ProvidersSection({ isSuperadmin }: { isSuperadmin: boolean }) {
           />
         )}
 
-        {providers === null && !error ? (
-          <div className="flex items-center justify-center py-8 text-neutral-400">
-            <Loader2 className="h-5 w-5 animate-spin" />
-          </div>
+        {status === "loading" ? (
+          <LoadSpinner compact />
+        ) : status === "error" ? (
+          <LoadError message={error} onRetry={reload} compact />
         ) : providers && providers.length > 0 ? (
           <ul className="divide-y divide-neutral-100">
             {providers.map((p) =>
@@ -567,7 +555,7 @@ function ProvidersSection({ isSuperadmin }: { isSuperadmin: boolean }) {
                   }}
                   onDeleted={(id) =>
                     setProviders((prev) =>
-                      prev ? prev.filter((x) => x.id !== id) : prev
+                      (prev ?? []).filter((x) => x.id !== id)
                     )
                   }
                 />
@@ -1042,51 +1030,16 @@ function PricesSection() {
 // ---------------------------------------------------------------------------
 
 export default function AiPage() {
-  const [me, setMe] = useState<Me | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const data = await getMe();
-        if (cancelled) return;
-        if (!data) {
-          setError("Tu sesión expiró.");
-          return;
-        }
-        setMe(data);
-      } catch (err) {
-        if (!cancelled) {
-          setError(
-            err instanceof Error ? err.message : "No se pudo cargar la sesión"
-          );
-        }
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => {
-      cancelled = true;
-    };
+  const { data: me, status, error, reload } = useAsyncData(async () => {
+    const data = await getMe();
+    if (!data) throw new Error("Tu sesión expiró.");
+    return data;
   }, []);
 
-  if (loading) {
+  if (status === "loading") return <LoadSpinner />;
+  if (status === "error" || !me) {
     return (
-      <div className="flex min-h-[40vh] items-center justify-center text-neutral-400">
-        <Loader2 className="h-6 w-6 animate-spin" />
-      </div>
-    );
-  }
-
-  if (error || !me) {
-    return (
-      <Card>
-        <CardContent className="py-10 text-center">
-          <p className="text-sm text-red-600">{error ?? "No hay sesión."}</p>
-        </CardContent>
-      </Card>
+      <LoadError message={error ?? "No hay sesión."} onRetry={reload} />
     );
   }
 

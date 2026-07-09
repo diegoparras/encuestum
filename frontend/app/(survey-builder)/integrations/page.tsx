@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useState } from "react";
 import { toast } from "sonner";
 import {
   Copy,
@@ -13,7 +13,7 @@ import {
   Trash2,
   Webhook as WebhookIcon,
 } from "lucide-react";
-import { getMe, type Me } from "@/utils/auth";
+import { getMe } from "@/utils/auth";
 import {
   createWebhook,
   deleteWebhook,
@@ -22,6 +22,8 @@ import {
   type Webhook,
 } from "@/utils/webhooks";
 import { surveyApi, type SurveySummary } from "../surveyApi";
+import { useAsyncData } from "@/lib/useAsyncData";
+import { LoadError, LoadSpinner } from "@/components/LoadError";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Select } from "@/components/ui/input";
@@ -43,11 +45,23 @@ function isHttpUrl(value: string): boolean {
 }
 
 export default function IntegrationsPage() {
-  const [me, setMe] = useState<Me | null>(null);
-  const [webhooks, setWebhooks] = useState<Webhook[] | null>(null);
-  const [surveys, setSurveys] = useState<SurveySummary[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const { data, status, error, reload, setData } = useAsyncData(async () => {
+    const meData = await getMe();
+    if (!meData) throw new Error("Tu sesión expiró.");
+    const list = await listWebhooks(meData.active_org_id);
+    // El selector de encuesta es opcional; si falla no rompemos la página.
+    let surveys: SurveySummary[] = [];
+    try {
+      surveys = await surveyApi.list();
+    } catch {
+      surveys = [];
+    }
+    return { me: meData, webhooks: list, surveys };
+  }, []);
+
+  const me = data?.me ?? null;
+  const webhooks = data?.webhooks ?? null;
+  const surveys = data?.surveys ?? [];
 
   // Add-webhook form
   const [newUrl, setNewUrl] = useState("");
@@ -61,6 +75,16 @@ export default function IntegrationsPage() {
 
   const activeOrg = me?.orgs.find((o) => o.id === me.active_org_id) ?? me?.orgs[0];
 
+  // Actualiza la lista de webhooks dentro del objeto cargado.
+  const setWebhooks = useCallback(
+    (updater: (prev: Webhook[]) => Webhook[]) => {
+      setData((prev) =>
+        prev ? { ...prev, webhooks: updater(prev.webhooks) } : prev!
+      );
+    },
+    [setData]
+  );
+
   const surveyTitle = useCallback(
     (id: string): string => {
       const s = surveys.find((x) => x.id === id);
@@ -68,37 +92,6 @@ export default function IntegrationsPage() {
     },
     [surveys]
   );
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const meData = await getMe();
-      if (!meData) {
-        setError("Tu sesión expiró.");
-        return;
-      }
-      setMe(meData);
-      const list = await listWebhooks(meData.active_org_id);
-      setWebhooks(list);
-      // El selector de encuesta es opcional; si falla no rompemos la página.
-      try {
-        setSurveys(await surveyApi.list());
-      } catch {
-        setSurveys([]);
-      }
-    } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "No se pudieron cargar los webhooks"
-      );
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
-  useEffect(() => {
-    void load();
-  }, [load]);
 
   async function onAdd(e: React.FormEvent) {
     e.preventDefault();
@@ -115,7 +108,7 @@ export default function IntegrationsPage() {
         url,
         newSurveyId || undefined
       );
-      setWebhooks((prev) => (prev ? [webhook, ...prev] : [webhook]));
+      setWebhooks((prev) => [webhook, ...prev]);
       setNewUrl("");
       setNewSurveyId("");
       toast.success("Webhook agregado");
@@ -149,7 +142,7 @@ export default function IntegrationsPage() {
     setDeleting(webhook.id);
     try {
       await deleteWebhook(me.active_org_id, webhook.id);
-      setWebhooks((prev) => (prev ? prev.filter((w) => w.id !== webhook.id) : prev));
+      setWebhooks((prev) => prev.filter((w) => w.id !== webhook.id));
       toast.success("Webhook eliminado");
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "No se pudo eliminar el webhook");
@@ -167,26 +160,8 @@ export default function IntegrationsPage() {
     }
   }
 
-  if (loading) {
-    return (
-      <div className="flex min-h-[40vh] items-center justify-center text-neutral-400">
-        <Loader2 className="h-6 w-6 animate-spin" />
-      </div>
-    );
-  }
-
-  if (error) {
-    return (
-      <Card>
-        <CardContent className="py-10 text-center">
-          <p className="text-sm text-red-600">{error}</p>
-          <Button className="mt-4" variant="outline" onClick={() => void load()}>
-            Reintentar
-          </Button>
-        </CardContent>
-      </Card>
-    );
-  }
+  if (status === "loading") return <LoadSpinner />;
+  if (status === "error") return <LoadError message={error} onRetry={reload} />;
 
   return (
     <div className="space-y-8">
