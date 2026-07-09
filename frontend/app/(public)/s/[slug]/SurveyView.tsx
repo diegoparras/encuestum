@@ -4,6 +4,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Model } from "survey-core";
 import { Survey } from "survey-react-ui";
 import "survey-core/survey-core.min.css";
+import "survey-core/i18n/spanish";
 import { toast } from "sonner";
 import { Music, Volume2, VolumeX } from "lucide-react";
 import { themeToDesign, type AudioSettings } from "../../../(survey-builder)/builder/model";
@@ -105,7 +106,7 @@ export default function SurveyView({ slug }: { slug: string }) {
     ) {
       survey.questionsOnPageMode = "questionPerPage";
     }
-    if (data.language) survey.locale = data.language;
+    survey.locale = data.language || "es";
     if (data.theme) {
       try {
         survey.applyTheme(absolutizeAssets(data.theme) as any);

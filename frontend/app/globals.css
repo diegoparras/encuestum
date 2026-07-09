@@ -35,3 +35,21 @@ a {
   color: inherit;
   text-decoration: none;
 }
+
+/* SurveyJS: barra de progreso limpia (modo una-pregunta-por-pantalla).
+   Quitamos el texto "x/x" que quedaba pegado al título y dejamos una pill fina. */
+.sd-progress {
+  background: hsl(0 0% 92%);
+  height: 6px;
+  border-radius: 999px;
+  margin: 0 0 28px;
+  box-shadow: none;
+}
+.sd-progress__bar {
+  height: 6px;
+  border-radius: 999px;
+  min-width: 0;
+}
+.sd-progress__text {
+  display: none;
+}

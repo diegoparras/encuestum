@@ -4,6 +4,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { Model } from "survey-core";
 import { Survey } from "survey-react-ui";
 import "survey-core/survey-core.min.css";
+import "survey-core/i18n/spanish";
 import { Monitor, Smartphone } from "lucide-react";
 import { DesignSettings, DEFAULT_DESIGN, designToTheme } from "./model";
 import { absolutizeAssets, loadFont, resolveAssetUrl } from "./design";
@@ -41,7 +42,7 @@ export function LivePreview({ schema, accent, design, language }: Props) {
 
   const model = useMemo(() => {
     const m = new Model(absolutizeAssets(debounced || {}));
-    if (language) m.locale = language;
+    m.locale = language || "es";
     try {
       m.applyTheme(absolutizeAssets(designToTheme(accent, d)) as any);
     } catch {
