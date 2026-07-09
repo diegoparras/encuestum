@@ -27,6 +27,10 @@ import {
   ToggleLeft,
   Images,
   Video,
+  Table,
+  ListOrdered,
+  Calendar,
+  Paperclip,
   Plus,
 } from "lucide-react";
 import { BuilderQuestion, QUESTION_TYPES, QuestionType } from "./model";
@@ -43,6 +47,10 @@ const PALETTE_ICON: Record<QuestionType, React.ComponentType<{ className?: strin
   boolean: ToggleLeft,
   imagepicker: Images,
   videoresponse: Video,
+  matrix: Table,
+  ranking: ListOrdered,
+  date: Calendar,
+  fileupload: Paperclip,
 };
 
 interface Props {

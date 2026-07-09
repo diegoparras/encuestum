@@ -13,7 +13,11 @@ export type QuestionType =
   | "rating"
   | "boolean"
   | "imagepicker"
-  | "videoresponse";
+  | "videoresponse"
+  | "matrix"
+  | "ranking"
+  | "date"
+  | "fileupload";
 
 export interface Choice {
   id: string;
@@ -68,6 +72,18 @@ export interface BuilderQuestion {
 
   // imagepicker: allow selecting more than one image.
   multiSelect?: boolean;
+
+  // ---- matrix (grilla de opción única) ----
+  matrixRows?: Choice[]; // filas de la grilla (cada una recibe una respuesta)
+  matrixColumns?: Choice[]; // columnas = opciones únicas por fila
+
+  // ---- date (fecha) ----
+  dateMin?: string; // fecha mínima permitida (YYYY-MM-DD), opcional
+  dateMax?: string; // fecha máxima permitida (YYYY-MM-DD), opcional
+
+  // ---- fileupload (subir archivo genérico) ----
+  fileMultiple?: boolean; // permitir subir varios archivos
+  fileAccept?: string; // tipos aceptados (ej. ".pdf,.docx"); vacío = cualquiera
 
   // Conditional logic: show this question only when the rule holds.
   visibilityRule?: VisibilityRule;
@@ -343,6 +359,11 @@ export const QUESTION_TYPES: QuestionTypeMeta[] = [
   { type: "boolean", label: "Sí / No", hint: "Booleano", hasChoices: false },
   { type: "imagepicker", label: "Opción con imágenes", hint: "Elegir por imagen", hasChoices: true },
   { type: "videoresponse", label: "Respuesta en video", hint: "Grabar o subir", hasChoices: false },
+  // La matriz maneja su propio editor de filas/columnas, así que hasChoices: false.
+  { type: "matrix", label: "Matriz", hint: "Grilla de opción única", hasChoices: false },
+  { type: "ranking", label: "Ranking", hint: "Ordenar opciones", hasChoices: true },
+  { type: "date", label: "Fecha", hint: "Selector de fecha", hasChoices: false },
+  { type: "fileupload", label: "Subir archivo", hint: "Adjuntar archivo", hasChoices: false },
 ];
 
 export const QUESTION_TYPE_LABEL: Record<QuestionType, string> = Object.fromEntries(
@@ -416,6 +437,21 @@ export function createQuestion(type: QuestionType, index: number): BuilderQuesti
   if (type === "comment") {
     base.placeholder = "Escribí tu respuesta…";
   }
+  if (type === "matrix") {
+    base.matrixRows = [newChoice("Fila 1"), newChoice("Fila 2")];
+    base.matrixColumns = [
+      newChoice("Columna 1"),
+      newChoice("Columna 2"),
+      newChoice("Columna 3"),
+    ];
+  }
+  if (type === "ranking") {
+    base.choices = [newChoice("Opción 1"), newChoice("Opción 2"), newChoice("Opción 3")];
+  }
+  if (type === "fileupload") {
+    base.fileMultiple = false;
+    base.fileAccept = "";
+  }
   return base;
 }
 
@@ -488,6 +524,14 @@ function defaultTitle(type: QuestionType): string {
       return "Elegí una imagen";
     case "videoresponse":
       return "Grabá o subí tu respuesta en video";
+    case "matrix":
+      return "Valorá cada fila";
+    case "ranking":
+      return "Ordená las opciones por preferencia";
+    case "date":
+      return "Elegí una fecha";
+    case "fileupload":
+      return "Subí un archivo";
     default:
       return "Pregunta";
   }
@@ -558,7 +602,14 @@ function ratePresentationOf(el: Record<string, any>): RatePresentation {
 }
 
 function questionToElement(q: BuilderQuestion): Record<string, any> {
-  const surveyType = q.type === "email" ? "text" : q.type;
+  // email y date se serializan como un "text" de SurveyJS con inputType propio;
+  // fileupload es el "file" nativo de SurveyJS.
+  const surveyType =
+    q.type === "email" || q.type === "date"
+      ? "text"
+      : q.type === "fileupload"
+        ? "file"
+        : q.type;
   const el: Record<string, any> = {
     type: surveyType,
     name: q.name,
@@ -601,6 +652,30 @@ function questionToElement(q: BuilderQuestion): Record<string, any> {
   if (q.type === "boolean") {
     el.labelTrue = q.labelTrue ?? "Sí";
     el.labelFalse = q.labelFalse ?? "No";
+  }
+  if (q.type === "matrix") {
+    // Grilla de opción única: filas evaluadas contra columnas (opciones).
+    el.rows = (q.matrixRows ?? [])
+      .map((r) => ({ value: r.text, text: r.text }))
+      .filter((r) => r.text.trim() !== "");
+    el.columns = (q.matrixColumns ?? [])
+      .map((c) => ({ value: c.text, text: c.text }))
+      .filter((c) => c.text.trim() !== "");
+  }
+  if (q.type === "date") {
+    // Fecha: text de SurveyJS con inputType date (+ min/max opcionales).
+    el.inputType = "date";
+    if (q.dateMin) el.min = q.dateMin;
+    if (q.dateMax) el.max = q.dateMax;
+  }
+  if (q.type === "fileupload") {
+    // Archivo genérico (NO video): marca propia para distinguirlo del video legacy.
+    el._encFile = true;
+    el.allowMultiple = !!q.fileMultiple;
+    if (q.fileAccept && q.fileAccept.trim() !== "") {
+      el.acceptedTypes = q.fileAccept.trim();
+    }
+    el.storeDataAsText = false;
   }
   return el;
 }
@@ -699,17 +774,24 @@ export function builderToSchema(state: BuilderState): Record<string, any> {
 function elementToQuestion(el: Record<string, any>, index: number): BuilderQuestion | null {
   const rawType = el?.type as string;
   const isEmail = rawType === "text" && el?.inputType === "email";
-  // Back-compat: older surveys stored video answers as a SurveyJS file question.
+  const isDate = rawType === "text" && el?.inputType === "date";
+  // Un "file" de SurveyJS es video legacy SOLO si trae la marca `_encVideo` o
+  // acceptedTypes con "video"; en cualquier otro caso es un fileupload genérico.
   const isLegacyVideo =
     rawType === "file" &&
     (el?._encVideo === true ||
       (typeof el?.acceptedTypes === "string" && el.acceptedTypes.includes("video")));
+  const isFileUpload = rawType === "file" && !isLegacyVideo;
   const type: QuestionType = (
     rawType === "videoresponse" || isLegacyVideo
       ? "videoresponse"
-      : isEmail
-        ? "email"
-        : rawType
+      : isFileUpload
+        ? "fileupload"
+        : isEmail
+          ? "email"
+          : isDate
+            ? "date"
+            : rawType
   ) as QuestionType;
 
   const supported: QuestionType[] = [
@@ -723,6 +805,10 @@ function elementToQuestion(el: Record<string, any>, index: number): BuilderQuest
     "boolean",
     "imagepicker",
     "videoresponse",
+    "matrix",
+    "ranking",
+    "date",
+    "fileupload",
   ];
   if (!supported.includes(type)) return null;
 
@@ -762,6 +848,26 @@ function elementToQuestion(el: Record<string, any>, index: number): BuilderQuest
   if (type === "boolean") {
     q.labelTrue = el.labelTrue || "Sí";
     q.labelFalse = el.labelFalse || "No";
+  }
+  if (type === "matrix") {
+    q.matrixRows = Array.isArray(el.rows)
+      ? el.rows.map((r: any) =>
+          newChoice(typeof r === "object" ? r.text ?? r.value ?? "" : String(r))
+        )
+      : [];
+    q.matrixColumns = Array.isArray(el.columns)
+      ? el.columns.map((c: any) =>
+          newChoice(typeof c === "object" ? c.text ?? c.value ?? "" : String(c))
+        )
+      : [];
+  }
+  if (type === "date") {
+    q.dateMin = typeof el.min === "string" ? el.min : undefined;
+    q.dateMax = typeof el.max === "string" ? el.max : undefined;
+  }
+  if (type === "fileupload") {
+    q.fileMultiple = !!el.allowMultiple;
+    q.fileAccept = typeof el.acceptedTypes === "string" ? el.acceptedTypes : "";
   }
   return q;
 }

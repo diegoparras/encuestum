@@ -36,8 +36,52 @@ export interface SurveyDetail {
   access_pin: string | null;
   results_mode: ResultsMode;
   results_released: boolean;
+  // Emails (separados por coma) a avisar cuando llega una respuesta.
+  notify_emails?: string;
   created_at: string;
   updated_at: string;
+}
+
+// ---- Panel de resultados (resumen tipo "Google Forms") ----
+
+export interface SummaryOption {
+  label: string;
+  value: unknown;
+  count: number;
+}
+
+export interface SummaryDistribution {
+  value: number;
+  count: number;
+}
+
+interface SummaryQuestionBase {
+  name: string;
+  title: string;
+  type: string;
+  answered: number;
+}
+
+/** Unión discriminada por `kind` con la forma del gráfico de cada pregunta. */
+export type SummaryQuestion =
+  | (SummaryQuestionBase & {
+      kind: "choice";
+      multi: boolean;
+      options: SummaryOption[];
+    })
+  | (SummaryQuestionBase & {
+      kind: "rating";
+      min: number;
+      max: number;
+      average: number | null;
+      distribution: SummaryDistribution[];
+    })
+  | (SummaryQuestionBase & { kind: "text"; values: string[] })
+  | (SummaryQuestionBase & { kind: "files"; values: string[] });
+
+export interface SummaryReport {
+  total_responses: number;
+  questions: SummaryQuestion[];
 }
 
 // Invitado (modo lista): cada uno con su código de acceso único.
@@ -169,6 +213,7 @@ export const surveyApi = {
         | "access_mode"
         | "access_pin"
         | "results_mode"
+        | "notify_emails"
       >
     >
   ) =>
@@ -184,6 +229,12 @@ export const surveyApi = {
     request<void>(`/api/v1/survey/surveys/${id}`, { method: "DELETE" }),
   responses: (id: string) =>
     request<ResponseItem[]>(`/api/v1/survey/surveys/${id}/responses`),
+  getSummary: (id: string) =>
+    request<SummaryReport>(`/api/v1/survey/surveys/${id}/summary`),
+  duplicateSurvey: (id: string) =>
+    request<SurveyDetail>(`/api/v1/survey/surveys/${id}/duplicate`, {
+      method: "POST",
+    }),
 
   // ---- Evaluation ----
   gradeAll: (id: string) =>

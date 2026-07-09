@@ -225,6 +225,21 @@ async def response_summary(
     return build_summary(s.json_schema or {}, responses)
 
 
+@router.delete("/{sid}/responses/{rid}", status_code=204)
+async def delete_response(
+    sid: uuid.UUID,
+    rid: uuid.UUID,
+    ctx: OrgContext = Depends(current_context),
+    session: AsyncSession = Depends(get_session),
+):
+    """Delete a single response (e.g. a respondent's data-removal request)."""
+    await _survey_or_404(sid, ctx.org.id, session)
+    r = await session.get(SurveyResponse, rid)
+    if r and r.survey_id == sid:
+        await session.delete(r)
+        await session.commit()
+
+
 @router.get("/{sid}/export")
 async def export_responses(
     sid: uuid.UUID,

@@ -4,7 +4,7 @@ import React, { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Plus, ExternalLink, Loader2, LayoutTemplate, X } from "lucide-react";
+import { Plus, ExternalLink, Loader2, LayoutTemplate, X, Copy } from "lucide-react";
 import {
   surveyApi,
   SurveySummary,
@@ -42,6 +42,7 @@ export default function SurveysListPage() {
   const [creating, setCreating] = useState(false);
   const [galleryOpen, setGalleryOpen] = useState(false);
   const [creatingId, setCreatingId] = useState<string | null>(null);
+  const [duplicatingId, setDuplicatingId] = useState<string | null>(null);
 
   async function createSurvey() {
     setCreating(true);
@@ -55,6 +56,19 @@ export default function SurveysListPage() {
     } catch (e: any) {
       toast.error(e?.message || "No se pudo crear la encuesta.");
       setCreating(false);
+    }
+  }
+
+  async function duplicate(id: string) {
+    if (duplicatingId) return;
+    setDuplicatingId(id);
+    try {
+      const copy = await surveyApi.duplicateSurvey(id);
+      toast.success("Encuesta duplicada.");
+      router.push(`/surveys/${copy.id}/edit`);
+    } catch (e: any) {
+      toast.error(e?.message || "No se pudo duplicar la encuesta.");
+      setDuplicatingId(null);
     }
   }
 
@@ -155,16 +169,31 @@ export default function SurveysListPage() {
                   <span className="font-mono">/s/{s.slug}</span>
                 </div>
               </div>
-              {s.status === "published" && (
-                <a
-                  href={`/s/${s.slug}`}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex items-center gap-1 text-sm text-neutral-500 hover:text-neutral-900"
+              <div className="flex shrink-0 items-center gap-3">
+                {s.status === "published" && (
+                  <a
+                    href={`/s/${s.slug}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1 text-sm text-neutral-500 hover:text-neutral-900"
+                  >
+                    Ver <ExternalLink className="w-3.5 h-3.5" />
+                  </a>
+                )}
+                <button
+                  onClick={() => duplicate(s.id)}
+                  disabled={!!duplicatingId}
+                  title="Duplicar encuesta"
+                  className="inline-flex items-center gap-1 text-sm text-neutral-500 hover:text-neutral-900 disabled:opacity-50"
                 >
-                  Ver <ExternalLink className="w-3.5 h-3.5" />
-                </a>
-              )}
+                  {duplicatingId === s.id ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Copy className="w-3.5 h-3.5" />
+                  )}
+                  Duplicar
+                </button>
+              </div>
             </div>
           ))}
         </div>

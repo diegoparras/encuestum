@@ -17,6 +17,10 @@ import {
   ToggleLeft,
   Images,
   Video,
+  Table,
+  ListOrdered,
+  Calendar,
+  Paperclip,
 } from "lucide-react";
 import {
   BuilderQuestion,
@@ -36,6 +40,10 @@ const ICON: Record<QuestionType, React.ComponentType<{ className?: string }>> = 
   boolean: ToggleLeft,
   imagepicker: Images,
   videoresponse: Video,
+  matrix: Table,
+  ranking: ListOrdered,
+  date: Calendar,
+  fileupload: Paperclip,
 };
 
 interface Props {

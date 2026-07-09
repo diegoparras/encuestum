@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { Globe, KeyRound, Users, Loader2, Eye, EyeOff, Settings2 } from "lucide-react";
+import { Globe, KeyRound, Users, Loader2, Eye, EyeOff, Settings2, Bell } from "lucide-react";
 import { toast } from "sonner";
 import {
   surveyApi,
@@ -18,11 +18,13 @@ interface Props {
   accessPin: string | null;
   resultsMode: ResultsMode;
   resultsReleased: boolean;
+  notifyEmails: string;
   onChange: (patch: {
     accessMode?: AccessMode;
     accessPin?: string | null;
     resultsMode?: ResultsMode;
     resultsReleased?: boolean;
+    notifyEmails?: string;
   }) => void;
 }
 
@@ -77,12 +79,15 @@ export function AccessSettings({
   accessPin,
   resultsMode,
   resultsReleased,
+  notifyEmails,
   onChange,
 }: Props) {
   const [pin, setPin] = useState(accessPin ?? "");
+  const [emails, setEmails] = useState(notifyEmails ?? "");
   const [savingMode, setSavingMode] = useState(false);
   const [savingResults, setSavingResults] = useState(false);
   const [savingPin, setSavingPin] = useState(false);
+  const [savingEmails, setSavingEmails] = useState(false);
   const [releasing, setReleasing] = useState(false);
   const [inviteesOpen, setInviteesOpen] = useState(false);
   const accentFg = readableForeground(accent);
@@ -113,6 +118,23 @@ export function AccessSettings({
       toast.error(e?.message || "No se pudo guardar la clave.");
     } finally {
       setSavingPin(false);
+    }
+  }
+
+  async function saveEmails() {
+    const value = emails.trim();
+    if (value === (notifyEmails ?? "").trim()) return;
+    setSavingEmails(true);
+    try {
+      await surveyApi.update(surveyId, { notify_emails: value });
+      onChange({ notifyEmails: value });
+      toast.success(
+        value ? "Avisos por email actualizados." : "Avisos por email desactivados."
+      );
+    } catch (e: any) {
+      toast.error(e?.message || "No se pudo guardar los avisos.");
+    } finally {
+      setSavingEmails(false);
     }
   }
 
@@ -278,6 +300,30 @@ export function AccessSettings({
               : "Los resultados aún no son visibles para quienes respondieron."}
           </span>
         )}
+      </div>
+
+      {/* Notificaciones por email */}
+      <div className="mt-5 border-t border-neutral-100 pt-4">
+        <div className="mb-3 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-neutral-400">
+          <Bell className="h-3 w-3" /> Notificaciones
+          {savingEmails && <Loader2 className="h-3 w-3 animate-spin" />}
+        </div>
+        <label className="block">
+          <span className="mb-1.5 block text-xs font-medium text-neutral-600">
+            Avisarme por email cuando alguien responde
+          </span>
+          <input
+            value={emails}
+            onChange={(e) => setEmails(e.target.value)}
+            onBlur={saveEmails}
+            placeholder="vos@ejemplo.com, equipo@ejemplo.com"
+            className="w-full rounded-md border border-neutral-200 px-2.5 py-2 text-sm outline-none focus:border-neutral-400"
+          />
+          <span className="mt-1 block text-[11px] leading-snug text-neutral-400">
+            Emails separados por coma. Necesita SMTP configurado; si no, queda
+            registrado igual.
+          </span>
+        </label>
       </div>
 
       <InviteesManager

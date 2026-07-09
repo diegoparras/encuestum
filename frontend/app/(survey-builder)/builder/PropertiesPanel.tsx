@@ -296,6 +296,63 @@ export function PropertiesPanel({
         </div>
       )}
 
+      {q.type === "matrix" && (
+        <>
+          <Field label="Filas (cada una se responde por separado)">
+            <ChoicesEditor
+              choices={q.matrixRows ?? []}
+              onChange={(matrixRows) => onQuestionChange({ matrixRows })}
+            />
+          </Field>
+          <Field label="Columnas (opciones únicas por fila)">
+            <ChoicesEditor
+              choices={q.matrixColumns ?? []}
+              onChange={(matrixColumns) => onQuestionChange({ matrixColumns })}
+            />
+          </Field>
+        </>
+      )}
+
+      {q.type === "date" && (
+        <div className="grid grid-cols-2 gap-3">
+          <Field label="Fecha mínima (opcional)">
+            <input
+              type="date"
+              value={q.dateMin ?? ""}
+              onChange={(e) => onQuestionChange({ dateMin: e.target.value || undefined })}
+              className="w-full rounded-md border border-neutral-200 px-2.5 py-2 text-sm outline-none focus:border-neutral-400"
+            />
+          </Field>
+          <Field label="Fecha máxima (opcional)">
+            <input
+              type="date"
+              value={q.dateMax ?? ""}
+              onChange={(e) => onQuestionChange({ dateMax: e.target.value || undefined })}
+              className="w-full rounded-md border border-neutral-200 px-2.5 py-2 text-sm outline-none focus:border-neutral-400"
+            />
+          </Field>
+        </div>
+      )}
+
+      {q.type === "fileupload" && (
+        <>
+          <ToggleRow
+            label="Permitir varios archivos"
+            hint="Quien responde puede adjuntar más de un archivo"
+            checked={!!q.fileMultiple}
+            onChange={(v) => onQuestionChange({ fileMultiple: v })}
+          />
+          <Field label="Tipos aceptados (opcional)">
+            <input
+              value={q.fileAccept ?? ""}
+              onChange={(e) => onQuestionChange({ fileAccept: e.target.value })}
+              placeholder="Ej. .pdf,.docx,.jpg (vacío = cualquiera)"
+              className="w-full rounded-md border border-neutral-200 px-2.5 py-2 text-sm outline-none focus:border-neutral-400"
+            />
+          </Field>
+        </>
+      )}
+
       <ToggleRow
         label="Obligatoria"
         hint="No se puede enviar sin responder"

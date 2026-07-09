@@ -62,6 +62,7 @@ export default function SurveyEditorPage() {
   const [accessPin, setAccessPin] = useState<string | null>(null);
   const [resultsMode, setResultsMode] = useState<ResultsMode>("immediate");
   const [resultsReleased, setResultsReleased] = useState(false);
+  const [notifyEmails, setNotifyEmails] = useState("");
 
   const [saving, setSaving] = useState(false);
   const [publishing, setPublishing] = useState(false);
@@ -100,6 +101,7 @@ export default function SurveyEditorPage() {
     setAccessPin(s.access_pin ?? null);
     setResultsMode(s.results_mode ?? "immediate");
     setResultsReleased(s.results_released ?? false);
+    setNotifyEmails(s.notify_emails ?? "");
     setDirty(false);
   }, [loaded]);
 
@@ -465,12 +467,15 @@ export default function SurveyEditorPage() {
                 accessPin={accessPin}
                 resultsMode={resultsMode}
                 resultsReleased={resultsReleased}
+                notifyEmails={notifyEmails}
                 onChange={(patch) => {
                   if (patch.accessMode !== undefined) setAccessMode(patch.accessMode);
                   if (patch.accessPin !== undefined) setAccessPin(patch.accessPin);
                   if (patch.resultsMode !== undefined) setResultsMode(patch.resultsMode);
                   if (patch.resultsReleased !== undefined)
                     setResultsReleased(patch.resultsReleased);
+                  if (patch.notifyEmails !== undefined)
+                    setNotifyEmails(patch.notifyEmails);
                 }}
               />
             </div>

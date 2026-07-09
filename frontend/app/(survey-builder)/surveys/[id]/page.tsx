@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useMemo, useState } from "react";
-import { useParams } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import Link from "next/link";
 import {
   ArrowLeft,
@@ -30,10 +30,12 @@ import { useAsyncData } from "@/lib/useAsyncData";
 import { LoadError } from "@/components/LoadError";
 import { GradesPanel } from "../../GradesPanel";
 import { InsightsPanel } from "../../InsightsPanel";
+import { SummaryPanel } from "../../SummaryPanel";
 import { themeToAccent } from "../../builder/model";
 
 export default function SurveyDetailPage() {
   const { id } = useParams<{ id: string }>();
+  const router = useRouter();
   const { data, status, error, reload, setData } = useAsyncData(async () => {
     const s = await surveyApi.get(id);
     const r = await surveyApi.responses(id);
@@ -53,6 +55,8 @@ export default function SurveyDetailPage() {
   const [me, setMe] = useState<Me | null>(null);
   const [showQr, setShowQr] = useState(false);
   const [exporting, setExporting] = useState<"csv" | "xlsx" | null>(null);
+  const [duplicating, setDuplicating] = useState(false);
+  const [resultsTab, setResultsTab] = useState<"summary" | "responses">("summary");
 
   // Inicializa el título y el JSON editables cuando llega (o se recarga) la encuesta.
   useEffect(() => {
@@ -142,6 +146,19 @@ export default function SurveyDetailPage() {
       toast.error(e?.message || "No se pudo exportar las respuestas.");
     } finally {
       setExporting(null);
+    }
+  }
+
+  async function duplicate() {
+    if (duplicating) return;
+    setDuplicating(true);
+    try {
+      const copy = await surveyApi.duplicateSurvey(id);
+      toast.success("Encuesta duplicada. Abriendo la copia…");
+      router.push(`/surveys/${copy.id}/edit`);
+    } catch (e: any) {
+      toast.error(e?.message || "No se pudo duplicar la encuesta.");
+      setDuplicating(false);
     }
   }
 
@@ -291,6 +308,19 @@ export default function SurveyDetailPage() {
           )}
           {isPublished ? "Cerrar" : "Publicar"}
         </button>
+        <button
+          onClick={duplicate}
+          disabled={duplicating}
+          className="inline-flex items-center gap-2 rounded-lg border border-neutral-300 px-4 py-2 text-sm font-medium hover:bg-neutral-50 disabled:opacity-60"
+          title="Crear una copia en borrador"
+        >
+          {duplicating ? (
+            <Loader2 className="w-4 h-4 animate-spin" />
+          ) : (
+            <Copy className="w-4 h-4" />
+          )}
+          Duplicar
+        </button>
       </div>
 
       {notice && <p className="mt-3 text-sm text-green-700">{notice}</p>}
@@ -340,16 +370,41 @@ export default function SurveyDetailPage() {
         ) : (
           <>
             <div className="flex items-center justify-between gap-3 mb-3">
-              <h2 className="text-sm font-semibold text-neutral-700">
-                Respuestas {responses ? `(${responses.length})` : ""}
-              </h2>
-              <ExportButtons
-                exporting={exporting}
-                disabled={!responses || responses.length === 0}
-                onExport={exportResponses}
-              />
+              <div className="inline-flex rounded-lg border border-neutral-200 bg-neutral-50 p-0.5">
+                {(
+                  [
+                    ["summary", "Resumen"],
+                    ["responses", `Respuestas${responses ? ` (${responses.length})` : ""}`],
+                  ] as const
+                ).map(([key, label]) => {
+                  const active = resultsTab === key;
+                  return (
+                    <button
+                      key={key}
+                      onClick={() => setResultsTab(key)}
+                      className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+                        active
+                          ? "bg-white text-neutral-900 shadow-sm"
+                          : "text-neutral-500 hover:text-neutral-800"
+                      }`}
+                      style={active ? { color: SURVEY_ACCENT } : undefined}
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
+              {resultsTab === "responses" && (
+                <ExportButtons
+                  exporting={exporting}
+                  disabled={!responses || responses.length === 0}
+                  onExport={exportResponses}
+                />
+              )}
             </div>
-            {responses === null ? (
+            {resultsTab === "summary" ? (
+              <SummaryPanel surveyId={id} accent={themeToAccent(survey.theme)} />
+            ) : responses === null ? (
               <div className="text-sm text-neutral-400">Cargando…</div>
             ) : responses.length === 0 ? (
               <div className="rounded-lg border border-dashed border-neutral-300 py-10 text-center text-neutral-400 text-sm">
