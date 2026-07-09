@@ -38,6 +38,15 @@ export interface Member {
   joined_at: string;
 }
 
+export interface Invitation {
+  id: string;
+  org_id: string;
+  email: string;
+  role: Role;
+  created_at: string;
+  accept_url: string | null;
+}
+
 async function errorMessage(res: Response, fallback: string): Promise<string> {
   try {
     const data: unknown = await res.clone().json();
@@ -147,6 +156,79 @@ export function updateMemberRole(
 export function removeMember(orgId: string, userId: string): Promise<void> {
   return request<void>(`/api/v1/orgs/${orgId}/members/${userId}`, {
     method: "DELETE",
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Password recovery + email verification
+// ---------------------------------------------------------------------------
+
+// Always returns a generic message (no account enumeration).
+export function forgotPassword(email: string): Promise<{ detail: string }> {
+  return request<{ detail: string }>("/api/v1/auth/forgot-password", {
+    method: "POST",
+    body: JSON.stringify({ email }),
+  });
+}
+
+// Throws Error(detail) on a 400 (invalid/expired token).
+export function resetPassword(
+  token: string,
+  password: string
+): Promise<{ detail: string }> {
+  return request<{ detail: string }>("/api/v1/auth/reset-password", {
+    method: "POST",
+    body: JSON.stringify({ token, password }),
+  });
+}
+
+// Throws Error(detail) on a 400 (invalid token).
+export function verifyEmail(token: string): Promise<{ detail: string }> {
+  return request<{ detail: string }>("/api/v1/auth/verify-email", {
+    method: "POST",
+    body: JSON.stringify({ token }),
+  });
+}
+
+export function resendVerification(email: string): Promise<{ detail: string }> {
+  return request<{ detail: string }>("/api/v1/auth/resend-verification", {
+    method: "POST",
+    body: JSON.stringify({ email }),
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Organization invitations
+// ---------------------------------------------------------------------------
+
+export function listInvitations(orgId: string): Promise<Invitation[]> {
+  return request<Invitation[]>(`/api/v1/orgs/${orgId}/invitations`);
+}
+
+// 409 if the email is already a member; 400 on an invalid role.
+export function createInvitation(
+  orgId: string,
+  email: string,
+  role: Role
+): Promise<Invitation> {
+  return request<Invitation>(`/api/v1/orgs/${orgId}/invitations`, {
+    method: "POST",
+    body: JSON.stringify({ email, role }),
+  });
+}
+
+export function revokeInvitation(orgId: string, inviteId: string): Promise<void> {
+  return request<void>(`/api/v1/orgs/${orgId}/invitations/${inviteId}`, {
+    method: "DELETE",
+  });
+}
+
+// Requires a session. 403 if the invitation email does not match the account;
+// 400 if the invitation expired or does not exist.
+export function acceptInvite(token: string): Promise<Me> {
+  return request<Me>("/api/v1/orgs/accept-invite", {
+    method: "POST",
+    body: JSON.stringify({ token }),
   });
 }
 

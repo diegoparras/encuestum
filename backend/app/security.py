@@ -47,3 +47,27 @@ def read_session_token(token: str) -> Optional[uuid.UUID]:
         return uuid.UUID(payload["sub"])
     except (jwt.PyJWTError, KeyError, ValueError):
         return None
+
+
+# ── Purpose tokens (invite / password reset / email verify) ──────────────────
+def create_purpose_token(purpose: str, data: dict, ttl_hours: int) -> str:
+    s = get_settings()
+    now = datetime.now(timezone.utc)
+    payload = {
+        "purpose": purpose,
+        "iat": int(now.timestamp()),
+        "exp": int((now + timedelta(hours=ttl_hours)).timestamp()),
+        **data,
+    }
+    return jwt.encode(payload, s.session_secret, algorithm=_ALGO)
+
+
+def read_purpose_token(purpose: str, token: str) -> Optional[dict]:
+    s = get_settings()
+    try:
+        payload = jwt.decode(token, s.session_secret, algorithms=[_ALGO])
+    except jwt.PyJWTError:
+        return None
+    if payload.get("purpose") != purpose:
+        return None
+    return payload

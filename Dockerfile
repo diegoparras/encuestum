@@ -45,7 +45,9 @@ COPY start.sh /start.sh
 RUN chmod +x /start.sh
 
 ENV ENCUESTUM_DATA_DIR=/app_data \
-    NODE_ENV=production
+    NODE_ENV=production \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1
 VOLUME ["/app_data"]
 
 EXPOSE 80

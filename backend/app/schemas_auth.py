@@ -59,3 +59,38 @@ class AddMemberRequest(BaseModel):
 
 class UpdateMemberRoleRequest(BaseModel):
     role: str
+
+
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    password: str = Field(min_length=8, max_length=200)
+
+
+class TokenRequest(BaseModel):
+    token: str
+
+
+class ResendVerificationRequest(BaseModel):
+    email: EmailStr
+
+
+class InviteRequest(BaseModel):
+    email: EmailStr
+    role: str = "member"
+
+
+class InvitationOut(BaseModel):
+    id: uuid.UUID
+    org_id: uuid.UUID
+    email: str
+    role: str
+    created_at: datetime
+    accept_url: Optional[str] = None
+
+
+class SimpleMessage(BaseModel):
+    detail: str

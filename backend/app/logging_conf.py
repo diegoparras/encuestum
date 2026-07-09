@@ -35,6 +35,14 @@ def configure_logging() -> None:
     level = os.getenv("ENCUESTUM_LOG_LEVEL", "INFO").upper()
     fmt = os.getenv("ENCUESTUM_LOG_FORMAT", "json").lower()
 
+    # Force line buffering so logs reach `docker logs` promptly even when stdout
+    # is a pipe (backgrounded process). Without this, request-time logs can sit
+    # unflushed in the container.
+    try:
+        sys.stdout.reconfigure(line_buffering=True)
+    except (AttributeError, ValueError):
+        pass
+
     handler = logging.StreamHandler(sys.stdout)
     if fmt == "text":
         handler.setFormatter(logging.Formatter("%(levelname)s [%(name)s] %(message)s"))

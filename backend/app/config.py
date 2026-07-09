@@ -39,11 +39,41 @@ class Settings:
         # Security headers / HSTS (only meaningful behind HTTPS).
         self.enable_hsts = _bool("ENCUESTUM_ENABLE_HSTS", True)
 
-        # Rate limiting (in-memory). Disable in tests / single-user setups.
+        # Rate limiting. In-memory by default; if a Redis URL is set, the limiter
+        # uses it (needed when running more than one instance).
         self.rate_limit_enabled = _bool("ENCUESTUM_RATE_LIMIT_ENABLED", True)
+        self.redis_url = (os.getenv("ENCUESTUM_REDIS_URL") or "").strip() or None
+
+        # Public base URL used to build links in emails (invites, reset, verify).
+        # Falls back to the first CORS origin, then localhost.
+        self.public_base_url = (os.getenv("ENCUESTUM_PUBLIC_URL") or "").strip().rstrip("/")
+        if not self.public_base_url:
+            self.public_base_url = (self.cors_origins[0] if self.cors_origins else "http://localhost:8080").rstrip("/")
+
+        # Email verification. Off by default so nobody gets locked out when SMTP
+        # isn't configured; turn on to require a verified email before login.
+        self.require_email_verification = _bool("ENCUESTUM_REQUIRE_EMAIL_VERIFICATION", False)
+
+        # SMTP (optional). If host is unset, emails are logged instead of sent
+        # (the link shows up in the logs) so the flows are usable in dev.
+        self.smtp_host = (os.getenv("ENCUESTUM_SMTP_HOST") or "").strip() or None
+        self.smtp_port = int(os.getenv("ENCUESTUM_SMTP_PORT", "587"))
+        self.smtp_user = os.getenv("ENCUESTUM_SMTP_USER") or None
+        self.smtp_password = os.getenv("ENCUESTUM_SMTP_PASSWORD") or None
+        self.smtp_tls = _bool("ENCUESTUM_SMTP_TLS", True)
+        self.email_from = os.getenv("ENCUESTUM_EMAIL_FROM", "Encuestum <no-reply@encuestum.local>")
+
+        # Token lifetimes (hours).
+        self.invite_ttl_hours = int(os.getenv("ENCUESTUM_INVITE_TTL_HOURS", "168"))  # 7 días
+        self.reset_ttl_hours = int(os.getenv("ENCUESTUM_RESET_TTL_HOURS", "2"))
+        self.verify_ttl_hours = int(os.getenv("ENCUESTUM_VERIFY_TTL_HOURS", "72"))
 
         # Environment label (affects a couple of dev conveniences).
         self.env = os.getenv("ENCUESTUM_ENV", "production").strip().lower()
+
+    @property
+    def smtp_configured(self) -> bool:
+        return bool(self.smtp_host)
 
     @property
     def is_dev(self) -> bool:

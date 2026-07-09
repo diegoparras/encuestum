@@ -62,6 +62,18 @@ ENCUESTUM_LLM_API_KEY=<tu-key>
 
 # Cerrar el auto-registro una vez creadas las cuentas (opcional):
 # ENCUESTUM_ALLOW_REGISTRATION=false
+
+# Email (invitaciones, reset de contraseña, verificación). Los enlaces apuntan a
+# esta URL pública (el dominio de la app). Sin SMTP, los emails se loguean (el
+# enlace queda en el log) y las invitaciones igual muestran el enlace para copiar.
+ENCUESTUM_PUBLIC_URL=https://encuestum.tudominio.com
+# ENCUESTUM_SMTP_HOST=smtp.tuservidor.com
+# ENCUESTUM_SMTP_USER=...
+# ENCUESTUM_SMTP_PASSWORD=...
+# ENCUESTUM_EMAIL_FROM=Encuestum <no-reply@tudominio.com>
+
+# Rate limiting compartido entre réplicas (opcional):
+# ENCUESTUM_REDIS_URL=redis://host:6379/0
 ```
 
 - **`ENCUESTUM_SESSION_SECRET`**: si no lo definís, se genera uno efímero y las

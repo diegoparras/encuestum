@@ -7,11 +7,23 @@ const SESSION_COOKIE = "enc_session";
 // Prefixes that require an authenticated session.
 const PROTECTED_PREFIXES = ["/surveys", "/members", "/settings"];
 
+// Auth pages that a logged-in user should be bounced away from.
 const AUTH_PAGES = ["/login", "/register"];
 
-export function middleware(req: NextRequest) {
+// Public auth-flow pages that must stay reachable with or without a session
+// (recuperación de contraseña, verificación de email, invitaciones).
+const PUBLIC_AUTH_PAGES = ["/forgot", "/reset", "/verify", "/accept-invite"];
+
+// Next.js 16 renamed the middleware entrypoint to `proxy`. The NextResponse /
+// matcher API is unchanged; only the filename and exported function name moved.
+export function proxy(req: NextRequest) {
   const { pathname } = req.nextUrl;
   const hasSession = req.cookies.has(SESSION_COOKIE);
+
+  // Public auth-flow pages are never gated (and never redirect away).
+  if (PUBLIC_AUTH_PAGES.some((p) => pathname === p || pathname.startsWith(`${p}/`))) {
+    return NextResponse.next();
+  }
 
   const isProtected = PROTECTED_PREFIXES.some(
     (p) => pathname === p || pathname.startsWith(`${p}/`)

@@ -8,9 +8,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from app.accounts import build_me, get_user_by_email, set_org_cookie
+from app.config import get_settings
 from app.db import get_session
 from app.deps import current_user
+from app.email import build_url, send_invite_email
 from app.models import (
+    Invitation,
     Membership,
     Organization,
     User,
@@ -22,11 +25,15 @@ from app.models import (
 from app.schemas_auth import (
     AddMemberRequest,
     CreateOrgRequest,
+    InvitationOut,
+    InviteRequest,
     MeOut,
     MemberOut,
     OrgOut,
+    TokenRequest,
     UpdateMemberRoleRequest,
 )
+from app.security import create_purpose_token, read_purpose_token
 
 router = APIRouter(prefix="/orgs", tags=["organizations"])
 
@@ -194,3 +201,141 @@ async def remove_member(
         raise HTTPException(status_code=400, detail="No podés quitar al único owner")
     await session.delete(target)
     await session.commit()
+
+
+# ── Invitations by email ─────────────────────────────────────────────────────
+def _invite_out(inv: Invitation, with_url: bool = True) -> InvitationOut:
+    accept_url = None
+    if with_url:
+        token = create_purpose_token(
+            "invite", {"inv": str(inv.id)}, get_settings().invite_ttl_hours
+        )
+        accept_url = build_url("/accept-invite", token=token)
+    return InvitationOut(
+        id=inv.id, org_id=inv.org_id, email=inv.email, role=inv.role,
+        created_at=inv.created_at, accept_url=accept_url,
+    )
+
+
+@router.get("/{org_id}/invitations", response_model=List[InvitationOut])
+async def list_invitations(
+    org_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+    user: User = Depends(current_user),
+):
+    caller = await _membership(session, user.id, org_id)
+    _require_rank(caller, ROLE_ADMIN)
+    rows = (
+        await session.scalars(
+            select(Invitation)
+            .where(Invitation.org_id == org_id, Invitation.accepted_at.is_(None))
+            .order_by(Invitation.created_at.desc())
+        )
+    ).all()
+    return [_invite_out(inv) for inv in rows]
+
+
+@router.post("/{org_id}/invitations", response_model=InvitationOut, status_code=201)
+async def create_invitation(
+    org_id: uuid.UUID,
+    payload: InviteRequest,
+    session: AsyncSession = Depends(get_session),
+    user: User = Depends(current_user),
+):
+    caller = await _membership(session, user.id, org_id)
+    _require_rank(caller, ROLE_ADMIN)
+    role = payload.role.strip().lower()
+    if role not in VALID_ROLES:
+        raise HTTPException(status_code=400, detail="Rol inválido")
+    if role == ROLE_OWNER and caller.role != ROLE_OWNER:
+        raise HTTPException(status_code=403, detail="Solo un owner puede designar otro owner")
+
+    email = payload.email.strip().lower()
+    existing_user = await get_user_by_email(session, email)
+    if existing_user:
+        already = (
+            await session.scalars(
+                select(Membership).where(
+                    Membership.user_id == existing_user.id, Membership.org_id == org_id
+                )
+            )
+        ).first()
+        if already:
+            raise HTTPException(status_code=409, detail="Ya es miembro de la organización")
+
+    pending = (
+        await session.scalars(
+            select(Invitation).where(
+                Invitation.org_id == org_id,
+                Invitation.email == email,
+                Invitation.accepted_at.is_(None),
+            )
+        )
+    ).first()
+    inv = pending or Invitation(org_id=org_id, email=email, role=role, invited_by=user.id)
+    inv.role = role
+    session.add(inv)
+    await session.commit()
+    await session.refresh(inv)
+
+    out = _invite_out(inv)
+    org = await session.get(Organization, org_id)
+    try:
+        await send_invite_email(email, org.name if org else "una organización", out.accept_url)
+    except Exception:  # noqa: BLE001 — el link igual queda en la respuesta
+        pass
+    return out
+
+
+@router.delete("/{org_id}/invitations/{invite_id}", status_code=204)
+async def revoke_invitation(
+    org_id: uuid.UUID,
+    invite_id: uuid.UUID,
+    session: AsyncSession = Depends(get_session),
+    user: User = Depends(current_user),
+):
+    caller = await _membership(session, user.id, org_id)
+    _require_rank(caller, ROLE_ADMIN)
+    inv = await session.get(Invitation, invite_id)
+    if not inv or inv.org_id != org_id:
+        raise HTTPException(status_code=404, detail="Invitación no encontrada")
+    await session.delete(inv)
+    await session.commit()
+
+
+@router.post("/accept-invite", response_model=MeOut)
+async def accept_invite(
+    payload: TokenRequest,
+    response: Response,
+    session: AsyncSession = Depends(get_session),
+    user: User = Depends(current_user),
+):
+    data = read_purpose_token("invite", payload.token)
+    if not data:
+        raise HTTPException(status_code=400, detail="La invitación es inválida o venció")
+    inv = await session.get(Invitation, uuid.UUID(data["inv"]))
+    if not inv or inv.accepted_at is not None:
+        raise HTTPException(status_code=400, detail="La invitación ya no está disponible")
+    if inv.email.strip().lower() != user.email.strip().lower():
+        raise HTTPException(
+            status_code=403,
+            detail=f"Esta invitación es para {inv.email}. Ingresá con esa cuenta.",
+        )
+
+    existing = (
+        await session.scalars(
+            select(Membership).where(
+                Membership.user_id == user.id, Membership.org_id == inv.org_id
+            )
+        )
+    ).first()
+    from app.models import _utcnow
+
+    if not existing:
+        session.add(Membership(user_id=user.id, org_id=inv.org_id, role=inv.role))
+    inv.accepted_at = _utcnow()
+    session.add(inv)
+    await session.commit()
+
+    set_org_cookie(response, inv.org_id)
+    return await build_me(session, user, inv.org_id)

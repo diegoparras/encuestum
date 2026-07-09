@@ -45,6 +45,9 @@ class User(SQLModel, table=True):
     is_active: bool = Field(
         sa_column=Column(Boolean, nullable=False, server_default="1"), default=True
     )
+    email_verified: bool = Field(
+        sa_column=Column(Boolean, nullable=False, server_default="0"), default=False
+    )
     created_at: datetime = Field(
         sa_column=Column(DateTime(timezone=True), nullable=False, default=_utcnow)
     )
@@ -80,6 +83,28 @@ class Membership(SQLModel, table=True):
         )
     )
     role: str = Field(sa_column=Column(String, nullable=False), default=ROLE_MEMBER)
+    created_at: datetime = Field(
+        sa_column=Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    )
+
+
+class Invitation(SQLModel, table=True):
+    __tablename__ = "invitations"
+
+    id: uuid.UUID = Field(primary_key=True, default_factory=uuid.uuid4)
+    org_id: uuid.UUID = Field(
+        sa_column=Column(
+            ForeignKey("organizations.id", ondelete="CASCADE"), index=True, nullable=False
+        )
+    )
+    email: str = Field(sa_column=Column(String, index=True, nullable=False))
+    role: str = Field(sa_column=Column(String, nullable=False), default=ROLE_MEMBER)
+    invited_by: Optional[uuid.UUID] = Field(
+        sa_column=Column(ForeignKey("users.id", ondelete="SET NULL")), default=None
+    )
+    accepted_at: Optional[datetime] = Field(
+        sa_column=Column(DateTime(timezone=True)), default=None
+    )
     created_at: datetime = Field(
         sa_column=Column(DateTime(timezone=True), nullable=False, default=_utcnow)
     )

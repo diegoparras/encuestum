@@ -12,6 +12,8 @@ services:
       ENCUESTUM_COOKIE_SECURE: "false"
       ENCUESTUM_ENABLE_HSTS: "false"
       ENCUESTUM_CORS_ORIGINS: ${NEXT_PUBLIC_API_URL_FRONT:-http://localhost:3000}
+      # Los enlaces de email (invitaciones/reset/verify) apuntan al FRONTEND.
+      ENCUESTUM_PUBLIC_URL: ${NEXT_PUBLIC_API_URL_FRONT:-http://localhost:3000}
       ENCUESTUM_ENV: dev
       ENCUESTUM_LOG_FORMAT: text
       # Proveedor LLM (OpenAI-compatible). Bring-your-own-key.

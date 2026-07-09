@@ -5,7 +5,9 @@ import { toast } from "sonner";
 import {
   Building2,
   Check,
+  Copy,
   Loader2,
+  Mail,
   Plus,
   Trash2,
   UserPlus,
@@ -13,13 +15,17 @@ import {
 } from "lucide-react";
 import {
   addMember,
+  createInvitation,
   createOrg,
   getMe,
+  listInvitations,
   listMembers,
   removeMember,
+  revokeInvitation,
   roleAtLeast,
   switchOrg,
   updateMemberRole,
+  type Invitation,
   type Me,
   type Member,
   type Role,
@@ -61,6 +67,13 @@ export default function MembersPage() {
   const [newOrgName, setNewOrgName] = useState("");
   const [creatingOrg, setCreatingOrg] = useState(false);
 
+  // Invitations
+  const [invitations, setInvitations] = useState<Invitation[] | null>(null);
+  const [inviteEmail, setInviteEmail] = useState("");
+  const [inviteRole, setInviteRole] = useState<Role>("member");
+  const [inviting, setInviting] = useState(false);
+  const [pendingInvite, setPendingInvite] = useState<string | null>(null);
+
   const [pendingUser, setPendingUser] = useState<string | null>(null);
 
   const activeOrg = me?.orgs.find((o) => o.id === me.active_org_id) ?? me?.orgs[0];
@@ -81,6 +94,19 @@ export default function MembersPage() {
       setMe(meData);
       const list = await listMembers(meData.active_org_id);
       setMembers(list);
+      const active =
+        meData.orgs.find((o) => o.id === meData.active_org_id) ?? meData.orgs[0];
+      if (active && roleAtLeast(active.role, "admin")) {
+        try {
+          const invites = await listInvitations(meData.active_org_id);
+          setInvitations(invites);
+        } catch {
+          // Invitations are non-critical; ignore load failures here.
+          setInvitations([]);
+        }
+      } else {
+        setInvitations(null);
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "No se pudieron cargar los datos");
     } finally {
@@ -171,6 +197,61 @@ export default function MembersPage() {
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "No se pudo crear la organización");
       setCreatingOrg(false);
+    }
+  }
+
+  async function onInvite(e: React.FormEvent) {
+    e.preventDefault();
+    if (!me) return;
+    setInviting(true);
+    try {
+      const invite = await createInvitation(
+        me.active_org_id,
+        inviteEmail.trim(),
+        inviteRole
+      );
+      setInvitations((prev) => (prev ? [invite, ...prev] : [invite]));
+      setInviteEmail("");
+      setInviteRole("member");
+      if (invite.accept_url) {
+        toast.success("Invitación creada. Copiá el enlace para compartirlo.");
+      } else {
+        toast.success("Invitación enviada por correo");
+      }
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "No se pudo crear la invitación"
+      );
+    } finally {
+      setInviting(false);
+    }
+  }
+
+  async function onRevokeInvite(invite: Invitation) {
+    if (!me) return;
+    if (!window.confirm(`¿Revocar la invitación de ${invite.email}?`)) return;
+    setPendingInvite(invite.id);
+    try {
+      await revokeInvitation(me.active_org_id, invite.id);
+      setInvitations((prev) =>
+        prev ? prev.filter((i) => i.id !== invite.id) : prev
+      );
+      toast.success("Invitación revocada");
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "No se pudo revocar la invitación"
+      );
+    } finally {
+      setPendingInvite(null);
+    }
+  }
+
+  async function onCopyLink(url: string) {
+    try {
+      await navigator.clipboard.writeText(url);
+      toast.success("Enlace copiado");
+    } catch {
+      toast.error("No se pudo copiar el enlace");
     }
   }
 
@@ -344,6 +425,117 @@ export default function MembersPage() {
             <p className="mt-2 text-xs text-neutral-400">
               El usuario debe tener una cuenta registrada en Encuestum.
             </p>
+          </CardContent>
+        </Card>
+      )}
+
+      {/* Invitations (admin+) */}
+      {canManage && (
+        <Card>
+          <CardHeader className="flex flex-row items-center gap-2">
+            <Mail className="h-5 w-5 text-neutral-400" />
+            <CardTitle>Invitaciones</CardTitle>
+          </CardHeader>
+          <CardContent className="space-y-6">
+            <form
+              onSubmit={onInvite}
+              className="flex flex-col gap-3 sm:flex-row sm:items-end"
+            >
+              <div className="flex-1 space-y-1.5">
+                <Label htmlFor="inviteEmail">Invitar por email</Label>
+                <Input
+                  id="inviteEmail"
+                  type="email"
+                  required
+                  value={inviteEmail}
+                  onChange={(e) => setInviteEmail(e.target.value)}
+                  placeholder="persona@ejemplo.com"
+                />
+              </div>
+              <div className="space-y-1.5 sm:w-48">
+                <Label htmlFor="inviteRole">Rol</Label>
+                <Select
+                  id="inviteRole"
+                  value={inviteRole}
+                  onChange={(e) => setInviteRole(e.target.value as Role)}
+                >
+                  <option value="member">Miembro</option>
+                  <option value="admin">Administrador</option>
+                  {canAssignOwner && <option value="owner">Propietario</option>}
+                </Select>
+              </div>
+              <Button type="submit" disabled={inviting}>
+                {inviting ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Mail className="h-4 w-4" />
+                )}
+                Invitar
+              </Button>
+            </form>
+            <p className="-mt-4 text-xs text-neutral-400">
+              La persona recibirá un correo. Si no configuraste el envío de
+              emails, copiá el enlace de la invitación y compartilo.
+            </p>
+
+            <div className="border-t border-neutral-100 pt-4">
+              <h3 className="mb-3 text-xs font-medium uppercase tracking-wide text-neutral-400">
+                Pendientes
+              </h3>
+              {invitations && invitations.length > 0 ? (
+                <ul className="divide-y divide-neutral-100">
+                  {invitations.map((inv) => {
+                    const busy = pendingInvite === inv.id;
+                    return (
+                      <li
+                        key={inv.id}
+                        className="flex flex-col gap-2 py-3 sm:flex-row sm:items-center sm:justify-between"
+                      >
+                        <div className="min-w-0">
+                          <p className="truncate font-medium text-neutral-900">
+                            {inv.email}
+                          </p>
+                          <p className="text-xs text-neutral-400">
+                            {ROLE_LABEL[inv.role]} · Invitada el{" "}
+                            {formatDate(inv.created_at)}
+                          </p>
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {inv.accept_url && (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() => onCopyLink(inv.accept_url as string)}
+                            >
+                              <Copy className="h-4 w-4" />
+                              Copiar enlace
+                            </Button>
+                          )}
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            disabled={busy}
+                            onClick={() => onRevokeInvite(inv)}
+                            className="text-red-600 hover:bg-red-50 hover:text-red-700"
+                          >
+                            {busy ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <Trash2 className="h-4 w-4" />
+                            )}
+                            Revocar
+                          </Button>
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              ) : (
+                <p className="py-4 text-center text-sm text-neutral-400">
+                  No hay invitaciones pendientes.
+                </p>
+              )}
+            </div>
           </CardContent>
         </Card>
       )}
