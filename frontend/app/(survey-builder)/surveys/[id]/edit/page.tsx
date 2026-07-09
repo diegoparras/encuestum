@@ -14,7 +14,13 @@ import {
   Check,
 } from "lucide-react";
 import { GraduationCap, Sparkles, Palette } from "lucide-react";
-import { surveyApi, type UsageInfo } from "../../../surveyApi";
+import {
+  surveyApi,
+  type UsageInfo,
+  type AccessMode,
+  type ResultsMode,
+} from "../../../surveyApi";
+import { AccessSettings } from "../../../builder/AccessSettings";
 import { UsageModal } from "../../../builder/UsageModal";
 import {
   BuilderQuestion,
@@ -49,6 +55,12 @@ export default function SurveyEditorPage() {
   const [language, setLanguage] = useState<string | null>("es");
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
+  // Control de acceso y visibilidad de resultados (se persisten al vuelo).
+  const [accessMode, setAccessMode] = useState<AccessMode>("public");
+  const [accessPin, setAccessPin] = useState<string | null>(null);
+  const [resultsMode, setResultsMode] = useState<ResultsMode>("immediate");
+  const [resultsReleased, setResultsReleased] = useState(false);
+
   const [loadError, setLoadError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [publishing, setPublishing] = useState(false);
@@ -71,6 +83,10 @@ export default function SurveyEditorPage() {
         setStatus(s.status);
         setSlug(s.slug);
         setLanguage(s.language ?? "es");
+        setAccessMode(s.access_mode ?? "public");
+        setAccessPin(s.access_pin ?? null);
+        setResultsMode(s.results_mode ?? "immediate");
+        setResultsReleased(s.results_released ?? false);
         setDirty(false);
       } catch (e: any) {
         setLoadError(e?.message || "No se pudo cargar la encuesta.");
@@ -431,6 +447,25 @@ export default function SurveyEditorPage() {
             onEvaluationChange={setEvaluation}
             accent={state.accent}
           />
+          {!selectedQuestion && (
+            <div className="px-5 pb-6">
+              <AccessSettings
+                surveyId={id}
+                accent={state.accent}
+                accessMode={accessMode}
+                accessPin={accessPin}
+                resultsMode={resultsMode}
+                resultsReleased={resultsReleased}
+                onChange={(patch) => {
+                  if (patch.accessMode !== undefined) setAccessMode(patch.accessMode);
+                  if (patch.accessPin !== undefined) setAccessPin(patch.accessPin);
+                  if (patch.resultsMode !== undefined) setResultsMode(patch.resultsMode);
+                  if (patch.resultsReleased !== undefined)
+                    setResultsReleased(patch.resultsReleased);
+                }}
+              />
+            </div>
+          )}
         </aside>
       </div>
 

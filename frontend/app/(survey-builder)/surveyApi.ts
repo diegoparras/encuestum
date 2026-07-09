@@ -17,6 +17,9 @@ export interface SurveySummary {
   updated_at: string;
 }
 
+export type AccessMode = "public" | "pin" | "list";
+export type ResultsMode = "immediate" | "on_release" | "never";
+
 export interface SurveyDetail {
   id: string;
   title: string | null;
@@ -28,8 +31,24 @@ export interface SurveyDetail {
   evaluation: Record<string, any> | null;
   closes_at: string | null;
   max_responses: number | null;
+  // Control de acceso y visibilidad de resultados
+  access_mode: AccessMode;
+  access_pin: string | null;
+  results_mode: ResultsMode;
+  results_released: boolean;
   created_at: string;
   updated_at: string;
+}
+
+// Invitado (modo lista): cada uno con su código de acceso único.
+export interface Invitee {
+  id: string;
+  email: string;
+  name: string | null;
+  code: string;
+  used_at: string | null;
+  sent_at: string | null;
+  created_at: string;
 }
 
 export interface ResponseItem {
@@ -139,7 +158,17 @@ export const surveyApi = {
     body: Partial<
       Pick<
         SurveyDetail,
-        "title" | "json_schema" | "status" | "language" | "theme" | "evaluation" | "closes_at" | "max_responses"
+        | "title"
+        | "json_schema"
+        | "status"
+        | "language"
+        | "theme"
+        | "evaluation"
+        | "closes_at"
+        | "max_responses"
+        | "access_mode"
+        | "access_pin"
+        | "results_mode"
       >
     >
   ) =>
@@ -188,6 +217,29 @@ export const surveyApi = {
     request<{ questions: GeneratedQuestion[]; usage?: UsageInfo }>(
       `/api/v1/survey/surveys/${id}/generate-questions`,
       { method: "POST", body: JSON.stringify(body) }
+    ),
+
+  // ---- Acceso: invitados (modo lista) y liberación de resultados ----
+  listInvitees: (id: string) =>
+    request<Invitee[]>(`/api/v1/survey/surveys/${id}/invitees`),
+  addInvitees: (id: string, invitees: { email: string; name?: string }[]) =>
+    request<Invitee[]>(`/api/v1/survey/surveys/${id}/invitees`, {
+      method: "POST",
+      body: JSON.stringify({ invitees }),
+    }),
+  deleteInvitee: (id: string, iid: string) =>
+    request<void>(`/api/v1/survey/surveys/${id}/invitees/${iid}`, {
+      method: "DELETE",
+    }),
+  sendInviteeLinks: (id: string) =>
+    request<{ sent: number; total: number }>(
+      `/api/v1/survey/surveys/${id}/invitees/send?only_unsent=true`,
+      { method: "POST" }
+    ),
+  releaseResults: (id: string, released: boolean) =>
+    request<SurveyDetail>(
+      `/api/v1/survey/surveys/${id}/release-results?released=${released}`,
+      { method: "POST" }
     ),
 };
 

@@ -16,6 +16,11 @@ import {
 import { orgBranding } from "@/utils/auth";
 import { uploadRespondentFile } from "./uploadFile";
 import { registerVideoResponseQuestion } from "./VideoResponseQuestion";
+import {
+  AccessGate,
+  PostSubmitScreen,
+  useMagicLinkParams,
+} from "./AccessGate";
 
 // Register the custom "videoresponse" question (webcam recorder) before any
 // Survey model parses JSON that uses it.
@@ -43,6 +48,8 @@ interface PublicSurvey {
   evaluation: EvaluationMeta | null;
   available?: boolean;
   closed_reason?: string | null;
+  access_mode?: "public" | "pin" | "list";
+  gated?: boolean;
 }
 
 interface GradedResult {
@@ -75,6 +82,11 @@ export default function SurveyView({ slug }: { slug: string }) {
   const [data, setData] = useState<PublicSurvey | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [results, setResults] = useState<GradedResult | null>(null);
+  // Access token for gated (pin/list) surveys; set once the access gate passes.
+  const [accessToken, setAccessToken] = useState<string | null>(null);
+  // Post-submit screen for list-mode surveys (thank-you + result lookup).
+  const [postSubmit, setPostSubmit] = useState<{ pending: boolean } | null>(null);
+  const magic = useMagicLinkParams();
   const [branding, setBranding] = useState<{
     name: string;
     logo: string | null;
@@ -266,6 +278,8 @@ export default function SurveyView({ slug }: { slug: string }) {
             body: JSON.stringify({
               answers: sender.data,
               completed: true,
+              // Gated surveys require the access token obtained at the gate.
+              ...(accessToken ? { access_token: accessToken } : {}),
               meta: {
                 locale: sender.locale || data.language || null,
                 referrer: typeof document !== "undefined" ? document.referrer : null,
@@ -276,6 +290,12 @@ export default function SurveyView({ slug }: { slug: string }) {
         const body = await res.json().catch(() => null);
         if (body?.status === "graded" && body.result) {
           setResults(body.result as GradedResult);
+        } else if (body?.results_pending && body?.can_check) {
+          // Results held back: offer the result-lookup screen instead.
+          setPostSubmit({ pending: true });
+        } else if (data.access_mode === "list") {
+          // List-mode: always let respondents look their result up later.
+          setPostSubmit({ pending: false });
         }
       } catch {
         /* keep the thank-you page even if the network hiccups */
@@ -285,7 +305,7 @@ export default function SurveyView({ slug }: { slug: string }) {
     });
 
     return survey;
-  }, [data, slug]);
+  }, [data, slug, accessToken]);
 
   const design = useMemo(() => themeToDesign(data?.theme), [data]);
   useEffect(() => {
@@ -326,6 +346,43 @@ export default function SurveyView({ slug }: { slug: string }) {
 
   if (results) {
     return <ResultsScreen results={results} accent={accent} />;
+  }
+
+  // Gated survey (pin/list): show the access gate until the token is obtained.
+  if (data && data.gated === true && !accessToken) {
+    return (
+      <AccessGate
+        slug={slug}
+        accessMode={data.access_mode === "list" ? "list" : "pin"}
+        design={design}
+        accent={accent}
+        title={data.title}
+        brandingHeader={brandingHeader}
+        apiBase={apiBase}
+        onGranted={(token, survey) => {
+          setAccessToken(token);
+          // The unlocked survey carries the full json_schema; rebuild from it.
+          setData((prev) => ({ ...(prev as PublicSurvey), ...survey, gated: false }));
+        }}
+      />
+    );
+  }
+
+  // List-mode post-submit: thank-you plus the "check my result" lookup.
+  if (postSubmit) {
+    return (
+      <PostSubmitScreen
+        design={design}
+        accent={accent}
+        title={data?.title}
+        brandingHeader={brandingHeader}
+        pending={postSubmit.pending}
+        slug={slug}
+        prefill={{ email: magic.email, code: magic.code }}
+        apiBase={apiBase}
+        onGraded={(result) => setResults(result as GradedResult)}
+      />
+    );
   }
 
   // Match the page wrapper to the survey's own background so no light strip
