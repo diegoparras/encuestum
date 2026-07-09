@@ -114,6 +114,32 @@ class Invitation(SQLModel, table=True):
     )
 
 
+class Webhook(SQLModel, table=True):
+    __tablename__ = "webhooks"
+
+    id: uuid.UUID = Field(primary_key=True, default_factory=uuid.uuid4)
+    org_id: uuid.UUID = Field(
+        sa_column=Column(
+            ForeignKey("organizations.id", ondelete="CASCADE"), index=True, nullable=False
+        )
+    )
+    # null → applies to every survey in the org; set → only that survey.
+    survey_id: Optional[uuid.UUID] = Field(
+        sa_column=Column(ForeignKey("surveys.id", ondelete="CASCADE"), index=True), default=None
+    )
+    url: str = Field(sa_column=Column(String, nullable=False))
+    secret: str = Field(sa_column=Column(String, nullable=False), default_factory=lambda: secrets.token_hex(24))
+    active: bool = Field(
+        sa_column=Column(Boolean, nullable=False, server_default="1"), default=True
+    )
+    created_by: Optional[uuid.UUID] = Field(
+        sa_column=Column(ForeignKey("users.id", ondelete="SET NULL")), default=None
+    )
+    created_at: datetime = Field(
+        sa_column=Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    )
+
+
 class Asset(SQLModel, table=True):
     __tablename__ = "assets"
 

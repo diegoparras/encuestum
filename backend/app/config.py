@@ -48,6 +48,9 @@ class Settings:
         self.rate_limit_enabled = _bool("ENCUESTUM_RATE_LIMIT_ENABLED", True)
         self.redis_url = (os.getenv("ENCUESTUM_REDIS_URL") or "").strip() or None
 
+        # Deliver responses to configured webhooks (Zapier/Sheets/…).
+        self.webhooks_enabled = _bool("ENCUESTUM_WEBHOOKS_ENABLED", True)
+
         # Assets (uploaded images/audio for survey design).
         self.asset_dir = os.getenv(
             "ENCUESTUM_ASSET_DIR",

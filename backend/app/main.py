@@ -14,7 +14,9 @@ from fastapi.staticfiles import StaticFiles
 from app.config import get_settings
 from app.db import engine
 from app.logging_conf import configure_logging
-from app.routers import admin, assets, auth, evaluation, orgs, panel, public, uploads
+from app.routers import (
+    admin, assets, auth, evaluation, orgs, panel, public, uploads, webhooks_api,
+)
 
 LOGGER = logging.getLogger("encuestum")
 
@@ -73,6 +75,7 @@ app.include_router(auth.router, prefix=API)
 app.include_router(orgs.router, prefix=API)
 app.include_router(assets.router, prefix=API)
 app.include_router(uploads.router, prefix=API)
+app.include_router(webhooks_api.router, prefix=API)
 app.include_router(panel.router, prefix=API)
 
 # Archivos subidos (imágenes/audio de diseño), servidos públicamente.

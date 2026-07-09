@@ -9,6 +9,7 @@ from app.models import Survey, SurveyResponse
 from app.schemas import GradeQuestionRequest, PublicSurvey, SubmitResponseRequest, public_evaluation_meta
 from app.grading import extract_question_types, grade_deterministic, grade_response
 from app.models import _utcnow
+from app.webhooks import schedule_response_delivery
 
 LOGGER = logging.getLogger(__name__)
 router = APIRouter(prefix="/public", tags=["public"])
@@ -104,28 +105,32 @@ async def submit(slug: str, payload: SubmitResponseRequest, session: AsyncSessio
     await session.commit()
 
     evaluation = s.evaluation or {}
-    if not evaluation.get("enabled"):
-        return {"id": str(r.id), "status": "recorded"}
+    grade = None
+    if evaluation.get("enabled"):
+        try:
+            grade = await grade_response(
+                evaluation=evaluation, answers=r.answers,
+                question_types=extract_question_types(s.json_schema), language=s.language or "es",
+            )
+            r.grade = grade
+            r.score = grade.get("total")
+            r.max_score = grade.get("max")
+            r.needs_review = bool(grade.get("needs_review"))
+            r.graded_at = _utcnow()
+            session.add(r)
+            await session.commit()
+        except Exception as exc:  # noqa: BLE001
+            LOGGER.warning("grading failed for %s: %s", r.id, exc)
+            r.needs_review = True
+            session.add(r)
+            await session.commit()
+            grade = None
 
-    try:
-        grade = await grade_response(
-            evaluation=evaluation, answers=r.answers,
-            question_types=extract_question_types(s.json_schema), language=s.language or "es",
-        )
-        r.grade = grade
-        r.score = grade.get("total")
-        r.max_score = grade.get("max")
-        r.needs_review = bool(grade.get("needs_review"))
-        r.graded_at = _utcnow()
-        session.add(r)
-        await session.commit()
-    except Exception as exc:  # noqa: BLE001
-        LOGGER.warning("grading failed for %s: %s", r.id, exc)
-        r.needs_review = True
-        session.add(r)
-        await session.commit()
-        return {"id": str(r.id), "status": "recorded"}
+    # Fire webhooks with the final (graded) state — never blocks the respondent.
+    schedule_response_delivery(s.id, r.id)
 
+    if grade is None:
+        return {"id": str(r.id), "status": "recorded"}
     if evaluation.get("feedbackTiming", "onComplete") == "never":
         return {"id": str(r.id), "status": "recorded"}
     return {"id": str(r.id), "status": "graded", "result": _respondent_view(grade, evaluation, s.json_schema or {})}
