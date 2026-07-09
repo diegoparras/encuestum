@@ -103,8 +103,15 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     headers: { "Content-Type": "application/json", ...init?.headers },
   });
   if (!res.ok) {
-    const detail = await res.text().catch(() => "");
-    throw new Error(detail || `Request failed (${res.status})`);
+    const raw = await res.text().catch(() => "");
+    let msg = raw;
+    try {
+      const j = JSON.parse(raw);
+      if (j && typeof j.detail === "string") msg = j.detail;
+    } catch {
+      /* not JSON; use raw text */
+    }
+    throw new Error(msg || `Request failed (${res.status})`);
   }
   if (res.status === 204) return undefined as T;
   return (await res.json()) as T;

@@ -55,6 +55,31 @@ if settings.cors_origins:
     )
 
 
+# AI errors → clean JSON responses (so they pass back through CORS with a helpful
+# message instead of a raw 500 the browser mis-reports as a CORS failure).
+from fastapi.responses import JSONResponse
+from app.llm import LLMNotConfigured, LLMError
+
+
+@app.exception_handler(LLMNotConfigured)
+async def _llm_not_configured(request: Request, exc: LLMNotConfigured) -> Response:
+    return JSONResponse(
+        status_code=503,
+        content={
+            "detail": "La IA no está configurada: falta la API key del proveedor. "
+            "Definí ENCUESTUM_LLM_API_KEY (OpenRouter/OpenAI) en el servidor.",
+        },
+    )
+
+
+@app.exception_handler(LLMError)
+async def _llm_error(request: Request, exc: LLMError) -> Response:
+    return JSONResponse(
+        status_code=502,
+        content={"detail": f"El proveedor de IA falló: {exc}"},
+    )
+
+
 @app.middleware("http")
 async def security_headers(request: Request, call_next) -> Response:
     response = await call_next(request)
