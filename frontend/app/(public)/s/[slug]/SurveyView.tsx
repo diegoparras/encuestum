@@ -6,7 +6,7 @@ import { Survey } from "survey-react-ui";
 import "survey-core/survey-core.min.css";
 import "survey-core/i18n/spanish";
 import { toast } from "sonner";
-import { Music, Volume2, VolumeX } from "lucide-react";
+import { Check, Music, Volume2, VolumeX } from "lucide-react";
 import { themeToDesign, type AudioSettings } from "../../../(survey-builder)/builder/model";
 import {
   absolutizeAssets,
@@ -50,6 +50,17 @@ interface PublicSurvey {
   closed_reason?: string | null;
   access_mode?: "public" | "pin" | "list";
   gated?: boolean;
+  // Distribución: pantalla de gracias personalizable y redirección al terminar.
+  thankyou_message?: string | null;
+  redirect_url?: string | null;
+}
+
+// Sólo permitimos redirigir a URLs http(s) absolutas; cualquier otra cosa se
+// ignora para evitar esquemas peligrosos (javascript:, data:, etc.).
+function safeRedirectUrl(url?: string | null): string | null {
+  if (!url) return null;
+  const trimmed = url.trim();
+  return /^https?:\/\//i.test(trimmed) ? trimmed : null;
 }
 
 interface GradedResult {
@@ -82,6 +93,10 @@ export default function SurveyView({ slug }: { slug: string }) {
   const [data, setData] = useState<PublicSurvey | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [results, setResults] = useState<GradedResult | null>(null);
+  // Encuesta terminada (para mostrar el mensaje de gracias personalizado).
+  const [completed, setCompleted] = useState(false);
+  // Redirección al terminar: mostramos "Redirigiendo…" antes de navegar.
+  const [redirecting, setRedirecting] = useState(false);
   // Access token for gated (pin/list) surveys; set once the access gate passes.
   const [accessToken, setAccessToken] = useState<string | null>(null);
   // Post-submit screen for list-mode surveys (thank-you + result lookup).
@@ -228,6 +243,40 @@ export default function SurveyView({ slug }: { slug: string }) {
       }
     });
 
+    // Prefill por query params: `/s/slug?nombre=Ana` precarga la pregunta cuyo
+    // nombre sea "nombre". Sólo cargamos claves que coincidan con nombres de
+    // pregunta y excluimos params reservados por la plataforma.
+    try {
+      const params = new URLSearchParams(window.location.search);
+      const reserved = new Set([
+        "email",
+        "code",
+        "access_token",
+        "fastapiUrl",
+        "embed",
+        "redirect_url",
+      ]);
+      const names = new Set(
+        survey.getAllQuestions().map((q: any) => q.name as string)
+      );
+      const prefill: Record<string, any> = {};
+      params.forEach((value, key) => {
+        if (reserved.has(key)) return;
+        if (names.has(key)) prefill[key] = value;
+      });
+      if (Object.keys(prefill).length > 0) {
+        survey.data = { ...survey.data, ...prefill };
+      }
+    } catch {
+      /* prefill es best-effort; ignorar errores de parseo */
+    }
+
+    // Si hay redirección o mensaje de gracias propio (y no es examen), evitamos
+    // la pantalla final por defecto de SurveyJS: renderizamos la nuestra.
+    if (!isExam && (safeRedirectUrl(data.redirect_url) || data.thankyou_message)) {
+      survey.showCompletedPage = false;
+    }
+
     // Integrity options for assessments.
     if (isExam) {
       const integ = evalMeta.integrity || {};
@@ -288,6 +337,16 @@ export default function SurveyView({ slug }: { slug: string }) {
           }
         );
         const body = await res.json().catch(() => null);
+        // Redirección al terminar: si hay una URL válida, tiene prioridad sobre
+        // cualquier pantalla de gracias. Mostramos "Redirigiendo…" y navegamos.
+        const redirectTo = safeRedirectUrl(data.redirect_url);
+        if (redirectTo) {
+          setRedirecting(true);
+          setTimeout(() => {
+            window.location.href = redirectTo;
+          }, 900);
+          return;
+        }
         if (body?.status === "graded" && body.result) {
           setResults(body.result as GradedResult);
         } else if (body?.results_pending && body?.can_check) {
@@ -296,6 +355,9 @@ export default function SurveyView({ slug }: { slug: string }) {
         } else if (data.access_mode === "list") {
           // List-mode: always let respondents look their result up later.
           setPostSubmit({ pending: false });
+        } else {
+          // Encuesta común: marcamos como terminada para la pantalla de gracias.
+          setCompleted(true);
         }
       } catch {
         /* keep the thank-you page even if the network hiccups */
@@ -344,8 +406,28 @@ export default function SurveyView({ slug }: { slug: string }) {
     );
   }
 
+  if (redirecting) {
+    return (
+      <Centered>
+        <p className="text-sm opacity-70">Redirigiendo…</p>
+      </Centered>
+    );
+  }
+
   if (results) {
     return <ResultsScreen results={results} accent={accent} />;
+  }
+
+  // Encuesta terminada con mensaje de gracias propio (sin redirección).
+  if (completed && data?.thankyou_message) {
+    return (
+      <ThankYouScreen
+        message={data.thankyou_message}
+        accent={accent}
+        design={design}
+        brandingHeader={brandingHeader}
+      />
+    );
   }
 
   // Gated survey (pin/list): show the access gate until the token is obtained.
@@ -560,6 +642,52 @@ function ResultsScreen({ results, accent }: { results: GradedResult; accent: str
             ))}
           </div>
         )}
+      </div>
+    </div>
+  );
+}
+
+// Pantalla de gracias personalizada (encuesta común, sin redirección).
+// Respeta el tema claro/oscuro del diseño de la encuesta.
+function ThankYouScreen({
+  message,
+  accent,
+  design,
+  brandingHeader,
+}: {
+  message: string;
+  accent: string;
+  design: ReturnType<typeof themeToDesign>;
+  brandingHeader: React.ReactNode;
+}) {
+  const dark = design.mode === "dark";
+  const pageBg = design.backgroundColor || (dark ? "#181c24" : "#f6f6f7");
+  const cardBg = dark ? "#232833" : "#ffffff";
+  const textColor = dark ? "#e5e7eb" : "#1f2937";
+
+  return (
+    <div className="min-h-screen" style={{ backgroundColor: pageBg }}>
+      {brandingHeader}
+      <div className="flex items-start justify-center p-6">
+        <div className="w-full max-w-xl mt-10">
+          <div
+            className="rounded-2xl p-8 text-center shadow-sm ring-1 ring-black/5"
+            style={{ backgroundColor: cardBg }}
+          >
+            <div
+              className="mx-auto mb-5 grid h-12 w-12 place-items-center rounded-full"
+              style={{ backgroundColor: `${accent}1a`, color: accent }}
+            >
+              <Check className="h-6 w-6" />
+            </div>
+            <p
+              className="whitespace-pre-line text-base leading-relaxed"
+              style={{ color: textColor }}
+            >
+              {message}
+            </p>
+          </div>
+        </div>
       </div>
     </div>
   );

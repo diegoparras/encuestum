@@ -15,6 +15,7 @@ import {
   Pencil,
   Download,
   QrCode,
+  Code2,
 } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import { toast } from "sonner";
@@ -54,6 +55,8 @@ export default function SurveyDetailPage() {
   const [copiedBranded, setCopiedBranded] = useState(false);
   const [me, setMe] = useState<Me | null>(null);
   const [showQr, setShowQr] = useState(false);
+  const [showEmbed, setShowEmbed] = useState(false);
+  const [copiedEmbed, setCopiedEmbed] = useState(false);
   const [exporting, setExporting] = useState<"csv" | "xlsx" | null>(null);
   const [duplicating, setDuplicating] = useState(false);
   const [resultsTab, setResultsTab] = useState<"summary" | "responses">("summary");
@@ -90,6 +93,11 @@ export default function SurveyDetailPage() {
 
   const publicUrl = survey
     ? `${typeof window !== "undefined" ? window.location.origin : ""}/s/${survey.slug}`
+    : "";
+
+  // Snippet de iframe para insertar la encuesta en un sitio externo.
+  const embedSnippet = publicUrl
+    ? `<iframe src="${publicUrl}" width="100%" height="700" frameborder="0" style="border:0"></iframe>`
     : "";
 
   const activeOrg = me?.orgs.find((o) => o.id === me.active_org_id) ?? me?.orgs[0];
@@ -176,6 +184,14 @@ export default function SurveyDetailPage() {
     });
   }
 
+  function copyEmbed() {
+    navigator.clipboard?.writeText(embedSnippet).then(() => {
+      setCopiedEmbed(true);
+      toast.success("Snippet copiado. Pegalo en tu sitio.");
+      setTimeout(() => setCopiedEmbed(false), 1800);
+    });
+  }
+
   if (status === "error") {
     return (
       <div className="max-w-3xl mx-auto px-6 py-10">
@@ -238,6 +254,13 @@ export default function SurveyDetailPage() {
         >
           <QrCode className="w-4 h-4" /> QR
         </button>
+        <button
+          onClick={() => setShowEmbed((v) => !v)}
+          className="inline-flex items-center gap-1 text-neutral-500 hover:text-neutral-900"
+          title="Insertar en un sitio (iframe)"
+        >
+          <Code2 className="w-4 h-4" /> Insertar
+        </button>
         {isPublished && (
           <a
             href={`/s/${survey.slug}`}
@@ -274,6 +297,30 @@ export default function SurveyDetailPage() {
         <div className="mt-3 flex flex-col items-center gap-2 rounded-lg border border-neutral-200 bg-white p-5">
           <QRCodeSVG value={publicUrl} size={168} level="M" includeMargin />
           <p className="text-xs text-neutral-500">Escaneá para abrir la encuesta</p>
+        </div>
+      )}
+
+      {showEmbed && (
+        <div className="mt-3 rounded-lg border border-neutral-200 bg-white p-4">
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <h3 className="text-sm font-semibold text-neutral-700">
+              Insertar en un sitio
+            </h3>
+            <button
+              onClick={copyEmbed}
+              className="inline-flex items-center gap-1 text-sm text-neutral-500 hover:text-neutral-900"
+            >
+              {copiedEmbed ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+              {copiedEmbed ? "Copiado" : "Copiar"}
+            </button>
+          </div>
+          <pre className="overflow-x-auto rounded-md bg-neutral-50 p-3 font-mono text-xs text-neutral-700 ring-1 ring-neutral-200">
+            {embedSnippet}
+          </pre>
+          <p className="mt-2 text-xs text-neutral-400">
+            Pegá este código en el HTML de tu sitio para mostrar la encuesta
+            embebida. Ajustá <span className="font-mono">height</span> a gusto.
+          </p>
         </div>
       )}
 
