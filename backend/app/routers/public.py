@@ -108,10 +108,14 @@ async def submit(slug: str, payload: SubmitResponseRequest, session: AsyncSessio
     grade = None
     if evaluation.get("enabled"):
         try:
-            grade = await grade_response(
-                evaluation=evaluation, answers=r.answers,
-                question_types=extract_question_types(s.json_schema), language=s.language or "es",
-            )
+            from app.ai_config import resolve_provider
+            from app.ai_usage import track_ai_call
+            provider = await resolve_provider(session, s.org_id)
+            async with track_ai_call(session, provider, s.org_id, "grade", s.id):
+                grade = await grade_response(
+                    evaluation=evaluation, answers=r.answers,
+                    question_types=extract_question_types(s.json_schema), language=s.language or "es",
+                )
             r.grade = grade
             r.score = grade.get("total")
             r.max_score = grade.get("max")

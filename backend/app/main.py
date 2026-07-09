@@ -15,7 +15,7 @@ from app.config import get_settings
 from app.db import engine
 from app.logging_conf import configure_logging
 from app.routers import (
-    admin, assets, auth, evaluation, orgs, panel, public, uploads, webhooks_api,
+    admin, ai, assets, auth, evaluation, orgs, panel, public, uploads, webhooks_api,
 )
 
 LOGGER = logging.getLogger("encuestum")
@@ -102,6 +102,7 @@ app.include_router(assets.router, prefix=API)
 app.include_router(uploads.router, prefix=API)
 app.include_router(webhooks_api.router, prefix=API)
 app.include_router(panel.router, prefix=API)
+app.include_router(ai.router, prefix=API)
 
 # Archivos subidos (imágenes/audio de diseño), servidos públicamente.
 os.makedirs(settings.asset_dir, exist_ok=True)

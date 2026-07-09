@@ -1,5 +1,5 @@
 from app.grading import build_ai_criteria
-from tests.conftest import new_client, register
+from tests.conftest import new_client, register, super_client
 
 SCHEMA = {"pages": [{"name": "p", "elements": [{"type": "text", "name": "q1", "title": "Nombre"}]}]}
 
@@ -40,8 +40,7 @@ def test_superadmin_gate():
     normal = new_client(); register(normal)
     assert normal.get("/api/v1/admin/overview").status_code == 403
 
-    su = new_client()
-    register(su, email="super@example.com")
+    su = super_client()
     ov = su.get("/api/v1/admin/overview")
     assert ov.status_code == 200
     assert "organizations" in ov.json() and ov.json()["orgs"] >= 1

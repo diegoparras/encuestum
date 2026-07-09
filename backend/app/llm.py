@@ -62,8 +62,18 @@ async def structured(
     """Return a dict validated against ``schema_model``.
 
     Raises ``LLMNotConfigured`` if there's no key, ``LLMError`` on failure.
+
+    The provider (base URL, key, model) comes from the active tracked call when
+    present (see ``ai_usage.track_ai_call``), falling back to env vars.
     """
-    key = _api_key()
+    from app import ai_usage  # local import to avoid a cycle at module load
+
+    acc = ai_usage.current()
+    provider = acc.provider if acc else None
+    if provider is not None:
+        key, base_url, model = provider.api_key, provider.base_url, provider.model
+    else:
+        key, base_url, model = _api_key(), _base_url(), _model()
     if not key:
         raise LLMNotConfigured("No LLM API key configured")
 
@@ -83,14 +93,14 @@ async def structured(
     async with httpx.AsyncClient(timeout=60) as client:
         for attempt in range(max_retries + 1):
             payload = {
-                "model": _model(),
+                "model": model,
                 "messages": messages,
                 "temperature": temperature,
                 "response_format": {"type": "json_object"},
             }
             try:
                 resp = await client.post(
-                    f"{_base_url()}/chat/completions",
+                    f"{base_url}/chat/completions",
                     headers={
                         "Authorization": f"Bearer {key}",
                         "Content-Type": "application/json",
@@ -103,8 +113,15 @@ async def structured(
             if resp.status_code >= 400:
                 raise LLMError(f"El proveedor LLM devolvió {resp.status_code}: {resp.text[:300]}")
 
+            resp_json = resp.json()
+            usage = resp_json.get("usage") or {}
+            ai_usage.record_usage(
+                resp_json.get("model") or model,
+                usage.get("prompt_tokens"),
+                usage.get("completion_tokens"),
+            )
             content = (
-                resp.json().get("choices", [{}])[0].get("message", {}).get("content", "")
+                resp_json.get("choices", [{}])[0].get("message", {}).get("content", "")
             )
             parsed = _extract_json(content)
             if parsed is not None:

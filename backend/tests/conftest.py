@@ -73,6 +73,24 @@ def register(client: TestClient, email: str | None = None, password: str = "supe
     return email, password, r.json()
 
 
+def super_client() -> TestClient:
+    """A super-admin client (email matches ENCUESTUM_SUPERADMIN_EMAIL). Registers
+    the account or logs in if a prior test already created it — the email is
+    unique and the DB is shared across the session."""
+    c = new_client()
+    r = c.post(
+        "/api/v1/auth/register",
+        json={"email": "super@example.com", "password": "supersecret1", "name": "Super"},
+    )
+    if r.status_code == 409:
+        r = c.post(
+            "/api/v1/auth/login",
+            json={"email": "super@example.com", "password": "supersecret1"},
+        )
+    assert r.status_code in (200, 201), r.text
+    return c
+
+
 @pytest.fixture
 def client():
     return new_client()

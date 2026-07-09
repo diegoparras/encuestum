@@ -234,3 +234,87 @@ class SurveyResponse(SQLModel, table=True):
     graded_at: Optional[datetime] = Field(
         sa_column=Column(DateTime(timezone=True)), default=None
     )
+
+
+# ── AI providers, usage tracking and editable pricing ────────────────────────
+AI_KINDS = {"openai", "openrouter", "custom"}
+
+
+class AiProvider(SQLModel, table=True):
+    """A configured LLM provider account. org_id NULL = platform-global default;
+    set = an organization's own override. api_key is stored and masked on read."""
+
+    __tablename__ = "ai_providers"
+
+    id: uuid.UUID = Field(primary_key=True, default_factory=uuid.uuid4)
+    # null → global/platform provider; set → org-specific override.
+    org_id: Optional[uuid.UUID] = Field(
+        sa_column=Column(ForeignKey("organizations.id", ondelete="CASCADE"), index=True),
+        default=None,
+    )
+    name: str = Field(sa_column=Column(String, nullable=False))
+    kind: str = Field(sa_column=Column(String, nullable=False))  # openai | openrouter | custom
+    base_url: str = Field(sa_column=Column(String, nullable=False))
+    api_key: str = Field(sa_column=Column(String, nullable=False))
+    model: str = Field(sa_column=Column(String, nullable=False))
+    is_default: bool = Field(
+        sa_column=Column(Boolean, nullable=False, server_default="0"), default=False
+    )
+    enabled: bool = Field(
+        sa_column=Column(Boolean, nullable=False, server_default="1"), default=True
+    )
+    created_by: Optional[uuid.UUID] = Field(
+        sa_column=Column(ForeignKey("users.id", ondelete="SET NULL")), default=None
+    )
+    created_at: datetime = Field(
+        sa_column=Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    )
+
+
+class AiUsage(SQLModel, table=True):
+    """One row per AI call: tokens consumed and approximate cost, for tracking."""
+
+    __tablename__ = "ai_usage"
+
+    id: uuid.UUID = Field(primary_key=True, default_factory=uuid.uuid4)
+    org_id: Optional[uuid.UUID] = Field(
+        sa_column=Column(ForeignKey("organizations.id", ondelete="CASCADE"), index=True),
+        default=None,
+    )
+    provider_id: Optional[uuid.UUID] = Field(
+        sa_column=Column(ForeignKey("ai_providers.id", ondelete="SET NULL"), index=True),
+        default=None,
+    )
+    survey_id: Optional[uuid.UUID] = Field(
+        sa_column=Column(ForeignKey("surveys.id", ondelete="SET NULL"), index=True),
+        default=None,
+    )
+    operation: str = Field(sa_column=Column(String, nullable=False))  # generate | grade | insights
+    model: str = Field(sa_column=Column(String, nullable=False))
+    prompt_tokens: int = Field(sa_column=Column(Integer, nullable=False, server_default="0"), default=0)
+    completion_tokens: int = Field(sa_column=Column(Integer, nullable=False, server_default="0"), default=0)
+    total_tokens: int = Field(sa_column=Column(Integer, nullable=False, server_default="0"), default=0)
+    cost_usd: Optional[float] = Field(sa_column=Column(Float), default=None)
+    created_by: Optional[uuid.UUID] = Field(
+        sa_column=Column(ForeignKey("users.id", ondelete="SET NULL")), default=None
+    )
+    created_at: datetime = Field(
+        sa_column=Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    )
+
+
+class AiModelPrice(SQLModel, table=True):
+    """Editable price table (USD per 1M tokens). Used to convert tokens → money
+    when the provider doesn't report cost directly."""
+
+    __tablename__ = "ai_model_prices"
+    __table_args__ = (UniqueConstraint("kind", "model", name="uq_ai_price_kind_model"),)
+
+    id: uuid.UUID = Field(primary_key=True, default_factory=uuid.uuid4)
+    kind: str = Field(sa_column=Column(String, nullable=False))  # openai | openrouter | custom
+    model: str = Field(sa_column=Column(String, nullable=False))
+    input_per_m: float = Field(sa_column=Column(Float, nullable=False))  # USD / 1M input tokens
+    output_per_m: float = Field(sa_column=Column(Float, nullable=False))  # USD / 1M output tokens
+    created_at: datetime = Field(
+        sa_column=Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    )

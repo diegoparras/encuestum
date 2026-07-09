@@ -48,7 +48,11 @@ async def grade_one(sid: uuid.UUID, rid: uuid.UUID, ctx: OrgContext = Depends(cu
     if not (s.evaluation or {}).get("enabled"):
         raise HTTPException(status_code=400, detail="Survey is not an assessment")
     r = await _response_or_404(sid, rid, session)
-    await _grade_and_store(s, r, session)
+    from app.ai_config import resolve_provider
+    from app.ai_usage import track_ai_call
+    provider = await resolve_provider(session, ctx.org.id)
+    async with track_ai_call(session, provider, ctx.org.id, "grade", sid, ctx.user.id):
+        await _grade_and_store(s, r, session)
     await session.commit()
     await session.refresh(r)
     return ResponseItem.from_model(r)
@@ -63,14 +67,18 @@ async def grade_all(sid: uuid.UUID, only_ungraded: bool = True, ctx: OrgContext 
     if only_ungraded:
         stmt = stmt.where(SurveyResponse.graded_at.is_(None))
     responses = (await session.scalars(stmt)).all()
+    from app.ai_config import resolve_provider
+    from app.ai_usage import track_ai_call
+    provider = await resolve_provider(session, ctx.org.id)
     graded = 0
-    for r in responses:
-        try:
-            await _grade_and_store(s, r, session)
-            graded += 1
-        except Exception:
-            r.needs_review = True
-            session.add(r)
+    async with track_ai_call(session, provider, ctx.org.id, "grade", sid, ctx.user.id):
+        for r in responses:
+            try:
+                await _grade_and_store(s, r, session)
+                graded += 1
+            except Exception:
+                r.needs_review = True
+                session.add(r)
     await session.commit()
     return {"graded": graded, "total": len(responses)}
 
@@ -179,18 +187,22 @@ async def get_insights(sid: uuid.UUID, ctx: OrgContext = Depends(current_context
 async def generate_insights(sid: uuid.UUID, ctx: OrgContext = Depends(current_context), session: AsyncSession = Depends(get_session)):
     s = await _survey_or_404(sid, ctx.org.id, session)
     from app.llm_calls import summarize_open_responses
+    from app.ai_config import resolve_provider
+    from app.ai_usage import track_ai_call, summary as usage_summary
     titles = _open_titles(s.json_schema)
     if not titles:
         raise HTTPException(status_code=400, detail="No open-text questions to summarize")
     responses = (await session.scalars(select(SurveyResponse).where(SurveyResponse.survey_id == sid))).all()
     out = []
-    for name, title in titles.items():
-        answers = [v.strip() for r in responses if isinstance((v := (r.answers or {}).get(name)), str) and v.strip()]
-        if not answers:
-            continue
-        summary = await summarize_open_responses(question_title=title, language=s.language or "es", answers=answers)
-        out.append({"name": name, "title": title, "n": len(answers), "summary": summary})
-    insights = {"generated_at": _utcnow().isoformat(), "questions": out}
+    provider = await resolve_provider(session, ctx.org.id)
+    async with track_ai_call(session, provider, ctx.org.id, "insights", sid, ctx.user.id) as acc:
+        for name, title in titles.items():
+            answers = [v.strip() for r in responses if isinstance((v := (r.answers or {}).get(name)), str) and v.strip()]
+            if not answers:
+                continue
+            question_summary = await summarize_open_responses(question_title=title, language=s.language or "es", answers=answers)
+            out.append({"name": name, "title": title, "n": len(answers), "summary": question_summary})
+    insights = {"generated_at": _utcnow().isoformat(), "questions": out, "usage": usage_summary(acc)}
     s.insights = insights
     session.add(s)
     await session.commit()
@@ -201,7 +213,13 @@ async def generate_insights(sid: uuid.UUID, ctx: OrgContext = Depends(current_co
 async def generate_questions(sid: uuid.UUID, payload: GenerateQuestionsRequest, ctx: OrgContext = Depends(current_context), session: AsyncSession = Depends(get_session)):
     await _survey_or_404(sid, ctx.org.id, session)
     from app.llm_calls import generate_survey_questions
-    return await generate_survey_questions(
-        topic=payload.topic, count=max(1, min(20, payload.count)), types=payload.types,
-        language=payload.language, difficulty=payload.difficulty, context=payload.context,
-    )
+    from app.ai_config import resolve_provider
+    from app.ai_usage import track_ai_call, summary
+
+    provider = await resolve_provider(session, ctx.org.id)
+    async with track_ai_call(session, provider, ctx.org.id, "generate", sid, ctx.user.id) as acc:
+        data = await generate_survey_questions(
+            topic=payload.topic, count=max(1, min(20, payload.count)), types=payload.types,
+            language=payload.language, difficulty=payload.difficulty, context=payload.context,
+        )
+    return {**data, "usage": summary(acc)}
