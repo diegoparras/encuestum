@@ -13,6 +13,7 @@ import {
   LogOut,
   Shield,
   Users,
+  Webhook,
 } from "lucide-react";
 import { getMe, logout, switchOrg, type Me } from "@/utils/auth";
 import { MeProvider } from "./MeContext";
@@ -255,6 +256,13 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                   icon={BarChart3}
                 >
                   Panel
+                </NavLink>
+                <NavLink
+                  href="/integrations"
+                  active={pathname === "/integrations"}
+                  icon={Webhook}
+                >
+                  Integraciones
                 </NavLink>
                 {me.user.is_superadmin && (
                   <NavLink
