@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useRef, useState } from "react";
 import {
   ImagePlus,
   Music,
+  Film,
   Upload,
   Library,
   X,
@@ -32,6 +33,12 @@ interface Props {
  * Reusable control to pick, upload, preview and clear a media asset.
  * Always emits the relative URL returned by the API (never absolutized).
  */
+const KIND_LABELS: Record<AssetKind, { uploaded: string; accept: string }> = {
+  image: { uploaded: "Imagen subida", accept: "image/*" },
+  audio: { uploaded: "Audio subido", accept: "audio/*" },
+  video: { uploaded: "Video subido", accept: "video/*" },
+};
+
 export function AssetPicker({ kind, value, onChange, label }: Props) {
   const isImage = kind === "image";
   const [uploading, setUploading] = useState(false);
@@ -45,7 +52,7 @@ export function AssetPicker({ kind, value, onChange, label }: Props) {
       try {
         const asset = await uploadAsset(file);
         onChange(asset.url);
-        toast.success(isImage ? "Imagen subida" : "Audio subido");
+        toast.success(KIND_LABELS[kind].uploaded);
       } catch (err) {
         toast.error(
           err instanceof Error ? err.message : "No se pudo subir el archivo."
@@ -55,7 +62,7 @@ export function AssetPicker({ kind, value, onChange, label }: Props) {
         if (inputRef.current) inputRef.current.value = "";
       }
     },
-    [isImage, onChange]
+    [kind, onChange]
   );
 
   return (
@@ -86,6 +93,8 @@ export function AssetPicker({ kind, value, onChange, label }: Props) {
               <Loader2 className="w-4 h-4 animate-spin" />
             ) : isImage ? (
               <ImagePlus className="w-4 h-4" />
+            ) : kind === "video" ? (
+              <Film className="w-4 h-4" />
             ) : (
               <Music className="w-4 h-4" />
             )}
@@ -106,7 +115,7 @@ export function AssetPicker({ kind, value, onChange, label }: Props) {
       <input
         ref={inputRef}
         type="file"
-        accept={isImage ? "image/*" : "audio/*"}
+        accept={KIND_LABELS[kind].accept}
         className="hidden"
         onChange={(e) => handleFile(e.target.files?.[0])}
       />
@@ -151,6 +160,15 @@ function Preview({
             className="w-full h-full object-cover"
           />
         </div>
+      ) : kind === "video" ? (
+        <video
+          controls
+          src={src}
+          className="w-full rounded-md bg-black"
+          style={{ maxHeight: 200 }}
+        >
+          Tu navegador no admite video.
+        </video>
       ) : (
         <audio controls src={src} className="w-full">
           Tu navegador no admite audio.
@@ -232,6 +250,14 @@ function LibraryDialog({
   }
 
   const isImage = kind === "image";
+  const libraryTitle =
+    kind === "image"
+      ? "Biblioteca de imágenes"
+      : kind === "video"
+        ? "Biblioteca de video"
+        : "Biblioteca de audio";
+  const emptyLabel =
+    kind === "image" ? "imágenes" : kind === "video" ? "videos" : "audios";
 
   return (
     <div
@@ -244,7 +270,7 @@ function LibraryDialog({
       >
         <div className="flex items-center justify-between border-b border-neutral-200 px-5 py-3.5">
           <h3 className="text-sm font-semibold text-neutral-800">
-            {isImage ? "Biblioteca de imágenes" : "Biblioteca de audio"}
+            {libraryTitle}
           </h3>
           <button
             type="button"
@@ -272,8 +298,8 @@ function LibraryDialog({
 
           {assets !== null && !error && assets.length === 0 && (
             <div className="grid place-items-center py-12 text-center text-sm text-neutral-400">
-              Todavía no subiste {isImage ? "imágenes" : "audios"}. Usá “Subir”
-              para agregar el primero.
+              Todavía no subiste {emptyLabel}. Usá “Subir” para agregar el
+              primero.
             </div>
           )}
 
@@ -330,16 +356,29 @@ function LibraryDialog({
                       active ? "border-[#e25a4e] bg-[#e25a4e0a]" : "border-neutral-200"
                     }`}
                   >
-                    <Music className="w-4 h-4 shrink-0 text-neutral-400" />
+                    {kind === "video" ? (
+                      <Film className="w-4 h-4 shrink-0 text-neutral-400" />
+                    ) : (
+                      <Music className="w-4 h-4 shrink-0 text-neutral-400" />
+                    )}
                     <div className="min-w-0 flex-1">
                       <div className="truncate text-sm text-neutral-700">
-                        {a.original_name ?? "Audio"}
+                        {a.original_name ?? (kind === "video" ? "Video" : "Audio")}
                       </div>
-                      <audio
-                        controls
-                        src={resolveAssetUrl(a.url)}
-                        className="mt-1 h-8 w-full"
-                      />
+                      {kind === "video" ? (
+                        <video
+                          controls
+                          src={resolveAssetUrl(a.url)}
+                          className="mt-1 w-full rounded bg-black"
+                          style={{ maxHeight: 120 }}
+                        />
+                      ) : (
+                        <audio
+                          controls
+                          src={resolveAssetUrl(a.url)}
+                          className="mt-1 h-8 w-full"
+                        />
+                      )}
                     </div>
                     <button
                       type="button"

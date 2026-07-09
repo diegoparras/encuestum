@@ -15,6 +15,7 @@ import {
   ChevronDownSquare,
   Star,
   ToggleLeft,
+  Images,
 } from "lucide-react";
 import {
   BuilderQuestion,
@@ -32,6 +33,7 @@ const ICON: Record<QuestionType, React.ComponentType<{ className?: string }>> = 
   dropdown: ChevronDownSquare,
   rating: Star,
   boolean: ToggleLeft,
+  imagepicker: Images,
 };
 
 interface Props {

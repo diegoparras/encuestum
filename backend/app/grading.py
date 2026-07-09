@@ -66,6 +66,11 @@ def grade_deterministic(qcfg: dict, qtype: str, answer: Any) -> dict:
     points = float(qcfg.get("points", 1) or 0)
     blank = answer is None or (isinstance(answer, (list, str)) and len(answer) == 0)
 
+    # Image-choice questions grade exactly like their text counterparts (choice
+    # values are the option labels): multi-select → checkbox, single → radiogroup.
+    if qtype == "imagepicker":
+        qtype = "checkbox" if qcfg.get("multiSelect") else "radiogroup"
+
     awarded = 0.0
     detail = ""
 

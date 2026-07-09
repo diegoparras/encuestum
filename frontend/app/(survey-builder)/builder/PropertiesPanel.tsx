@@ -9,8 +9,10 @@ import {
   typeHasChoices,
 } from "./model";
 import { ChoicesEditor } from "./ChoicesEditor";
+import { ImageChoicesEditor } from "./ImageChoicesEditor";
 import { GradingSection } from "./GradingSection";
 import { AssetPicker } from "./AssetPicker";
+import { Film } from "lucide-react";
 
 interface Props {
   question: BuilderQuestion | null;
@@ -101,6 +103,11 @@ export function PropertiesPanel({
         />
       </Field>
 
+      <VideoSection
+        videoUrl={q.videoUrl}
+        onChange={(videoUrl) => onQuestionChange({ videoUrl })}
+      />
+
       {showPlaceholder && (
         <Field label="Texto de ejemplo (placeholder)">
           <input
@@ -111,13 +118,30 @@ export function PropertiesPanel({
         </Field>
       )}
 
-      {typeHasChoices(q.type) && (
-        <Field label="Opciones">
-          <ChoicesEditor
-            choices={q.choices ?? []}
-            onChange={(choices) => onQuestionChange({ choices })}
+      {q.type === "imagepicker" ? (
+        <>
+          <Field label="Opciones (imagen)">
+            <ImageChoicesEditor
+              choices={q.choices ?? []}
+              onChange={(choices) => onQuestionChange({ choices })}
+            />
+          </Field>
+          <ToggleRow
+            label="Permitir varias"
+            hint="Quien responde puede elegir más de una imagen"
+            checked={!!q.multiSelect}
+            onChange={(v) => onQuestionChange({ multiSelect: v })}
           />
-        </Field>
+        </>
+      ) : (
+        typeHasChoices(q.type) && (
+          <Field label="Opciones">
+            <ChoicesEditor
+              choices={q.choices ?? []}
+              onChange={(choices) => onQuestionChange({ choices })}
+            />
+          </Field>
+        )
       )}
 
       {q.type === "rating" && (
@@ -302,6 +326,40 @@ function ExamSettings({
           onChange={(v) => setIntegrity({ shuffleChoices: v })}
         />
       </div>
+    </div>
+  );
+}
+
+function VideoSection({
+  videoUrl,
+  onChange,
+}: {
+  videoUrl?: string;
+  onChange: (url: string | undefined) => void;
+}) {
+  return (
+    <div className="mb-4 rounded-xl border border-neutral-200 p-3">
+      <div className="mb-2.5 inline-flex items-center gap-1.5 text-xs font-semibold text-neutral-600">
+        <Film className="w-3.5 h-3.5 text-neutral-400" /> Video (opcional)
+      </div>
+
+      <Field label="URL (YouTube, Vimeo o mp4)">
+        <input
+          value={videoUrl ?? ""}
+          onChange={(e) => onChange(e.target.value.trim() || undefined)}
+          placeholder="https://youtu.be/…"
+          className="w-full rounded-md border border-neutral-200 px-2.5 py-2 text-sm outline-none focus:border-neutral-400"
+        />
+      </Field>
+
+      <div className="mb-1 text-xs font-medium text-neutral-600">
+        …o subí tu propio video
+      </div>
+      <AssetPicker
+        kind="video"
+        value={videoUrl}
+        onChange={(url) => onChange(url)}
+      />
     </div>
   );
 }

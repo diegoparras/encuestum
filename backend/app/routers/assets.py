@@ -31,6 +31,10 @@ _AUDIO_TYPES = {
     "audio/wav": ".wav", "audio/x-wav": ".wav", "audio/webm": ".weba",
     "audio/mp4": ".m4a", "audio/aac": ".aac",
 }
+_VIDEO_TYPES = {
+    "video/mp4": ".mp4", "video/webm": ".webm", "video/ogg": ".ogv",
+    "video/quicktime": ".mov",
+}
 
 
 class AssetOut(BaseModel):
@@ -69,6 +73,8 @@ async def upload_asset(
         kind, ext, max_mb = "image", _IMAGE_TYPES[ct], settings.asset_max_image_mb
     elif ct in _AUDIO_TYPES:
         kind, ext, max_mb = "audio", _AUDIO_TYPES[ct], settings.asset_max_audio_mb
+    elif ct in _VIDEO_TYPES:
+        kind, ext, max_mb = "video", _VIDEO_TYPES[ct], settings.asset_max_video_mb
     else:
         raise HTTPException(status_code=415, detail=f"Tipo de archivo no soportado: {ct or 'desconocido'}")
 
@@ -102,7 +108,7 @@ async def list_assets(
     session: AsyncSession = Depends(get_session),
 ):
     stmt = select(Asset).where(Asset.org_id == ctx.org.id).order_by(Asset.created_at.desc())
-    if kind in ("image", "audio"):
+    if kind in ("image", "audio", "video"):
         stmt = stmt.where(Asset.kind == kind)
     rows = (await session.scalars(stmt)).all()
     return [_to_out(a) for a in rows]

@@ -25,6 +25,7 @@ import {
   ChevronDownSquare,
   Star,
   ToggleLeft,
+  Images,
   Plus,
 } from "lucide-react";
 import { BuilderQuestion, QUESTION_TYPES, QuestionType } from "./model";
@@ -39,6 +40,7 @@ const PALETTE_ICON: Record<QuestionType, React.ComponentType<{ className?: strin
   dropdown: ChevronDownSquare,
   rating: Star,
   boolean: ToggleLeft,
+  imagepicker: Images,
 };
 
 interface Props {

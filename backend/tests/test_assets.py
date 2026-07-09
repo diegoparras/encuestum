@@ -29,6 +29,14 @@ def test_upload_list_delete_and_isolation():
     assert a.get("/api/v1/assets").json() == []
 
 
+def test_upload_video():
+    a = new_client(); register(a)
+    r = a.post("/api/v1/assets", files={"file": ("clip.mp4", b"\x00\x00\x00\x18ftypmp42fake", "video/mp4")})
+    assert r.status_code == 201, r.text
+    assert r.json()["kind"] == "video"
+    assert len(a.get("/api/v1/assets?kind=video").json()) == 1
+
+
 def test_reject_unsupported_type():
     a = new_client(); register(a)
     r = a.post("/api/v1/assets", files={"file": ("x.txt", b"hello", "text/plain")})

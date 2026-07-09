@@ -4,7 +4,7 @@
 
 import { getApiUrl } from "@/utils/api";
 
-export type AssetKind = "image" | "audio";
+export type AssetKind = "image" | "audio" | "video";
 
 export interface Asset {
   id: string;

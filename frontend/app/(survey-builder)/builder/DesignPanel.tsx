@@ -1,12 +1,16 @@
 "use client";
 
 import React, { useEffect } from "react";
-import { X, Type, Palette, Image as ImageIcon, Music, Check } from "lucide-react";
+import { X, Type, Palette, Image as ImageIcon, Music, Check, Sparkles } from "lucide-react";
 import {
   ACCENT_PALETTE,
   AudioSettings,
   DesignSettings,
   FONT_OPTIONS,
+  THEME_PRESETS,
+  ThemePreset,
+  applyThemePreset,
+  fontById,
   fontCssFamily,
   readableForeground,
 } from "./model";
@@ -42,6 +46,7 @@ export function DesignPanel({
   useEffect(() => {
     if (!open) return;
     FONT_OPTIONS.forEach((f) => loadFont(f.id));
+    THEME_PRESETS.forEach((p) => loadFont(p.fontFamily));
   }, [open]);
 
   // Close on Escape.
@@ -88,6 +93,28 @@ export function DesignPanel({
         </div>
 
         <div className="flex-1 overflow-y-auto px-5 py-5">
+          {/* Temas */}
+          <Section icon={<Sparkles className="w-4 h-4" />} title="Temas">
+            <div className="grid grid-cols-2 gap-2">
+              {THEME_PRESETS.map((preset) => {
+                const active =
+                  design.fontFamily === preset.fontFamily &&
+                  accent.toLowerCase() === preset.accent.toLowerCase();
+                return (
+                  <ThemeCard
+                    key={preset.id}
+                    preset={preset}
+                    active={active}
+                    onClick={() => {
+                      onChange(applyThemePreset(design, preset));
+                      onAccentChange(preset.accent);
+                    }}
+                  />
+                );
+              })}
+            </div>
+          </Section>
+
           {/* Tipografía */}
           <Section icon={<Type className="w-4 h-4" />} title="Tipografía">
             <div className="grid grid-cols-2 gap-2">
@@ -286,6 +313,49 @@ export function DesignPanel({
         </div>
       </div>
     </div>
+  );
+}
+
+function ThemeCard({
+  preset,
+  active,
+  onClick,
+}: {
+  preset: ThemePreset;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`relative overflow-hidden rounded-lg border text-left transition-colors ${
+        active
+          ? "border-[#e25a4e] ring-1 ring-[#e25a4e]"
+          : "border-neutral-200 hover:border-neutral-300"
+      }`}
+    >
+      <div
+        className="flex items-center gap-2 px-3 py-3"
+        style={{ backgroundColor: preset.backgroundColor }}
+      >
+        <span
+          className="h-6 w-6 shrink-0 rounded-full ring-1 ring-black/5"
+          style={{ backgroundColor: preset.accent }}
+        />
+        <span
+          className="truncate text-sm text-neutral-800"
+          style={{ fontFamily: fontById(preset.fontFamily).css }}
+        >
+          {preset.name}
+        </span>
+      </div>
+      {active && (
+        <span className="absolute right-1.5 top-1.5 grid h-4 w-4 place-items-center rounded-full bg-[#e25a4e] text-white">
+          <Check className="w-2.5 h-2.5" />
+        </span>
+      )}
+    </button>
   );
 }
 

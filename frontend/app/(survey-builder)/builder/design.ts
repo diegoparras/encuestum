@@ -32,7 +32,12 @@ export function resolveAssetUrl(url: string | null | undefined): string {
  *  where the frontend and API are on different origins. */
 export function absolutizeAssets<T>(value: T): T {
   if (typeof value === "string") {
-    return (value.startsWith("/assets/") ? resolveAssetUrl(value) : value) as unknown as T;
+    if (value.startsWith("/assets/")) return resolveAssetUrl(value) as unknown as T;
+    // Also rewrite asset URLs embedded inside HTML (e.g. a video <src>).
+    if (value.includes("/assets/")) {
+      return value.replace(/\/assets\/[^\s"')]+/g, (m) => resolveAssetUrl(m)) as unknown as T;
+    }
+    return value as unknown as T;
   }
   if (Array.isArray(value)) {
     return value.map((v) => absolutizeAssets(v)) as unknown as T;

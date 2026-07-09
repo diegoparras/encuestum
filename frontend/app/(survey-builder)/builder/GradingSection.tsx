@@ -2,8 +2,9 @@
 
 import React from "react";
 import { Switch } from "@/components/ui/switch";
-import { BuilderQuestion } from "./model";
+import { BuilderQuestion, Choice } from "./model";
 import { RubricEditor } from "./RubricEditor";
+import { resolveAssetUrl } from "./design";
 
 interface Props {
   question: BuilderQuestion;
@@ -91,6 +92,23 @@ export function GradingSection({ question: q, accent, onChange }: Props) {
               onPartial={(v) => onChange({ partialCredit: v })}
             />
           )}
+
+          {q.type === "imagepicker" &&
+            (q.multiSelect ? (
+              <ImageMultiCorrect
+                choices={q.choices ?? []}
+                value={q.correctChoices ?? []}
+                partial={!!q.partialCredit}
+                onChange={(vals) => onChange({ correctChoices: vals })}
+                onPartial={(v) => onChange({ partialCredit: v })}
+              />
+            ) : (
+              <ImageSingleCorrect
+                choices={q.choices ?? []}
+                value={q.correctChoices?.[0]}
+                onChange={(v) => onChange({ correctChoices: v ? [v] : [] })}
+              />
+            ))}
 
           {q.type === "boolean" && (
             <Field label="Respuesta correcta">
@@ -272,6 +290,111 @@ function MultiCorrect({
           checked={partial}
           onChange={onPartial}
         />
+      </div>
+    </Field>
+  );
+}
+
+// Answer key for imagepicker: choose the correct option(s) by their thumbnail
+// and label. Stores the option text in q.correctChoices (matching the model).
+function choiceKey(c: Choice, i: number): string {
+  return c.text?.trim() ? c.text : `Opción ${i + 1}`;
+}
+
+function ImageChoiceThumb({ choice }: { choice: Choice }) {
+  if (!choice.imageUrl)
+    return (
+      <span className="grid h-9 w-9 shrink-0 place-items-center rounded bg-neutral-100 text-[10px] text-neutral-400">
+        —
+      </span>
+    );
+  return (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img
+      src={resolveAssetUrl(choice.imageUrl)}
+      alt=""
+      className="h-9 w-9 shrink-0 rounded object-cover bg-neutral-100"
+    />
+  );
+}
+
+function ImageSingleCorrect({
+  choices,
+  value,
+  onChange,
+}: {
+  choices: Choice[];
+  value?: string;
+  onChange: (v: string) => void;
+}) {
+  if (!choices.length)
+    return <Hint>Agregá opciones para marcar la correcta.</Hint>;
+  return (
+    <Field label="Imagen correcta">
+      <div className="space-y-1">
+        {choices.map((c, i) => {
+          const key = choiceKey(c, i);
+          return (
+            <label
+              key={c.id}
+              className="flex items-center gap-2 text-sm cursor-pointer"
+            >
+              <input
+                type="radio"
+                checked={value === key}
+                onChange={() => onChange(key)}
+              />
+              <ImageChoiceThumb choice={c} />
+              <span className="truncate">{key}</span>
+            </label>
+          );
+        })}
+      </div>
+    </Field>
+  );
+}
+
+function ImageMultiCorrect({
+  choices,
+  value,
+  partial,
+  onChange,
+  onPartial,
+}: {
+  choices: Choice[];
+  value: string[];
+  partial: boolean;
+  onChange: (v: string[]) => void;
+  onPartial: (v: boolean) => void;
+}) {
+  if (!choices.length)
+    return <Hint>Agregá opciones para marcar las correctas.</Hint>;
+  function toggle(key: string) {
+    onChange(value.includes(key) ? value.filter((x) => x !== key) : [...value, key]);
+  }
+  return (
+    <Field label="Imágenes correctas">
+      <div className="space-y-1">
+        {choices.map((c, i) => {
+          const key = choiceKey(c, i);
+          return (
+            <label
+              key={c.id}
+              className="flex items-center gap-2 text-sm cursor-pointer"
+            >
+              <input
+                type="checkbox"
+                checked={value.includes(key)}
+                onChange={() => toggle(key)}
+              />
+              <ImageChoiceThumb choice={c} />
+              <span className="truncate">{key}</span>
+            </label>
+          );
+        })}
+      </div>
+      <div className="mt-2">
+        <ToggleRow label="Crédito parcial" checked={partial} onChange={onPartial} />
       </div>
     </Field>
   );

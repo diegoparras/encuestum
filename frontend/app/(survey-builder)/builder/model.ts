@@ -11,11 +11,13 @@ export type QuestionType =
   | "checkbox"
   | "dropdown"
   | "rating"
-  | "boolean";
+  | "boolean"
+  | "imagepicker";
 
 export interface Choice {
   id: string;
   text: string;
+  imageUrl?: string; // imagepicker: image shown for this option
 }
 
 export interface RubricItem {
@@ -57,8 +59,13 @@ export interface BuilderQuestion {
   keyConcepts?: string[];
   rubric?: RubricItem[];
 
-  // Optional decorative image shown above the question (asset URL).
+  // Optional media shown above the question. imageUrl is an asset URL; videoUrl
+  // may be a YouTube/Vimeo/mp4 URL or an uploaded video asset.
   imageUrl?: string;
+  videoUrl?: string;
+
+  // imagepicker: allow selecting more than one image.
+  multiSelect?: boolean;
 }
 
 export interface EvaluationSettings {
@@ -148,6 +155,33 @@ export function fontCssFamily(id: string): string {
   return fontById(id).css;
 }
 
+// One-click complete looks: accent + font + background. Applied over the current
+// design, preserving any uploaded media (cover/logo/background image/audio).
+export interface ThemePreset {
+  id: string;
+  name: string;
+  accent: string;
+  fontFamily: string;
+  backgroundColor: string;
+}
+
+export const THEME_PRESETS: ThemePreset[] = [
+  { id: "coral", name: "Coral", accent: "#e25a4e", fontFamily: "inter", backgroundColor: "#fff7f5" },
+  { id: "editorial", name: "Editorial", accent: "#1f2937", fontFamily: "playfair", backgroundColor: "#faf6ef" },
+  { id: "vibrante", name: "Vibrante", accent: "#ec4899", fontFamily: "poppins", backgroundColor: "#fdf2f8" },
+  { id: "corporativo", name: "Corporativo", accent: "#1d4ed8", fontFamily: "inter", backgroundColor: "#f5f8ff" },
+  { id: "naturaleza", name: "Naturaleza", accent: "#10b981", fontFamily: "nunito", backgroundColor: "#f0fdf4" },
+  { id: "atardecer", name: "Atardecer", accent: "#f59e0b", fontFamily: "montserrat", backgroundColor: "#fffbeb" },
+  { id: "indigo", name: "Índigo", accent: "#4f46e5", fontFamily: "dmsans", backgroundColor: "#f5f5ff" },
+  { id: "menta", name: "Menta", accent: "#14b8a6", fontFamily: "spacegrotesk", backgroundColor: "#f0fdfa" },
+  { id: "grafito", name: "Grafito", accent: "#334155", fontFamily: "inter", backgroundColor: "#f8fafc" },
+  { id: "creativo", name: "Creativo", accent: "#8b5cf6", fontFamily: "caveat", backgroundColor: "#faf5ff" },
+];
+
+export function applyThemePreset(design: DesignSettings, preset: ThemePreset): DesignSettings {
+  return { ...design, fontFamily: preset.fontFamily, backgroundColor: preset.backgroundColor };
+}
+
 export interface BuilderState {
   title: string;
   description: string;
@@ -179,6 +213,7 @@ export const QUESTION_TYPES: QuestionTypeMeta[] = [
   { type: "dropdown", label: "Desplegable", hint: "Lista larga", hasChoices: true },
   { type: "rating", label: "Escala / NPS", hint: "0 a 10", hasChoices: false },
   { type: "boolean", label: "Sí / No", hint: "Booleano", hasChoices: false },
+  { type: "imagepicker", label: "Opción con imágenes", hint: "Elegir por imagen", hasChoices: true },
 ];
 
 export const QUESTION_TYPE_LABEL: Record<QuestionType, string> = Object.fromEntries(
@@ -320,6 +355,8 @@ function defaultTitle(type: QuestionType): string {
       return "¿Qué tan probable es que nos recomiendes?";
     case "boolean":
       return "¿Estás de acuerdo?";
+    case "imagepicker":
+      return "Elegí una imagen";
     default:
       return "Pregunta";
   }
@@ -341,7 +378,15 @@ function questionToElement(q: BuilderQuestion): Record<string, any> {
     el.validators = [{ type: "email" }];
   }
   if (q.placeholder) el.placeholder = q.placeholder;
-  if (typeHasChoices(q.type)) {
+  if (q.type === "imagepicker") {
+    el.choices = (q.choices ?? [])
+      .map((c) => ({ value: c.text, text: c.text, imageLink: c.imageUrl || undefined }))
+      .filter((c) => c.text.trim() !== "" || c.imageLink);
+    el.multiSelect = !!q.multiSelect;
+    el.showLabel = true;
+    el.imageFit = "cover";
+    el.contentMode = "image";
+  } else if (typeHasChoices(q.type)) {
     el.choices = (q.choices ?? []).map((c) => c.text).filter((t) => t.trim() !== "");
   }
   if (q.type === "rating") {
@@ -370,10 +415,39 @@ function imageCompanion(q: BuilderQuestion): Record<string, any> {
   };
 }
 
+// Turn a video URL (YouTube / Vimeo / direct file or uploaded asset) into
+// responsive embed HTML.
+export function buildVideoEmbed(url: string): string {
+  const u = (url || "").trim();
+  if (!u) return "";
+  const frame = (src: string) =>
+    `<div style="position:relative;padding-bottom:56.25%;height:0;overflow:hidden;border-radius:12px">` +
+    `<iframe src="${src}" style="position:absolute;top:0;left:0;width:100%;height:100%;border:0" ` +
+    `allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe></div>`;
+  const yt = u.match(/(?:youtube\.com\/(?:watch\?v=|embed\/)|youtu\.be\/)([\w-]{11})/);
+  if (yt) return frame(`https://www.youtube.com/embed/${yt[1]}`);
+  const vimeo = u.match(/vimeo\.com\/(?:video\/)?(\d+)/);
+  if (vimeo) return frame(`https://player.vimeo.com/video/${vimeo[1]}`);
+  // Direct file or uploaded asset.
+  return `<video controls playsinline preload="metadata" style="width:100%;border-radius:12px;max-height:420px" src="${u}"></video>`;
+}
+
+// A video element rendered above its question. We keep the original URL in
+// `videoLink` so deserialization can recover it (the html is just the embed).
+function videoCompanion(q: BuilderQuestion): Record<string, any> {
+  return {
+    type: "html",
+    name: `${q.name}__vid`,
+    videoLink: q.videoUrl,
+    html: buildVideoEmbed(q.videoUrl || ""),
+  };
+}
+
 export function builderToSchema(state: BuilderState): Record<string, any> {
   const elements: Record<string, any>[] = [];
   for (const q of state.questions) {
     if (q.imageUrl) elements.push(imageCompanion(q));
+    if (q.videoUrl) elements.push(videoCompanion(q));
     elements.push(questionToElement(q));
   }
   elements.push(...(state.passthrough ?? []));
@@ -414,6 +488,7 @@ function elementToQuestion(el: Record<string, any>, index: number): BuilderQuest
     "dropdown",
     "rating",
     "boolean",
+    "imagepicker",
   ];
   if (!supported.includes(type)) return null;
 
@@ -427,7 +502,14 @@ function elementToQuestion(el: Record<string, any>, index: number): BuilderQuest
     placeholder: el.placeholder || undefined,
   };
 
-  if (typeHasChoices(type) && Array.isArray(el.choices)) {
+  if (type === "imagepicker" && Array.isArray(el.choices)) {
+    q.choices = el.choices.map((c: any) => {
+      const ch = newChoice(typeof c === "object" ? c.text ?? c.value ?? "" : String(c));
+      if (c && typeof c === "object" && c.imageLink) ch.imageUrl = c.imageLink;
+      return ch;
+    });
+    q.multiSelect = !!el.multiSelect;
+  } else if (typeHasChoices(type) && Array.isArray(el.choices)) {
     q.choices = el.choices.map((c: any) =>
       newChoice(typeof c === "object" ? c.text ?? c.value ?? "" : String(c))
     );
@@ -457,24 +539,29 @@ export function schemaToBuilder(
     Array.isArray(p?.elements) ? p.elements : []
   );
 
-  const isCompanion = (el: any) =>
-    el?.type === "image" && typeof el?.name === "string" && el.name.endsWith("__img");
+  const named = (el: any) => (typeof el?.name === "string" ? el.name : "");
+  const isImageCompanion = (el: any) => el?.type === "image" && named(el).endsWith("__img");
+  const isVideoCompanion = (el: any) => el?.type === "html" && named(el).endsWith("__vid");
 
-  // First pass: collect per-question image links from companion elements.
+  // First pass: collect per-question media links from companion elements.
   const imageByBase: Record<string, string> = {};
+  const videoByBase: Record<string, string> = {};
   elements.forEach((el) => {
-    if (isCompanion(el) && el.imageLink) {
-      imageByBase[el.name.slice(0, -"__img".length)] = el.imageLink;
+    if (isImageCompanion(el) && el.imageLink) {
+      imageByBase[named(el).slice(0, -"__img".length)] = el.imageLink;
+    } else if (isVideoCompanion(el) && el.videoLink) {
+      videoByBase[named(el).slice(0, -"__vid".length)] = el.videoLink;
     }
   });
 
   const questions: BuilderQuestion[] = [];
   const passthrough: Record<string, any>[] = [];
   elements.forEach((el, i) => {
-    if (isCompanion(el)) return; // re-attached below, not a real element
+    if (isImageCompanion(el) || isVideoCompanion(el)) return; // re-attached below
     const q = elementToQuestion(el, i);
     if (q) {
       if (imageByBase[q.name]) q.imageUrl = imageByBase[q.name];
+      if (videoByBase[q.name]) q.videoUrl = videoByBase[q.name];
       questions.push(q);
     } else if (el && typeof el === "object") {
       passthrough.push(el);
@@ -534,7 +621,11 @@ function hydrateGrading(
     q.partialCredit = !!c.partialCredit;
     q.tolerance = c.tolerance ?? 0;
     const correct = c.correct;
-    if (q.type === "checkbox") {
+    if (q.type === "imagepicker") {
+      q.correctChoices = Array.isArray(correct) ? correct.map(String) : [];
+      q.multiSelect = !!c.multiSelect;
+      q.partialCredit = !!c.partialCredit;
+    } else if (q.type === "checkbox") {
       q.correctChoices = Array.isArray(correct) ? correct.map(String) : [];
     } else if (q.type === "boolean") {
       q.correctBool = !!correct;
@@ -582,7 +673,11 @@ export function builderToEvaluation(
         points: r.points,
       }));
     } else {
-      if (q.type === "checkbox") {
+      if (q.type === "imagepicker") {
+        cfg.correct = q.correctChoices ?? [];
+        cfg.multiSelect = !!q.multiSelect;
+        if (q.multiSelect) cfg.partialCredit = !!q.partialCredit;
+      } else if (q.type === "checkbox") {
         cfg.correct = q.correctChoices ?? [];
         cfg.partialCredit = !!q.partialCredit;
       } else if (q.type === "boolean") {

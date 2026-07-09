@@ -51,6 +51,7 @@ class Settings:
         )
         self.asset_max_image_mb = float(os.getenv("ENCUESTUM_ASSET_MAX_IMAGE_MB", "8"))
         self.asset_max_audio_mb = float(os.getenv("ENCUESTUM_ASSET_MAX_AUDIO_MB", "15"))
+        self.asset_max_video_mb = float(os.getenv("ENCUESTUM_ASSET_MAX_VIDEO_MB", "50"))
 
         # Public base URL used to build links in emails (invites, reset, verify).
         # Falls back to the first CORS origin, then localhost.
