@@ -282,6 +282,51 @@ async def lookup_result(
     return {"status": "graded", "result": _respondent_view(r.grade, s.evaluation or {}, s.json_schema or {})}
 
 
+@router.post("/{slug}/certificate")
+async def certificate(
+    slug: str, payload: ResultLookupRequest, session: AsyncSession = Depends(get_session)
+):
+    """Certificate data for a respondent who passed an assessment (email-list
+    access). The frontend renders a printable certificate from this."""
+    from app.models import Organization
+    s = await _visible(slug, session)
+    if getattr(s, "access_mode", "public") != "list":
+        raise HTTPException(status_code=404, detail="No disponible")
+    if not (s.evaluation or {}).get("enabled"):
+        raise HTTPException(status_code=404, detail="Esta encuesta no es una evaluación")
+    inv = await _find_invitee(session, s.id, payload.email, payload.code)
+    if not inv:
+        raise HTTPException(status_code=403, detail="Email o código inválido")
+    if getattr(s, "results_mode", "immediate") == "on_release" and not getattr(s, "results_released", False):
+        raise HTTPException(status_code=403, detail="Los resultados todavía no fueron publicados.")
+
+    r = (
+        await session.scalars(
+            select(SurveyResponse)
+            .where(SurveyResponse.survey_id == s.id, SurveyResponse.respondent_code == inv.code)
+            .order_by(SurveyResponse.submitted_at.desc())
+        )
+    ).first()
+    if not r or not r.grade:
+        raise HTTPException(status_code=404, detail="Todavía no tenés una respuesta corregida")
+
+    passing = float((s.evaluation or {}).get("passingScore", 60) or 60)
+    pct = float((r.grade or {}).get("percent", 0) or 0)
+    if pct < passing:
+        raise HTTPException(status_code=403, detail="El certificado se emite solo al aprobar.")
+
+    org = await session.get(Organization, s.org_id)
+    return {
+        "name": inv.name or inv.email,
+        "survey_title": s.title or "Evaluación",
+        "org_name": org.name if org else "",
+        "percent": round(pct, 1),
+        "passing_score": passing,
+        "date": r.submitted_at.date().isoformat(),
+        "code": inv.code,
+    }
+
+
 @router.post("/{slug}/grade-question")
 async def grade_question(slug: str, payload: GradeQuestionRequest, session: AsyncSession = Depends(get_session)):
     s = await _visible(slug, session)
