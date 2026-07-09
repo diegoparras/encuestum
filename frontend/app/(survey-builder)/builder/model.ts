@@ -220,6 +220,7 @@ export interface BuilderState {
   description: string;
   accent: string;
   onePerPage: boolean; // Typeform-style one question per screen
+  showProgress: boolean; // show "Pregunta X de Y" (only meaningful with onePerPage)
   questions: BuilderQuestion[];
   evaluation: EvaluationSettings;
   design: DesignSettings;
@@ -481,16 +482,18 @@ function imageCompanion(q: BuilderQuestion): Record<string, any> {
 export function buildVideoEmbed(url: string): string {
   const u = (url || "").trim();
   if (!u) return "";
+  // Constrained, centered player so the video never dominates the question.
   const frame = (src: string) =>
+    `<div style="max-width:440px;margin:4px auto 8px">` +
     `<div style="position:relative;padding-bottom:56.25%;height:0;overflow:hidden;border-radius:12px">` +
     `<iframe src="${src}" style="position:absolute;top:0;left:0;width:100%;height:100%;border:0" ` +
-    `allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe></div>`;
+    `allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture" allowfullscreen></iframe></div></div>`;
   const yt = u.match(/(?:youtube\.com\/(?:watch\?v=|embed\/)|youtu\.be\/)([\w-]{11})/);
   if (yt) return frame(`https://www.youtube.com/embed/${yt[1]}`);
   const vimeo = u.match(/vimeo\.com\/(?:video\/)?(\d+)/);
   if (vimeo) return frame(`https://player.vimeo.com/video/${vimeo[1]}`);
   // Direct file or uploaded asset.
-  return `<video controls playsinline preload="metadata" style="width:100%;border-radius:12px;max-height:420px" src="${u}"></video>`;
+  return `<div style="max-width:440px;margin:4px auto 8px"><video controls playsinline preload="metadata" style="width:100%;border-radius:12px;max-height:300px" src="${u}"></video></div>`;
 }
 
 // A video element rendered above its question. We keep the original URL in
@@ -504,25 +507,42 @@ function videoCompanion(q: BuilderQuestion): Record<string, any> {
   };
 }
 
+// A question plus its own media (image/video), kept together so per-question
+// media renders ONLY with that question.
+function questionBlock(q: BuilderQuestion): Record<string, any>[] {
+  const els: Record<string, any>[] = [];
+  if (q.imageUrl) els.push(imageCompanion(q));
+  if (q.videoUrl) els.push(videoCompanion(q));
+  els.push(questionToElement(q));
+  return els;
+}
+
 export function builderToSchema(state: BuilderState): Record<string, any> {
-  const elements: Record<string, any>[] = [];
-  for (const q of state.questions) {
-    if (q.imageUrl) elements.push(imageCompanion(q));
-    if (q.videoUrl) elements.push(videoCompanion(q));
-    elements.push(questionToElement(q));
+  let pages: Record<string, any>[];
+  if (state.onePerPage) {
+    // One explicit page per question (media travels inside its page). This is
+    // what keeps a per-question video from showing on every other question.
+    pages = state.questions.map((q, i) => ({ name: `p${i + 1}`, elements: questionBlock(q) }));
+    if ((state.passthrough ?? []).length) {
+      pages.push({ name: "extra", elements: state.passthrough });
+    }
+    if (pages.length === 0) pages = [{ name: "page1", elements: [] }];
+  } else {
+    const elements: Record<string, any>[] = [];
+    for (const q of state.questions) elements.push(...questionBlock(q));
+    elements.push(...(state.passthrough ?? []));
+    pages = [{ name: "page1", elements }];
   }
-  elements.push(...(state.passthrough ?? []));
 
   const schema: Record<string, any> = {
     title: state.title || undefined,
     description: state.description || undefined,
     showQuestionNumbers: "off",
-    questionsOnPageMode: state.onePerPage ? "questionPerPage" : "singlePage",
-    showProgressBar: state.onePerPage ? "top" : "off",
-    progressBarType: "questions",
+    showProgressBar: state.onePerPage && state.showProgress ? "top" : "off",
+    progressBarType: "pages",
     widthMode: "responsive",
     completedHtml: "<h3>¡Gracias por responder! 🙌</h3>",
-    pages: [{ name: "page1", elements }],
+    pages,
   };
   if (state.design?.logo) {
     schema.logo = state.design.logo;
@@ -635,11 +655,19 @@ export function schemaToBuilder(
 
   hydrateGrading(questions, evaluation);
 
+  const onePerPage =
+    pages.length > 1 ||
+    s.showProgressBar === "top" ||
+    s.questionsOnPageMode === "questionPerPage";
+  const showProgress =
+    s.showProgressBar === undefined ? true : s.showProgressBar !== "off";
+
   return {
     title: s.title || fallbackTitle || "",
     description: s.description || "",
     accent,
-    onePerPage: s.questionsOnPageMode !== "singlePage",
+    onePerPage,
+    showProgress,
     questions,
     evaluation: hydrateEvaluationSettings(evaluation),
     design: { ...DEFAULT_DESIGN },

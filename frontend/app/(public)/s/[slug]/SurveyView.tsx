@@ -99,13 +99,6 @@ export default function SurveyView({ slug }: { slug: string }) {
     const evalMeta = data.evaluation || {};
     const isExam = !!evalMeta.enabled;
     const survey = new Model(absolutizeAssets(data.json_schema || {}));
-
-    if (
-      data.json_schema?.questionsOnPageMode === undefined &&
-      !data.json_schema?.pages?.some?.((p: any) => (p?.elements?.length ?? 0) > 1)
-    ) {
-      survey.questionsOnPageMode = "questionPerPage";
-    }
     survey.locale = data.language || "es";
     if (data.theme) {
       try {

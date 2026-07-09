@@ -37,13 +37,15 @@ a {
 }
 
 /* SurveyJS: barra de progreso limpia (modo una-pregunta-por-pantalla).
-   Quitamos el texto "x/x" que quedaba pegado al título y dejamos una pill fina. */
+   Pill fina con la etiqueta "Pregunta X de Y" chica y separada, arriba. */
 .sd-progress {
   background: hsl(0 0% 92%);
   height: 6px;
   border-radius: 999px;
-  margin: 0 0 28px;
+  margin: 4px 0 32px;
   box-shadow: none;
+  overflow: visible;
+  position: relative;
 }
 .sd-progress__bar {
   height: 6px;
@@ -51,5 +53,15 @@ a {
   min-width: 0;
 }
 .sd-progress__text {
-  display: none;
+  position: absolute;
+  top: -22px;
+  right: 0;
+  margin: 0;
+  padding: 0;
+  inset-inline-start: auto;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  color: hsl(0 0% 55%);
+  background: transparent;
 }

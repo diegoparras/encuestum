@@ -417,6 +417,7 @@ export default function SurveyEditorPage() {
             onQuestionChange={patchQuestion}
             description={state.description}
             onePerPage={state.onePerPage}
+            showProgress={state.showProgress}
             onSurveyChange={(patch) => mutate((prev) => ({ ...prev, ...patch }))}
             evaluation={state.evaluation}
             onEvaluationChange={setEvaluation}

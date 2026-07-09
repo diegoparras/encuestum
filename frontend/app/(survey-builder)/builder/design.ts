@@ -1,8 +1,22 @@
 // Client-side helpers to apply design at render time: load web fonts and turn
 // relative asset URLs (/assets/…) into absolute ones for the current API host.
 
+import "survey-core/i18n/spanish";
+import { surveyLocalization } from "survey-core";
 import { getApiUrl } from "@/utils/api";
 import { fontById } from "./model";
+
+// Progress bar reads "Pregunta X de Y" (each page is one question) instead of
+// the default "Página X de Y".
+try {
+  const es = (surveyLocalization as any).locales?.es;
+  if (es) {
+    es.progressText = "Pregunta {0} de {1}";
+    es.pageProgressText = "Pregunta {0} de {1}";
+  }
+} catch {
+  /* localization is best-effort */
+}
 
 const _loaded = new Set<string>();
 

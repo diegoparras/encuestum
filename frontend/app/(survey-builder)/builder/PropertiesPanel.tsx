@@ -26,7 +26,8 @@ interface Props {
   // Survey-level settings (shown when no question is selected).
   description: string;
   onePerPage: boolean;
-  onSurveyChange: (patch: { description?: string; onePerPage?: boolean }) => void;
+  showProgress: boolean;
+  onSurveyChange: (patch: { description?: string; onePerPage?: boolean; showProgress?: boolean }) => void;
   evaluation: EvaluationSettings;
   onEvaluationChange: (evaluation: EvaluationSettings) => void;
   accent: string;
@@ -38,6 +39,7 @@ export function PropertiesPanel({
   onQuestionChange,
   description,
   onePerPage,
+  showProgress,
   onSurveyChange,
   evaluation,
   onEvaluationChange,
@@ -58,10 +60,18 @@ export function PropertiesPanel({
         </Field>
         <ToggleRow
           label="Una pregunta por pantalla"
-          hint="Experiencia tipo Typeform, con barra de progreso"
+          hint="Experiencia tipo Typeform"
           checked={onePerPage}
           onChange={(v) => onSurveyChange({ onePerPage: v })}
         />
+        {onePerPage && (
+          <ToggleRow
+            label="Mostrar progreso"
+            hint="Muestra «Pregunta 1 de 3» arriba"
+            checked={showProgress}
+            onChange={(v) => onSurveyChange({ showProgress: v })}
+          />
+        )}
 
         <ExamSettings
           evaluation={evaluation}
