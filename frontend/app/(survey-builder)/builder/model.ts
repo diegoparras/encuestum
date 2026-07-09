@@ -56,6 +56,9 @@ export interface BuilderQuestion {
   modelAnswer?: string;
   keyConcepts?: string[];
   rubric?: RubricItem[];
+
+  // Optional decorative image shown above the question (asset URL).
+  imageUrl?: string;
 }
 
 export interface EvaluationSettings {
@@ -88,6 +91,63 @@ export const DEFAULT_EVALUATION: EvaluationSettings = {
   },
 };
 
+export interface AudioSettings {
+  url: string;
+  loop: boolean;
+  autoplay: boolean; // best-effort; browsers may require a tap first
+  volume: number; // 0..1
+}
+
+// Visual design of the survey: typography, colors, media and music. Persisted
+// inside the SurveyJS theme object (native fields + an `_encuestum` block).
+export interface DesignSettings {
+  fontFamily: string; // one of FONT_OPTIONS ids
+  backgroundColor?: string;
+  backgroundImage?: string; // asset URL (relative /assets/…)
+  backgroundOpacity: number; // 0..1
+  coverImage?: string; // header/cover image (asset URL)
+  logo?: string; // logo shown above the title (asset URL)
+  audio?: AudioSettings | null; // background music
+}
+
+export const DEFAULT_DESIGN: DesignSettings = {
+  fontFamily: "system",
+  backgroundOpacity: 1,
+  audio: null,
+};
+
+export interface FontOption {
+  id: string;
+  label: string;
+  css: string; // CSS font-family value
+  google?: string; // Google Fonts family spec (family:wght@...) if hosted there
+  category: "sans" | "serif" | "display" | "mono" | "handwriting";
+}
+
+// Curated typefaces. "system" needs no network; the rest load from Google Fonts.
+export const FONT_OPTIONS: FontOption[] = [
+  { id: "system", label: "Sistema", css: 'ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif', category: "sans" },
+  { id: "inter", label: "Inter", css: '"Inter", sans-serif', google: "Inter:wght@400;500;600;700", category: "sans" },
+  { id: "poppins", label: "Poppins", css: '"Poppins", sans-serif', google: "Poppins:wght@400;500;600;700", category: "sans" },
+  { id: "montserrat", label: "Montserrat", css: '"Montserrat", sans-serif', google: "Montserrat:wght@400;500;600;700", category: "sans" },
+  { id: "nunito", label: "Nunito", css: '"Nunito", sans-serif', google: "Nunito:wght@400;600;700;800", category: "sans" },
+  { id: "dmsans", label: "DM Sans", css: '"DM Sans", sans-serif', google: "DM+Sans:wght@400;500;700", category: "sans" },
+  { id: "spacegrotesk", label: "Space Grotesk", css: '"Space Grotesk", sans-serif', google: "Space+Grotesk:wght@400;500;700", category: "sans" },
+  { id: "lora", label: "Lora", css: '"Lora", serif', google: "Lora:wght@400;500;600;700", category: "serif" },
+  { id: "merriweather", label: "Merriweather", css: '"Merriweather", serif', google: "Merriweather:wght@400;700", category: "serif" },
+  { id: "playfair", label: "Playfair Display", css: '"Playfair Display", serif', google: "Playfair+Display:wght@400;600;700", category: "display" },
+  { id: "caveat", label: "Caveat", css: '"Caveat", cursive', google: "Caveat:wght@400;600;700", category: "handwriting" },
+  { id: "jetbrains", label: "JetBrains Mono", css: '"JetBrains Mono", monospace', google: "JetBrains+Mono:wght@400;500;700", category: "mono" },
+];
+
+export function fontById(id: string): FontOption {
+  return FONT_OPTIONS.find((f) => f.id === id) ?? FONT_OPTIONS[0];
+}
+
+export function fontCssFamily(id: string): string {
+  return fontById(id).css;
+}
+
 export interface BuilderState {
   title: string;
   description: string;
@@ -95,6 +155,7 @@ export interface BuilderState {
   onePerPage: boolean; // Typeform-style one question per screen
   questions: BuilderQuestion[];
   evaluation: EvaluationSettings;
+  design: DesignSettings;
   // SurveyJS elements the visual builder can't represent (e.g. matrix, panel,
   // file upload). Carried verbatim and re-appended on save so opening a survey
   // in the visual editor never silently drops advanced JSON.
@@ -296,8 +357,28 @@ function questionToElement(q: BuilderQuestion): Record<string, any> {
   return el;
 }
 
-export function builderToSchema(state: BuilderState): Record<string, any> {
+// A decorative image element rendered right above its question. Named
+// `<question>__img` so deserialization can re-attach it to the question.
+function imageCompanion(q: BuilderQuestion): Record<string, any> {
   return {
+    type: "image",
+    name: `${q.name}__img`,
+    imageLink: q.imageUrl,
+    imageFit: "cover",
+    imageHeight: 200,
+    imageWidth: "100%",
+  };
+}
+
+export function builderToSchema(state: BuilderState): Record<string, any> {
+  const elements: Record<string, any>[] = [];
+  for (const q of state.questions) {
+    if (q.imageUrl) elements.push(imageCompanion(q));
+    elements.push(questionToElement(q));
+  }
+  elements.push(...(state.passthrough ?? []));
+
+  const schema: Record<string, any> = {
     title: state.title || undefined,
     description: state.description || undefined,
     showQuestionNumbers: "off",
@@ -306,16 +387,15 @@ export function builderToSchema(state: BuilderState): Record<string, any> {
     progressBarType: "questions",
     widthMode: "responsive",
     completedHtml: "<h3>¡Gracias por responder! 🙌</h3>",
-    pages: [
-      {
-        name: "page1",
-        elements: [
-          ...state.questions.map(questionToElement),
-          ...(state.passthrough ?? []),
-        ],
-      },
-    ],
+    pages: [{ name: "page1", elements }],
   };
+  if (state.design?.logo) {
+    schema.logo = state.design.logo;
+    schema.logoPosition = "left";
+    schema.logoFit = "contain";
+    schema.logoHeight = "56px";
+  }
+  return schema;
 }
 
 // ---- Deserialization: SurveyJS JSON → builder ------------------------------
@@ -377,12 +457,28 @@ export function schemaToBuilder(
     Array.isArray(p?.elements) ? p.elements : []
   );
 
+  const isCompanion = (el: any) =>
+    el?.type === "image" && typeof el?.name === "string" && el.name.endsWith("__img");
+
+  // First pass: collect per-question image links from companion elements.
+  const imageByBase: Record<string, string> = {};
+  elements.forEach((el) => {
+    if (isCompanion(el) && el.imageLink) {
+      imageByBase[el.name.slice(0, -"__img".length)] = el.imageLink;
+    }
+  });
+
   const questions: BuilderQuestion[] = [];
   const passthrough: Record<string, any>[] = [];
   elements.forEach((el, i) => {
+    if (isCompanion(el)) return; // re-attached below, not a real element
     const q = elementToQuestion(el, i);
-    if (q) questions.push(q);
-    else if (el && typeof el === "object") passthrough.push(el);
+    if (q) {
+      if (imageByBase[q.name]) q.imageUrl = imageByBase[q.name];
+      questions.push(q);
+    } else if (el && typeof el === "object") {
+      passthrough.push(el);
+    }
   });
 
   hydrateGrading(questions, evaluation);
@@ -394,6 +490,7 @@ export function schemaToBuilder(
     onePerPage: s.questionsOnPageMode !== "singlePage",
     questions,
     evaluation: hydrateEvaluationSettings(evaluation),
+    design: { ...DEFAULT_DESIGN },
     passthrough,
   };
 }
@@ -560,6 +657,48 @@ export function accentToTheme(accent: string): Record<string, any> {
       "--sjs-corner-radius": "12px",
       "--sjs-base-unit": "8px",
     },
+  };
+}
+
+// Full theme = accent theme + typography + background + an `_encuestum` block
+// carrying the bits SurveyJS doesn't model (cover, logo, audio). Persisted as-is.
+export function designToTheme(accent: string, design: DesignSettings): Record<string, any> {
+  const t = accentToTheme(accent);
+  t.cssVariables["--sjs-font-family"] = fontCssFamily(design.fontFamily);
+  if (design.backgroundColor) {
+    t.cssVariables["--sjs-general-backcolor-dim"] = design.backgroundColor;
+  }
+  if (design.backgroundImage) {
+    t.backgroundImage = design.backgroundImage;
+    t.backgroundImageFit = "cover";
+    t.backgroundImageAttachment = "fixed";
+    t.backgroundOpacity = design.backgroundOpacity ?? 1;
+  }
+  t._encuestum = {
+    fontFamily: design.fontFamily,
+    backgroundColor: design.backgroundColor ?? null,
+    backgroundImage: design.backgroundImage ?? null,
+    backgroundOpacity: design.backgroundOpacity ?? 1,
+    coverImage: design.coverImage ?? null,
+    logo: design.logo ?? null,
+    audio: design.audio ?? null,
+  };
+  return t;
+}
+
+export function themeToDesign(theme: Record<string, any> | null | undefined): DesignSettings {
+  const e = theme?._encuestum || {};
+  const font = typeof e.fontFamily === "string" && fontById(e.fontFamily).id === e.fontFamily
+    ? e.fontFamily
+    : "system";
+  return {
+    fontFamily: font,
+    backgroundColor: e.backgroundColor || theme?.cssVariables?.["--sjs-general-backcolor-dim"] || undefined,
+    backgroundImage: e.backgroundImage || theme?.backgroundImage || undefined,
+    backgroundOpacity: typeof e.backgroundOpacity === "number" ? e.backgroundOpacity : 1,
+    coverImage: e.coverImage || undefined,
+    logo: e.logo || undefined,
+    audio: e.audio && typeof e.audio === "object" && e.audio.url ? e.audio : null,
   };
 }
 

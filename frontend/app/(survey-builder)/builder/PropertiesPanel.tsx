@@ -10,6 +10,7 @@ import {
 } from "./model";
 import { ChoicesEditor } from "./ChoicesEditor";
 import { GradingSection } from "./GradingSection";
+import { AssetPicker } from "./AssetPicker";
 
 interface Props {
   question: BuilderQuestion | null;
@@ -89,6 +90,14 @@ export function PropertiesPanel({
           rows={2}
           placeholder="Texto de ayuda debajo de la pregunta"
           className="w-full rounded-md border border-neutral-200 px-2.5 py-2 text-sm outline-none focus:border-neutral-400"
+        />
+      </Field>
+
+      <Field label="Imagen de la pregunta (opcional)">
+        <AssetPicker
+          kind="image"
+          value={q.imageUrl}
+          onChange={(url) => onQuestionChange({ imageUrl: url })}
         />
       </Field>
 

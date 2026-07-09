@@ -13,27 +13,30 @@ import {
   ListChecks,
   Check,
 } from "lucide-react";
-import { GraduationCap, Sparkles } from "lucide-react";
+import { GraduationCap, Sparkles, Palette } from "lucide-react";
 import { surveyApi } from "../../../surveyApi";
 import {
   BuilderQuestion,
   BuilderState,
+  DesignSettings,
   EvaluationSettings,
   QuestionType,
-  accentToTheme,
   builderToEvaluation,
   builderToSchema,
   createQuestion,
+  designToTheme,
   generatedToQuestion,
   newChoice,
   readableForeground,
   schemaToBuilder,
   themeToAccent,
+  themeToDesign,
 } from "../../../builder/model";
 import { QuestionListPanel } from "../../../builder/QuestionListPanel";
 import { PropertiesPanel } from "../../../builder/PropertiesPanel";
 import { LivePreview } from "../../../builder/LivePreview";
 import { AccentPicker } from "../../../builder/AccentPicker";
+import { DesignPanel } from "../../../builder/DesignPanel";
 import { GenerateDialog } from "../../../builder/GenerateDialog";
 
 export default function SurveyEditorPage() {
@@ -51,13 +54,16 @@ export default function SurveyEditorPage() {
   const [dirty, setDirty] = useState(false);
   const [savedTick, setSavedTick] = useState(false);
   const [genOpen, setGenOpen] = useState(false);
+  const [designOpen, setDesignOpen] = useState(false);
 
   useEffect(() => {
     (async () => {
       try {
         const s = await surveyApi.get(id);
         const accent = themeToAccent(s.theme);
-        setState(schemaToBuilder(s.json_schema, s.title || "", accent, s.evaluation));
+        const built = schemaToBuilder(s.json_schema, s.title || "", accent, s.evaluation);
+        built.design = themeToDesign(s.theme);
+        setState(built);
         setStatus(s.status);
         setSlug(s.slug);
         setLanguage(s.language ?? "es");
@@ -146,6 +152,11 @@ export default function SurveyEditorPage() {
     [mutate]
   );
 
+  const setDesign = useCallback(
+    (design: DesignSettings) => mutate((prev) => ({ ...prev, design })),
+    [mutate]
+  );
+
   const toggleEvaluation = useCallback(() => {
     mutate((prev) => ({
       ...prev,
@@ -184,7 +195,7 @@ export default function SurveyEditorPage() {
       await surveyApi.update(id, {
         title: state.title,
         json_schema: builderToSchema(state),
-        theme: accentToTheme(state.accent),
+        theme: designToTheme(state.accent, state.design),
         evaluation: builderToEvaluation(state),
         language,
       });
@@ -307,6 +318,14 @@ export default function SurveyEditorPage() {
             <Sparkles className="w-4 h-4" /> IA
           </button>
 
+          <button
+            onClick={() => setDesignOpen(true)}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-neutral-200 px-2.5 py-1.5 text-xs font-medium text-neutral-600 hover:bg-neutral-50"
+            title="Tipografía, imágenes y música"
+          >
+            <Palette className="w-4 h-4" /> Diseño
+          </button>
+
           <AccentPicker
             value={state.accent}
             onChange={(accent) => mutate((prev) => ({ ...prev, accent }))}
@@ -383,7 +402,12 @@ export default function SurveyEditorPage() {
         </aside>
 
         <main className="flex-1 min-w-0">
-          <LivePreview schema={schema} accent={state.accent} language={language} />
+          <LivePreview
+            schema={schema}
+            accent={state.accent}
+            design={state.design}
+            language={language}
+          />
         </main>
 
         <aside className="w-[340px] shrink-0 border-l border-neutral-200 bg-white overflow-y-auto">
@@ -399,6 +423,15 @@ export default function SurveyEditorPage() {
           />
         </aside>
       </div>
+
+      <DesignPanel
+        open={designOpen}
+        onClose={() => setDesignOpen(false)}
+        design={state.design}
+        onChange={setDesign}
+        accent={state.accent}
+        onAccentChange={(accent) => mutate((prev) => ({ ...prev, accent }))}
+      />
 
       <GenerateDialog
         open={genOpen}

@@ -110,6 +110,28 @@ class Invitation(SQLModel, table=True):
     )
 
 
+class Asset(SQLModel, table=True):
+    __tablename__ = "assets"
+
+    id: uuid.UUID = Field(primary_key=True, default_factory=uuid.uuid4)
+    org_id: uuid.UUID = Field(
+        sa_column=Column(
+            ForeignKey("organizations.id", ondelete="CASCADE"), index=True, nullable=False
+        )
+    )
+    kind: str = Field(sa_column=Column(String, nullable=False))  # image | audio
+    filename: str = Field(sa_column=Column(String, nullable=False))  # stored file name
+    original_name: Optional[str] = Field(sa_column=Column(String), default=None)
+    content_type: str = Field(sa_column=Column(String, nullable=False))
+    size: int = Field(default=0)
+    created_by: Optional[uuid.UUID] = Field(
+        sa_column=Column(ForeignKey("users.id", ondelete="SET NULL")), default=None
+    )
+    created_at: datetime = Field(
+        sa_column=Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    )
+
+
 class Survey(SQLModel, table=True):
     __tablename__ = "surveys"
 

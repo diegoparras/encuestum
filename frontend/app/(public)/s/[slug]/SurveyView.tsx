@@ -1,10 +1,17 @@
 "use client";
 
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Model } from "survey-core";
 import { Survey } from "survey-react-ui";
 import "survey-core/survey-core.min.css";
 import { toast } from "sonner";
+import { Music, Volume2, VolumeX } from "lucide-react";
+import { themeToDesign, type AudioSettings } from "../../../(survey-builder)/builder/model";
+import {
+  absolutizeAssets,
+  loadFont,
+  resolveAssetUrl,
+} from "../../../(survey-builder)/builder/design";
 
 interface EvaluationMeta {
   enabled?: boolean;
@@ -90,7 +97,7 @@ export default function SurveyView({ slug }: { slug: string }) {
     if (!data) return null;
     const evalMeta = data.evaluation || {};
     const isExam = !!evalMeta.enabled;
-    const survey = new Model(data.json_schema || {});
+    const survey = new Model(absolutizeAssets(data.json_schema || {}));
 
     if (
       data.json_schema?.questionsOnPageMode === undefined &&
@@ -101,7 +108,7 @@ export default function SurveyView({ slug }: { slug: string }) {
     if (data.language) survey.locale = data.language;
     if (data.theme) {
       try {
-        survey.applyTheme(data.theme as any);
+        survey.applyTheme(absolutizeAssets(data.theme) as any);
       } catch {
         /* best-effort */
       }
@@ -178,6 +185,11 @@ export default function SurveyView({ slug }: { slug: string }) {
     return survey;
   }, [data, slug]);
 
+  const design = useMemo(() => themeToDesign(data?.theme), [data]);
+  useEffect(() => {
+    loadFont(design.fontFamily);
+  }, [design.fontFamily]);
+
   if (status === "loading") return <Centered>Cargando…</Centered>;
   if (status === "notfound")
     return (
@@ -205,9 +217,92 @@ export default function SurveyView({ slug }: { slug: string }) {
   return (
     <div className="min-h-screen bg-neutral-50">
       {submitting && (
-        <div className="fixed top-0 inset-x-0 h-1 animate-pulse" style={{ backgroundColor: accent }} />
+        <div className="fixed top-0 inset-x-0 h-1 animate-pulse z-50" style={{ backgroundColor: accent }} />
+      )}
+      {design.coverImage && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={resolveAssetUrl(design.coverImage)}
+          alt=""
+          className="w-full object-cover"
+          style={{ maxHeight: 280 }}
+        />
       )}
       <Survey model={model} />
+      {design.audio?.url && <AudioPlayer audio={design.audio} accent={accent} />}
+    </div>
+  );
+}
+
+// Floating background-music control. Browsers block autoplay with sound, so we
+// respect that: if autoplay is on we start muted and let the respondent unmute,
+// otherwise we show a play button. Loop/volume come from the survey design.
+function AudioPlayer({ audio, accent }: { audio: AudioSettings; accent: string }) {
+  const ref = useRef<HTMLAudioElement | null>(null);
+  const [playing, setPlaying] = useState(false);
+  const [muted, setMuted] = useState(!!audio.autoplay);
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    el.volume = Math.max(0, Math.min(1, audio.volume ?? 0.6));
+    el.loop = audio.loop ?? true;
+    if (audio.autoplay) {
+      el.muted = true;
+      el.play().then(() => setPlaying(true)).catch(() => setPlaying(false));
+    }
+  }, [audio.autoplay, audio.loop, audio.volume]);
+
+  async function toggle() {
+    const el = ref.current;
+    if (!el) return;
+    if (playing && !el.muted) {
+      el.pause();
+      setPlaying(false);
+      return;
+    }
+    el.muted = false;
+    setMuted(false);
+    try {
+      await el.play();
+      setPlaying(true);
+    } catch {
+      /* ignored */
+    }
+  }
+
+  function toggleMute() {
+    const el = ref.current;
+    if (!el) return;
+    el.muted = !el.muted;
+    setMuted(el.muted);
+  }
+
+  return (
+    <div className="fixed bottom-4 right-4 z-50 flex items-center gap-2 rounded-full bg-white/95 shadow-lg ring-1 ring-black/5 px-3 py-2 backdrop-blur">
+      {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+      <audio ref={ref} src={resolveAssetUrl(audio.url)} preload="auto" />
+      <button
+        type="button"
+        onClick={toggle}
+        className="grid h-8 w-8 place-items-center rounded-full text-white"
+        style={{ backgroundColor: accent }}
+        aria-label={playing ? "Pausar música" : "Reproducir música"}
+        title={playing ? "Pausar música" : "Reproducir música"}
+      >
+        <Music className="h-4 w-4" />
+      </button>
+      {playing && (
+        <button
+          type="button"
+          onClick={toggleMute}
+          className="grid h-8 w-8 place-items-center rounded-full text-neutral-500 hover:bg-neutral-100"
+          aria-label={muted ? "Activar sonido" : "Silenciar"}
+          title={muted ? "Activar sonido" : "Silenciar"}
+        >
+          {muted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
+        </button>
+      )}
     </div>
   );
 }

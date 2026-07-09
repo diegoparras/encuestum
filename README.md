@@ -20,7 +20,11 @@ formularios. Backend FastAPI, frontend Next.js. Bring-your-own-key para el LLM.
 - **Roles**: `owner` · `admin` · `member`. Gestión de miembros (invitar por
   email, cambiar rol, quitar) para admin o superior.
 - **Editor visual** drag-and-drop de encuestas y exámenes (opción, texto,
-  comentario, escala…), con vista previa en vivo y acento configurable.
+  comentario, escala…), con vista previa en vivo.
+- **Diseño superior a Google/Microsoft Forms**: panel de diseño con **tipografía**
+  (fuentes curadas), color de acento y de fondo, **imágenes** (portada, logo,
+  fondo con opacidad, e imagen por pregunta) desde una biblioteca de medios, y
+  **música de fondo** en la página pública. Todo persistido en el tema del deck.
 - **Publicación pública**: cada encuesta tiene un slug y una página de respuesta
   sin login (`/s/{slug}`) que corre el runtime de SurveyJS en el navegador.
 - **Corrección híbrida**: cerradas → determinística; abiertas → LLM con rúbrica,

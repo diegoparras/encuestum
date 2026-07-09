@@ -9,10 +9,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from starlette.responses import JSONResponse, Response
 
+from fastapi.staticfiles import StaticFiles
+
 from app.config import get_settings
 from app.db import engine
 from app.logging_conf import configure_logging
-from app.routers import admin, auth, evaluation, orgs, public
+from app.routers import admin, assets, auth, evaluation, orgs, public
 
 LOGGER = logging.getLogger("encuestum")
 
@@ -69,6 +71,11 @@ API = "/api/v1"
 # Auth y organizaciones bajo /api/v1
 app.include_router(auth.router, prefix=API)
 app.include_router(orgs.router, prefix=API)
+app.include_router(assets.router, prefix=API)
+
+# Archivos subidos (imágenes/audio de diseño), servidos públicamente.
+os.makedirs(settings.asset_dir, exist_ok=True)
+app.mount("/assets", StaticFiles(directory=settings.asset_dir), name="assets")
 # Encuestas bajo /api/v1/survey (contrato existente)
 SURVEY = "/api/v1/survey"
 app.include_router(public.router, prefix=SURVEY)

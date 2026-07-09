@@ -44,6 +44,14 @@ class Settings:
         self.rate_limit_enabled = _bool("ENCUESTUM_RATE_LIMIT_ENABLED", True)
         self.redis_url = (os.getenv("ENCUESTUM_REDIS_URL") or "").strip() or None
 
+        # Assets (uploaded images/audio for survey design).
+        self.asset_dir = os.getenv(
+            "ENCUESTUM_ASSET_DIR",
+            os.path.join(os.getenv("ENCUESTUM_DATA_DIR", "/app_data"), "assets"),
+        )
+        self.asset_max_image_mb = float(os.getenv("ENCUESTUM_ASSET_MAX_IMAGE_MB", "8"))
+        self.asset_max_audio_mb = float(os.getenv("ENCUESTUM_ASSET_MAX_AUDIO_MB", "15"))
+
         # Public base URL used to build links in emails (invites, reset, verify).
         # Falls back to the first CORS origin, then localhost.
         self.public_base_url = (os.getenv("ENCUESTUM_PUBLIC_URL") or "").strip().rstrip("/")

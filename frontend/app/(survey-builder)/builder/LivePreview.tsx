@@ -5,11 +5,13 @@ import { Model } from "survey-core";
 import { Survey } from "survey-react-ui";
 import "survey-core/survey-core.min.css";
 import { Monitor, Smartphone } from "lucide-react";
-import { accentToTheme } from "./model";
+import { DesignSettings, DEFAULT_DESIGN, designToTheme } from "./model";
+import { absolutizeAssets, loadFont, resolveAssetUrl } from "./design";
 
 interface Props {
   schema: Record<string, any>;
   accent: string;
+  design?: DesignSettings;
   language?: string | null;
 }
 
@@ -18,8 +20,13 @@ type Device = "desktop" | "mobile";
 // The preview re-instantiates the SurveyJS model when the (debounced) schema or
 // accent changes. Rebuilding is intentional — it guarantees the preview always
 // matches the saved definition exactly, including validation and theming.
-export function LivePreview({ schema, accent, language }: Props) {
+export function LivePreview({ schema, accent, design, language }: Props) {
   const [device, setDevice] = useState<Device>("desktop");
+  const d = design ?? DEFAULT_DESIGN;
+
+  useEffect(() => {
+    loadFont(d.fontFamily);
+  }, [d.fontFamily]);
 
   // Debounce so typing in the properties panel doesn't rebuild on every keystroke.
   const [debounced, setDebounced] = useState(schema);
@@ -33,10 +40,10 @@ export function LivePreview({ schema, accent, language }: Props) {
   const isEmpty = !((debounced?.pages?.[0]?.elements?.length ?? 0) > 0);
 
   const model = useMemo(() => {
-    const m = new Model(debounced || {});
+    const m = new Model(absolutizeAssets(debounced || {}));
     if (language) m.locale = language;
     try {
-      m.applyTheme(accentToTheme(accent) as any);
+      m.applyTheme(absolutizeAssets(designToTheme(accent, d)) as any);
     } catch {
       /* best-effort theming */
     }
@@ -49,7 +56,7 @@ export function LivePreview({ schema, accent, language }: Props) {
     });
     return m;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [JSON.stringify(debounced), accent, language]);
+  }, [JSON.stringify(debounced), accent, language, JSON.stringify(d)]);
 
   return (
     <div className="flex h-full flex-col">
@@ -90,6 +97,15 @@ export function LivePreview({ schema, accent, language }: Props) {
             className="mx-auto bg-white rounded-2xl shadow-sm ring-1 ring-black/5 overflow-hidden transition-all"
             style={{ maxWidth: device === "mobile" ? 380 : 720 }}
           >
+            {d.coverImage && (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={resolveAssetUrl(d.coverImage)}
+                alt=""
+                className="w-full object-cover"
+                style={{ height: device === "mobile" ? 120 : 180 }}
+              />
+            )}
             <Survey model={model} />
           </div>
         )}
