@@ -8,6 +8,10 @@ import "survey-core/i18n/spanish";
 import { Monitor, Smartphone } from "lucide-react";
 import { DesignSettings, DEFAULT_DESIGN, designToTheme } from "./model";
 import { absolutizeAssets, loadFont, resolveAssetUrl } from "./design";
+import { registerVideoResponseQuestion } from "../../(public)/s/[slug]/VideoResponseQuestion";
+
+// Register the custom video-response question so the preview can render it.
+registerVideoResponseQuestion();
 
 interface Props {
   schema: Record<string, any>;

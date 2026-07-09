@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect } from "react";
-import { X, Type, Palette, Image as ImageIcon, Music, Check, Sparkles } from "lucide-react";
+import { X, Type, Palette, Image as ImageIcon, Music, Check, Sparkles, Contrast, Sun, Moon } from "lucide-react";
 import {
   ACCENT_PALETTE,
   AudioSettings,
@@ -215,6 +215,81 @@ export function DesignPanel({
             </div>
           </Section>
 
+          {/* Modo y legibilidad */}
+          <Section icon={<Contrast className="w-4 h-4" />} title="Modo y legibilidad">
+            {/* Claro / Oscuro */}
+            <div className="grid grid-cols-2 gap-2">
+              {(["light", "dark"] as const).map((m) => {
+                const active = (design.mode ?? "light") === m;
+                return (
+                  <button
+                    key={m}
+                    type="button"
+                    onClick={() => patch({ mode: m })}
+                    className={`flex items-center justify-center gap-2 rounded-lg border px-3 py-2.5 text-sm font-medium transition-colors ${
+                      active
+                        ? "border-[#e25a4e] bg-[#e25a4e0a] text-neutral-800"
+                        : "border-neutral-200 text-neutral-500 hover:border-neutral-300"
+                    }`}
+                  >
+                    {m === "light" ? (
+                      <Sun className="w-4 h-4" />
+                    ) : (
+                      <Moon className="w-4 h-4" />
+                    )}
+                    {m === "light" ? "Claro" : "Oscuro"}
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Color del texto de las preguntas */}
+            <div className="mt-4">
+              <div className="mb-1.5 text-xs text-neutral-600">
+                Color del texto de las preguntas
+              </div>
+              <div className="flex items-center gap-3">
+                <input
+                  type="color"
+                  value={
+                    design.textColor && /^#[0-9a-f]{6}$/i.test(design.textColor)
+                      ? design.textColor
+                      : design.mode === "dark"
+                        ? "#f2f4f8"
+                        : "#1f2937"
+                  }
+                  onChange={(e) => patch({ textColor: e.target.value })}
+                  className="h-9 w-12 cursor-pointer rounded border border-neutral-200 bg-white p-0.5"
+                />
+                <span className="flex-1 text-xs text-neutral-500">
+                  {design.textColor ?? "Automático según el modo"}
+                </span>
+                {design.textColor && (
+                  <button
+                    type="button"
+                    onClick={() => patch({ textColor: undefined })}
+                    className="rounded-md border border-neutral-200 px-2 py-1 text-xs font-medium text-neutral-600 hover:bg-neutral-50"
+                  >
+                    Automático
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Preguntas transparentes */}
+            <div className="mt-4">
+              <ToggleRow
+                label="Preguntas transparentes"
+                checked={!!design.transparentQuestions}
+                onChange={(v) => patch({ transparentQuestions: v })}
+              />
+              <p className="mt-1 text-[11px] leading-relaxed text-neutral-400">
+                Saca la franja blanca detrás de las preguntas para que se vea el
+                fondo. Ideal cuando usás una imagen de fondo.
+              </p>
+            </div>
+          </Section>
+
           {/* Imagen de fondo */}
           <Section icon={<ImageIcon className="w-4 h-4" />} title="Imagen de fondo">
             <AssetPicker
@@ -344,8 +419,11 @@ function ThemeCard({
           style={{ backgroundColor: preset.accent }}
         />
         <span
-          className="truncate text-sm text-neutral-800"
-          style={{ fontFamily: fontById(preset.fontFamily).css }}
+          className="truncate text-sm"
+          style={{
+            fontFamily: fontById(preset.fontFamily).css,
+            color: readableForeground(preset.backgroundColor),
+          }}
         >
           {preset.name}
         </span>

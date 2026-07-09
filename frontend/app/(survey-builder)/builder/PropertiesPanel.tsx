@@ -9,6 +9,7 @@ import {
   FeedbackTone,
   LogicOperator,
   QUESTION_TYPE_LABEL,
+  RATE_PRESENTATIONS,
   Strictness,
   typeHasChoices,
   VisibilityRule,
@@ -212,6 +213,27 @@ export function PropertiesPanel({
 
       {q.type === "rating" && (
         <>
+          <Field label="Presentación">
+            <div className="grid grid-cols-2 gap-2">
+              {RATE_PRESENTATIONS.map((p) => {
+                const active = (q.ratePresentation ?? "numbers") === p.id;
+                return (
+                  <button
+                    key={p.id}
+                    type="button"
+                    onClick={() => onQuestionChange({ ratePresentation: p.id })}
+                    className={`rounded-md border px-2.5 py-2 text-xs font-medium transition-colors ${
+                      active
+                        ? "border-[#e25a4e] bg-[#e25a4e0a] text-neutral-800"
+                        : "border-neutral-200 text-neutral-500 hover:border-neutral-300"
+                    }`}
+                  >
+                    {p.label}
+                  </button>
+                );
+              })}
+            </div>
+          </Field>
           <div className="grid grid-cols-2 gap-3">
             <Field label="Mínimo">
               <input

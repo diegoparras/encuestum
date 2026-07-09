@@ -40,6 +40,7 @@ export interface BuilderQuestion {
   rateMax?: number; // rating
   minRateDescription?: string;
   maxRateDescription?: string;
+  ratePresentation?: RatePresentation; // rating: how the scale is drawn
   labelTrue?: string; // boolean
   labelFalse?: string; // boolean
 
@@ -71,6 +72,24 @@ export interface BuilderQuestion {
   // Conditional logic: show this question only when the rule holds.
   visibilityRule?: VisibilityRule;
 }
+
+// How a rating/NPS scale is presented to the respondent.
+export type RatePresentation =
+  | "numbers" // classic number row (default)
+  | "buttons" // rectangles / pill buttons
+  | "buttons-color" // rectangles tinted red→green across the scale
+  | "stars" // star rating
+  | "smileys" // smiley faces
+  | "smileys-color"; // smiley faces tinted red→green
+
+export const RATE_PRESENTATIONS: { id: RatePresentation; label: string }[] = [
+  { id: "numbers", label: "Números" },
+  { id: "buttons", label: "Rectángulos" },
+  { id: "buttons-color", label: "Rectángulos de colores" },
+  { id: "stars", label: "Estrellas" },
+  { id: "smileys", label: "Caritas" },
+  { id: "smileys-color", label: "Caritas de colores" },
+];
 
 export type LogicOperator = "=" | "<>" | "contains" | ">" | "<" | "empty" | "notempty";
 
@@ -143,6 +162,9 @@ export interface AudioSettings {
 // inside the SurveyJS theme object (native fields + an `_encuestum` block).
 export interface DesignSettings {
   fontFamily: string; // one of FONT_OPTIONS ids
+  mode?: "light" | "dark"; // color scheme of the survey (default light)
+  textColor?: string; // question title/description/main text color (overrides mode default)
+  transparentQuestions?: boolean; // remove the white card behind questions so the background shows through
   backgroundColor?: string;
   backgroundImage?: string; // asset URL (relative /assets/…)
   backgroundOpacity: number; // 0..1
@@ -153,6 +175,7 @@ export interface DesignSettings {
 
 export const DEFAULT_DESIGN: DesignSettings = {
   fontFamily: "system",
+  mode: "light",
   backgroundOpacity: 1,
   audio: null,
 };
@@ -197,6 +220,7 @@ export interface ThemePreset {
   accent: string;
   fontFamily: string;
   backgroundColor: string;
+  mode?: "light" | "dark";
 }
 
 export const THEME_PRESETS: ThemePreset[] = [
@@ -210,10 +234,21 @@ export const THEME_PRESETS: ThemePreset[] = [
   { id: "menta", name: "Menta", accent: "#14b8a6", fontFamily: "spacegrotesk", backgroundColor: "#f0fdfa" },
   { id: "grafito", name: "Grafito", accent: "#334155", fontFamily: "inter", backgroundColor: "#f8fafc" },
   { id: "creativo", name: "Creativo", accent: "#8b5cf6", fontFamily: "caveat", backgroundColor: "#faf5ff" },
+  { id: "medianoche", name: "Medianoche", accent: "#6366f1", fontFamily: "inter", backgroundColor: "#12151b", mode: "dark" },
+  { id: "neon", name: "Neón", accent: "#22d3ee", fontFamily: "spacegrotesk", backgroundColor: "#0f1117", mode: "dark" },
+  { id: "carbon", name: "Carbón", accent: "#f97316", fontFamily: "montserrat", backgroundColor: "#17181c", mode: "dark" },
 ];
 
 export function applyThemePreset(design: DesignSettings, preset: ThemePreset): DesignSettings {
-  return { ...design, fontFamily: preset.fontFamily, backgroundColor: preset.backgroundColor };
+  return {
+    ...design,
+    fontFamily: preset.fontFamily,
+    backgroundColor: preset.backgroundColor,
+    mode: preset.mode ?? "light",
+    // A preset defines its own scheme; clear any manual text-color override so
+    // the mode's readable default applies.
+    textColor: undefined,
+  };
 }
 
 export interface BuilderState {
@@ -427,25 +462,55 @@ export function ruleToExpr(rule: VisibilityRule): string {
   }
 }
 
+// Translate our RatePresentation into SurveyJS rating props. "stars"/"smileys"
+// ignore rateMin/ratemax labels but keep the numeric scale.
+function applyRatePresentation(el: Record<string, any>, p: RatePresentation): void {
+  switch (p) {
+    case "buttons":
+      el.displayMode = "buttons";
+      break;
+    case "buttons-color":
+      el.displayMode = "buttons";
+      el.rateColorMode = "scale";
+      break;
+    case "stars":
+      el.rateType = "stars";
+      break;
+    case "smileys":
+      el.rateType = "smileys";
+      break;
+    case "smileys-color":
+      el.rateType = "smileys";
+      el.scaleColorMode = "colored";
+      break;
+    case "numbers":
+    default:
+      break;
+  }
+}
+
+// Read SurveyJS rating props back into our RatePresentation.
+function ratePresentationOf(el: Record<string, any>): RatePresentation {
+  if (el.rateType === "stars") return "stars";
+  if (el.rateType === "smileys") {
+    return el.scaleColorMode === "colored" ? "smileys-color" : "smileys";
+  }
+  if (el.displayMode === "buttons") {
+    return el.rateColorMode === "scale" ? "buttons-color" : "buttons";
+  }
+  return "numbers";
+}
+
 function questionToElement(q: BuilderQuestion): Record<string, any> {
-  const surveyType =
-    q.type === "email" ? "text" : q.type === "videoresponse" ? "file" : q.type;
+  const surveyType = q.type === "email" ? "text" : q.type;
   const el: Record<string, any> = {
     type: surveyType,
     name: q.name,
     title: q.title,
   };
-  if (q.type === "videoresponse") {
-    // Respondent records with the camera or uploads a video; the file uploads to
-    // storage (see SurveyView's onUploadFiles) and the answer is the file URL.
-    el.sourceType = "file-camera";
-    el.acceptedTypes = "video/*";
-    el.storeDataAsText = false;
-    el.allowMultiple = false;
-    el.maxSize = 50 * 1024 * 1024;
-    el.needConfirmRemoveFile = true;
-    el._encVideo = true;
-  }
+  // "videoresponse" is our custom SurveyJS question (webcam recorder + upload);
+  // its renderer stores the uploaded video's public URL as the answer.
+  // Registered in VideoResponseQuestion.tsx.
   if (q.visibilityRule && q.visibilityRule.questionName) {
     el.visibleIf = ruleToExpr(q.visibilityRule);
     // Kept so the visual builder can round-trip the structured rule.
@@ -475,6 +540,7 @@ function questionToElement(q: BuilderQuestion): Record<string, any> {
     el.rateMax = q.rateMax ?? 10;
     if (q.minRateDescription) el.minRateDescription = q.minRateDescription;
     if (q.maxRateDescription) el.maxRateDescription = q.maxRateDescription;
+    applyRatePresentation(el, q.ratePresentation ?? "numbers");
   }
   if (q.type === "boolean") {
     el.labelTrue = q.labelTrue ?? "Sí";
@@ -577,12 +643,17 @@ export function builderToSchema(state: BuilderState): Record<string, any> {
 function elementToQuestion(el: Record<string, any>, index: number): BuilderQuestion | null {
   const rawType = el?.type as string;
   const isEmail = rawType === "text" && el?.inputType === "email";
-  const isVideo =
+  // Back-compat: older surveys stored video answers as a SurveyJS file question.
+  const isLegacyVideo =
     rawType === "file" &&
     (el?._encVideo === true ||
       (typeof el?.acceptedTypes === "string" && el.acceptedTypes.includes("video")));
   const type: QuestionType = (
-    isVideo ? "videoresponse" : isEmail ? "email" : rawType
+    rawType === "videoresponse" || isLegacyVideo
+      ? "videoresponse"
+      : isEmail
+        ? "email"
+        : rawType
   ) as QuestionType;
 
   const supported: QuestionType[] = [
@@ -630,6 +701,7 @@ function elementToQuestion(el: Record<string, any>, index: number): BuilderQuest
     q.rateMax = typeof el.rateMax === "number" ? el.rateMax : 10;
     q.minRateDescription = el.minRateDescription || undefined;
     q.maxRateDescription = el.maxRateDescription || undefined;
+    q.ratePresentation = ratePresentationOf(el);
   }
   if (type === "boolean") {
     q.labelTrue = el.labelTrue || "Sí";
@@ -888,10 +960,51 @@ export function accentToTheme(accent: string): Record<string, any> {
 // carrying the bits SurveyJS doesn't model (cover, logo, audio). Persisted as-is.
 export function designToTheme(accent: string, design: DesignSettings): Record<string, any> {
   const t = accentToTheme(accent);
-  t.cssVariables["--sjs-font-family"] = fontCssFamily(design.fontFamily);
-  if (design.backgroundColor) {
-    t.cssVariables["--sjs-general-backcolor-dim"] = design.backgroundColor;
+  const dark = design.mode === "dark";
+  const v = t.cssVariables as Record<string, string>;
+  v["--sjs-font-family"] = fontCssFamily(design.fontFamily);
+
+  // Dark scheme: flip SurveyJS surfaces + text to a dark palette.
+  if (dark) {
+    t.colorPalette = "dark";
+    Object.assign(v, {
+      "--sjs-general-backcolor": "#252b36",
+      "--sjs-general-backcolor-dark": "#1b2029",
+      "--sjs-general-backcolor-dim": design.backgroundColor || "#181c24",
+      "--sjs-general-backcolor-dim-light": "#252b36",
+      "--sjs-general-backcolor-dim-dark": "#12151b",
+      "--sjs-general-forecolor": "#f2f4f8",
+      "--sjs-general-forecolor-light": "rgba(242,244,248,0.62)",
+      "--sjs-general-dim-forecolor": "#f2f4f8",
+      "--sjs-general-dim-forecolor-light": "rgba(242,244,248,0.62)",
+      "--sjs-border-default": "rgba(255,255,255,0.16)",
+      "--sjs-border-light": "rgba(255,255,255,0.09)",
+      "--sjs-editorpanel-backcolor": "#2d3441",
+      "--sjs-editorpanel-hovercolor": "#333b4a",
+    });
   }
+  if (!dark && design.backgroundColor) {
+    v["--sjs-general-backcolor-dim"] = design.backgroundColor;
+  }
+
+  // Explicit question text color (title + description + main text).
+  if (design.textColor) {
+    v["--sjs-general-forecolor"] = design.textColor;
+    v["--sjs-general-dim-forecolor"] = design.textColor;
+    v["--sjs-font-questiontitle-color"] = design.textColor;
+    v["--sjs-font-questiondescription-color"] = rgba(design.textColor, 0.72);
+  }
+
+  // Transparent questions: drop the opaque card so the background image/color
+  // shows through. Inputs keep a subtle readable surface.
+  if (design.transparentQuestions) {
+    v["--sjs-question-background"] = "transparent";
+    v["--sjs-general-backcolor"] = "transparent";
+    v["--sjs-editorpanel-backcolor"] = dark
+      ? "rgba(20,24,32,0.55)"
+      : "rgba(255,255,255,0.72)";
+  }
+
   if (design.backgroundImage) {
     t.backgroundImage = design.backgroundImage;
     t.backgroundImageFit = "cover";
@@ -900,6 +1013,9 @@ export function designToTheme(accent: string, design: DesignSettings): Record<st
   }
   t._encuestum = {
     fontFamily: design.fontFamily,
+    mode: design.mode ?? "light",
+    textColor: design.textColor ?? null,
+    transparentQuestions: !!design.transparentQuestions,
     backgroundColor: design.backgroundColor ?? null,
     backgroundImage: design.backgroundImage ?? null,
     backgroundOpacity: design.backgroundOpacity ?? 1,
@@ -917,6 +1033,9 @@ export function themeToDesign(theme: Record<string, any> | null | undefined): De
     : "system";
   return {
     fontFamily: font,
+    mode: e.mode === "dark" || theme?.colorPalette === "dark" ? "dark" : "light",
+    textColor: e.textColor || theme?.cssVariables?.["--sjs-font-questiontitle-color"] || undefined,
+    transparentQuestions: !!e.transparentQuestions,
     backgroundColor: e.backgroundColor || theme?.cssVariables?.["--sjs-general-backcolor-dim"] || undefined,
     backgroundImage: e.backgroundImage || theme?.backgroundImage || undefined,
     backgroundOpacity: typeof e.backgroundOpacity === "number" ? e.backgroundOpacity : 1,

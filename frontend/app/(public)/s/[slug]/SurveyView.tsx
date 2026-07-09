@@ -14,6 +14,12 @@ import {
   resolveAssetUrl,
 } from "../../../(survey-builder)/builder/design";
 import { orgBranding } from "@/utils/auth";
+import { uploadRespondentFile } from "./uploadFile";
+import { registerVideoResponseQuestion } from "./VideoResponseQuestion";
+
+// Register the custom "videoresponse" question (webcam recorder) before any
+// Survey model parses JSON that uses it.
+registerVideoResponseQuestion();
 
 interface EvaluationMeta {
   enabled?: boolean;
@@ -150,6 +156,8 @@ export default function SurveyView({ slug }: { slug: string }) {
     const isExam = !!evalMeta.enabled;
     const survey = new Model(absolutizeAssets(data.json_schema || {}));
     survey.locale = data.language || "es";
+    // The custom video-response recorder reads this to upload to the right survey.
+    survey.setVariable("encSlug", slug);
     if (data.theme) {
       try {
         survey.applyTheme(absolutizeAssets(data.theme) as any);
@@ -164,19 +172,8 @@ export default function SurveyView({ slug }: { slug: string }) {
       try {
         const uploaded = [];
         for (const file of options.files) {
-          const pre = await fetch(
-            `${apiBase()}/api/v1/survey/public/${encodeURIComponent(slug)}/upload-url`,
-            {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ content_type: file.type, size: file.size }),
-            }
-          );
-          if (!pre.ok) throw new Error(await pre.text().catch(() => "upload-url failed"));
-          const { upload_url, method, headers, public_url } = await pre.json();
-          const put = await fetch(upload_url, { method, headers, body: file });
-          if (!put.ok) throw new Error("PUT failed");
-          uploaded.push({ file, content: public_url });
+          const content = await uploadRespondentFile(slug, file);
+          uploaded.push({ file, content });
         }
         options.callback("success", uploaded);
       } catch {
