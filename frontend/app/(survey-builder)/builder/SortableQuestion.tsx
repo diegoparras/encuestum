@@ -16,6 +16,7 @@ import {
   Star,
   ToggleLeft,
   Images,
+  Video,
 } from "lucide-react";
 import {
   BuilderQuestion,
@@ -34,6 +35,7 @@ const ICON: Record<QuestionType, React.ComponentType<{ className?: string }>> = 
   rating: Star,
   boolean: ToggleLeft,
   imagepicker: Images,
+  videoresponse: Video,
 };
 
 interface Props {

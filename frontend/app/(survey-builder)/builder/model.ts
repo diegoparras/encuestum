@@ -12,7 +12,8 @@ export type QuestionType =
   | "dropdown"
   | "rating"
   | "boolean"
-  | "imagepicker";
+  | "imagepicker"
+  | "videoresponse";
 
 export interface Choice {
   id: string;
@@ -248,6 +249,7 @@ export const QUESTION_TYPES: QuestionTypeMeta[] = [
   { type: "rating", label: "Escala / NPS", hint: "0 a 10", hasChoices: false },
   { type: "boolean", label: "Sí / No", hint: "Booleano", hasChoices: false },
   { type: "imagepicker", label: "Opción con imágenes", hint: "Elegir por imagen", hasChoices: true },
+  { type: "videoresponse", label: "Respuesta en video", hint: "Grabar o subir", hasChoices: false },
 ];
 
 export const QUESTION_TYPE_LABEL: Record<QuestionType, string> = Object.fromEntries(
@@ -391,6 +393,8 @@ function defaultTitle(type: QuestionType): string {
       return "¿Estás de acuerdo?";
     case "imagepicker":
       return "Elegí una imagen";
+    case "videoresponse":
+      return "Grabá o subí tu respuesta en video";
     default:
       return "Pregunta";
   }
@@ -422,11 +426,24 @@ export function ruleToExpr(rule: VisibilityRule): string {
 }
 
 function questionToElement(q: BuilderQuestion): Record<string, any> {
+  const surveyType =
+    q.type === "email" ? "text" : q.type === "videoresponse" ? "file" : q.type;
   const el: Record<string, any> = {
-    type: q.type === "email" ? "text" : q.type,
+    type: surveyType,
     name: q.name,
     title: q.title,
   };
+  if (q.type === "videoresponse") {
+    // Respondent records with the camera or uploads a video; the file uploads to
+    // storage (see SurveyView's onUploadFiles) and the answer is the file URL.
+    el.sourceType = "file-camera";
+    el.acceptedTypes = "video/*";
+    el.storeDataAsText = false;
+    el.allowMultiple = false;
+    el.maxSize = 50 * 1024 * 1024;
+    el.needConfirmRemoveFile = true;
+    el._encVideo = true;
+  }
   if (q.visibilityRule && q.visibilityRule.questionName) {
     el.visibleIf = ruleToExpr(q.visibilityRule);
     // Kept so the visual builder can round-trip the structured rule.
@@ -558,7 +575,13 @@ export function builderToSchema(state: BuilderState): Record<string, any> {
 function elementToQuestion(el: Record<string, any>, index: number): BuilderQuestion | null {
   const rawType = el?.type as string;
   const isEmail = rawType === "text" && el?.inputType === "email";
-  const type: QuestionType = (isEmail ? "email" : rawType) as QuestionType;
+  const isVideo =
+    rawType === "file" &&
+    (el?._encVideo === true ||
+      (typeof el?.acceptedTypes === "string" && el.acceptedTypes.includes("video")));
+  const type: QuestionType = (
+    isVideo ? "videoresponse" : isEmail ? "email" : rawType
+  ) as QuestionType;
 
   const supported: QuestionType[] = [
     "text",
@@ -570,6 +593,7 @@ function elementToQuestion(el: Record<string, any>, index: number): BuilderQuest
     "rating",
     "boolean",
     "imagepicker",
+    "videoresponse",
   ];
   if (!supported.includes(type)) return null;
 

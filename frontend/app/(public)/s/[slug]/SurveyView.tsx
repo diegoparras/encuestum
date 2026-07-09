@@ -108,6 +108,33 @@ export default function SurveyView({ slug }: { slug: string }) {
       }
     }
 
+    // Video/file answers: upload straight to storage via a presigned URL, so the
+    // file never bloats our server. The stored answer is the file's public URL.
+    survey.onUploadFiles.add(async (_sender, options: any) => {
+      try {
+        const uploaded = [];
+        for (const file of options.files) {
+          const pre = await fetch(
+            `${apiBase()}/api/v1/survey/public/${encodeURIComponent(slug)}/upload-url`,
+            {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ content_type: file.type, size: file.size }),
+            }
+          );
+          if (!pre.ok) throw new Error(await pre.text().catch(() => "upload-url failed"));
+          const { upload_url, method, headers, public_url } = await pre.json();
+          const put = await fetch(upload_url, { method, headers, body: file });
+          if (!put.ok) throw new Error("PUT failed");
+          uploaded.push({ file, content: public_url });
+        }
+        options.callback("success", uploaded);
+      } catch {
+        options.callback("error");
+        toast.error("No se pudo subir el archivo. Probá de nuevo.");
+      }
+    });
+
     // Integrity options for assessments.
     if (isExam) {
       const integ = evalMeta.integrity || {};
