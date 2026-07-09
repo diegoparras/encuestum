@@ -328,8 +328,13 @@ export default function SurveyView({ slug }: { slug: string }) {
     return <ResultsScreen results={results} accent={accent} />;
   }
 
+  // Match the page wrapper to the survey's own background so no light strip
+  // shows below/around the survey (especially in dark mode or with a bg color).
+  const pageBg =
+    design.backgroundColor || (design.mode === "dark" ? "#181c24" : "#f6f6f7");
+
   return (
-    <div className="min-h-screen bg-neutral-50">
+    <div className="min-h-screen" style={{ backgroundColor: pageBg }}>
       {brandingHeader}
       {submitting && (
         <div className="fixed top-0 inset-x-0 h-1 animate-pulse z-50" style={{ backgroundColor: accent }} />

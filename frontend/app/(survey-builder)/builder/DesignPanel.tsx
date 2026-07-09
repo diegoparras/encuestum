@@ -1,17 +1,20 @@
 "use client";
 
-import React, { useEffect } from "react";
-import { X, Type, Palette, Image as ImageIcon, Music, Check, Sparkles, Contrast, Sun, Moon } from "lucide-react";
+import React, { useEffect, useState } from "react";
+import { X, Type, Palette, Image as ImageIcon, Music, Check, Sparkles, Contrast, Sun, Moon, Search } from "lucide-react";
 import {
   ACCENT_PALETTE,
   AudioSettings,
   DesignSettings,
   FONT_OPTIONS,
+  FontOption,
+  GOOGLE_FONT_FAMILIES,
   THEME_PRESETS,
   ThemePreset,
   applyThemePreset,
   fontById,
   fontCssFamily,
+  fontFromFamily,
   readableForeground,
 } from "./model";
 import { loadFont } from "./design";
@@ -34,6 +37,18 @@ const DEFAULT_AUDIO: AudioSettings = {
   volume: 0.6,
 };
 
+// Unión de destacadas + catálogo amplio de Google Fonts, sin duplicar las que ya
+// existen como opción curada (comparando por nombre). Base del buscador.
+const CURATED_LABELS = new Set(FONT_OPTIONS.map((f) => f.label.toLowerCase()));
+const ALL_FONTS: FontOption[] = [
+  ...FONT_OPTIONS,
+  ...GOOGLE_FONT_FAMILIES.filter(
+    (fam) => !CURATED_LABELS.has(fam.toLowerCase()),
+  ).map((fam) => fontFromFamily(fam)),
+];
+// Tope de resultados visibles (evita cargar cientos de hojas de estilo).
+const MAX_FONT_RESULTS = 40;
+
 export function DesignPanel({
   open,
   onClose,
@@ -42,6 +57,10 @@ export function DesignPanel({
   accent,
   onAccentChange,
 }: Props) {
+  // Buscador de tipografías: query en vivo + versión con debounce (~150ms).
+  const [fontQuery, setFontQuery] = useState("");
+  const [debouncedFontQuery, setDebouncedFontQuery] = useState("");
+
   // Preload every visible font so the type list previews in its real face.
   useEffect(() => {
     if (!open) return;
@@ -58,6 +77,29 @@ export function DesignPanel({
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [open, onClose]);
+
+  // Debounce del input del buscador.
+  useEffect(() => {
+    const t = setTimeout(() => setDebouncedFontQuery(fontQuery.trim()), 150);
+    return () => clearTimeout(t);
+  }, [fontQuery]);
+
+  const fontSearchTerm = debouncedFontQuery.toLowerCase();
+  const searchingFonts = fontSearchTerm.length > 0;
+  const filteredFonts: FontOption[] = searchingFonts
+    ? ALL_FONTS.filter((f) => f.label.toLowerCase().includes(fontSearchTerm)).slice(
+        0,
+        MAX_FONT_RESULTS,
+      )
+    : [];
+
+  // Precarga la fuente real de cada resultado visible (tope MAX_FONT_RESULTS)
+  // para que se previsualice en su propia cara.
+  useEffect(() => {
+    if (!open || !searchingFonts) return;
+    filteredFonts.forEach((f) => loadFont(f.id));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, debouncedFontQuery]);
 
   if (!open) return null;
 
@@ -117,38 +159,107 @@ export function DesignPanel({
 
           {/* Tipografía */}
           <Section icon={<Type className="w-4 h-4" />} title="Tipografía">
-            <div className="grid grid-cols-2 gap-2">
-              {FONT_OPTIONS.map((f) => {
-                const active = design.fontFamily === f.id;
-                return (
-                  <button
-                    key={f.id}
-                    type="button"
-                    onClick={() => patch({ fontFamily: f.id })}
-                    className={`relative rounded-lg border px-3 py-3 text-left transition-colors ${
-                      active
-                        ? "border-[#e25a4e] bg-[#e25a4e0a]"
-                        : "border-neutral-200 hover:border-neutral-300"
-                    }`}
-                  >
-                    <div
-                      className="truncate text-base text-neutral-800"
-                      style={{ fontFamily: fontCssFamily(f.id) }}
-                    >
-                      {f.label}
-                    </div>
-                    <div className="mt-0.5 text-[10px] uppercase tracking-wide text-neutral-400">
-                      {f.category}
-                    </div>
-                    {active && (
-                      <span className="absolute right-2 top-2 grid h-4 w-4 place-items-center rounded-full bg-[#e25a4e] text-white">
-                        <Check className="w-2.5 h-2.5" />
-                      </span>
-                    )}
-                  </button>
-                );
-              })}
+            {/* Buscador de Google Fonts */}
+            <div className="relative mb-3">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400" />
+              <input
+                type="text"
+                value={fontQuery}
+                onChange={(e) => setFontQuery(e.target.value)}
+                placeholder="Buscar en Google Fonts…"
+                className="w-full rounded-lg border border-neutral-200 py-2 pl-9 pr-3 text-sm text-neutral-800 placeholder:text-neutral-400 focus:border-[#e25a4e] focus:outline-none focus:ring-1 focus:ring-[#e25a4e]"
+              />
             </div>
+
+            {searchingFonts ? (
+              <>
+                {/* Chip "Actual" cuando la fuente aplicada no está en los resultados */}
+                {!filteredFonts.some((f) => f.id === design.fontFamily) && (
+                  <div className="mb-2 inline-flex max-w-full items-center gap-1.5 rounded-full border border-[#e25a4e] bg-[#e25a4e0a] px-2.5 py-1 text-xs text-neutral-700">
+                    <span className="text-neutral-400">Actual:</span>
+                    <span
+                      className="truncate"
+                      style={{ fontFamily: fontCssFamily(design.fontFamily) }}
+                    >
+                      {fontById(design.fontFamily).label}
+                    </span>
+                  </div>
+                )}
+
+                {filteredFonts.length === 0 ? (
+                  <p className="py-6 text-center text-sm text-neutral-400">
+                    Sin resultados para “{debouncedFontQuery}”.
+                  </p>
+                ) : (
+                  <ul className="max-h-[320px] space-y-1 overflow-y-auto pr-1">
+                    {filteredFonts.map((f) => {
+                      const active = design.fontFamily === f.id;
+                      return (
+                        <li key={f.id}>
+                          <button
+                            type="button"
+                            onClick={() => patch({ fontFamily: f.id })}
+                            className={`flex w-full items-center gap-2 rounded-lg border px-3 py-2.5 text-left transition-colors ${
+                              active
+                                ? "border-[#e25a4e] bg-[#e25a4e0a]"
+                                : "border-neutral-200 hover:border-neutral-300"
+                            }`}
+                          >
+                            <span
+                              className="truncate text-base text-neutral-800"
+                              style={{ fontFamily: f.css }}
+                            >
+                              {f.label}
+                            </span>
+                            <span className="ml-auto shrink-0 text-[10px] uppercase tracking-wide text-neutral-400">
+                              {f.category}
+                            </span>
+                            {active && (
+                              <span className="grid h-4 w-4 shrink-0 place-items-center rounded-full bg-[#e25a4e] text-white">
+                                <Check className="w-2.5 h-2.5" />
+                              </span>
+                            )}
+                          </button>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </>
+            ) : (
+              <div className="grid grid-cols-2 gap-2">
+                {FONT_OPTIONS.map((f) => {
+                  const active = design.fontFamily === f.id;
+                  return (
+                    <button
+                      key={f.id}
+                      type="button"
+                      onClick={() => patch({ fontFamily: f.id })}
+                      className={`relative rounded-lg border px-3 py-3 text-left transition-colors ${
+                        active
+                          ? "border-[#e25a4e] bg-[#e25a4e0a]"
+                          : "border-neutral-200 hover:border-neutral-300"
+                      }`}
+                    >
+                      <div
+                        className="truncate text-base text-neutral-800"
+                        style={{ fontFamily: fontCssFamily(f.id) }}
+                      >
+                        {f.label}
+                      </div>
+                      <div className="mt-0.5 text-[10px] uppercase tracking-wide text-neutral-400">
+                        {f.category}
+                      </div>
+                      {active && (
+                        <span className="absolute right-2 top-2 grid h-4 w-4 place-items-center rounded-full bg-[#e25a4e] text-white">
+                          <Check className="w-2.5 h-2.5" />
+                        </span>
+                      )}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </Section>
 
           {/* Color de acento */}

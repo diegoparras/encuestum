@@ -184,8 +184,60 @@ export interface FontOption {
   id: string;
   label: string;
   css: string; // CSS font-family value
-  google?: string; // Google Fonts family spec (family:wght@...) if hosted there
+  google?: string; // Google Fonts CSS2 spec (family:wght@...) for curated fonts
+  family?: string; // raw Google family name for arbitrary (searched) fonts
   category: "sans" | "serif" | "display" | "mono" | "handwriting";
+}
+
+// A broad catalog of Google Fonts families the user can search and apply. Loaded
+// on demand (see loadFont) via the tolerant v1 CSS API so missing weights never
+// break the stylesheet. The curated FONT_OPTIONS above stay as quick picks.
+export const GOOGLE_FONT_FAMILIES: string[] = [
+  "Inter", "Roboto", "Open Sans", "Lato", "Montserrat", "Poppins", "Raleway",
+  "Nunito", "Nunito Sans", "Work Sans", "DM Sans", "Rubik", "Manrope", "Karla",
+  "Mulish", "Quicksand", "Josefin Sans", "Barlow", "Barlow Condensed", "Oswald",
+  "Bebas Neue", "Anton", "Archivo", "Archivo Black", "Space Grotesk", "Sora",
+  "Outfit", "Figtree", "Plus Jakarta Sans", "Lexend", "Public Sans", "Red Hat Display",
+  "Red Hat Text", "IBM Plex Sans", "IBM Plex Serif", "IBM Plex Mono", "Fira Sans",
+  "Fira Code", "Source Sans 3", "Source Serif 4", "Source Code Pro", "PT Sans",
+  "PT Serif", "Noto Sans", "Noto Serif", "Cabin", "Hind", "Titillium Web",
+  "Dosis", "Comfortaa", "Kanit", "Prompt", "Mukta", "Heebo", "Assistant",
+  "Signika", "Exo 2", "Teko", "Chivo", "Jost", "Urbanist", "Epilogue", "Onest",
+  "Schibsted Grotesk", "Bricolage Grotesque", "Instrument Sans", "Hanken Grotesk",
+  "Albert Sans", "Be Vietnam Pro", "Overpass", "Saira", "Saira Condensed",
+  "Lora", "Merriweather", "Playfair Display", "PT Serif Caption", "Bitter",
+  "Crimson Text", "Crimson Pro", "EB Garamond", "Cormorant", "Cormorant Garamond",
+  "Libre Baskerville", "Libre Franklin", "Spectral", "Zilla Slab", "Roboto Slab",
+  "Arvo", "Domine", "Frank Ruhl Libre", "Newsreader", "Fraunces", "Petrona",
+  "Alegreya", "Alegreya Sans", "Vollkorn", "Cardo", "Neuton", "Gelasio",
+  "DM Serif Display", "DM Serif Text", "Abril Fatface", "Bodoni Moda",
+  "Marcellus", "Cinzel", "Philosopher", "Yeseva One", "Prata", "Rozha One",
+  "Oxygen", "Muli", "Questrial", "Varela Round", "Baloo 2", "Fredoka",
+  "Righteous", "Pacifico", "Lobster", "Caveat", "Dancing Script", "Satisfy",
+  "Great Vibes", "Sacramento", "Kalam", "Shadows Into Light", "Indie Flower",
+  "Permanent Marker", "Amatic SC", "Patrick Hand", "Gochi Hand", "Courgette",
+  "Cookie", "Parisienne", "Allura", "Yellowtail", "Cabin Sketch",
+  "Space Mono", "JetBrains Mono", "Roboto Mono", "Inconsolata", "Ubuntu Mono",
+  "Ubuntu", "Rajdhani", "Orbitron", "Michroma", "Audiowide", "Russo One",
+  "Chakra Petch", "Syne", "Unbounded", "Clash Display", "Gantari", "Geist",
+  "Playpen Sans", "Gloock", "Della Respira", "Big Shoulders Display",
+];
+
+// Build a FontOption for an arbitrary Google family the user searched for.
+function _familyFallback(css: string): string {
+  const l = css.toLowerCase();
+  if (/(display|black|fat|one$| one$)/.test(l)) return "sans-serif";
+  return "sans-serif";
+}
+
+export function fontFromFamily(family: string): FontOption {
+  return {
+    id: family,
+    label: family,
+    css: `"${family}", ${_familyFallback(family)}`,
+    family,
+    category: "sans",
+  };
 }
 
 // Curated typefaces. "system" needs no network; the rest load from Google Fonts.
@@ -205,7 +257,11 @@ export const FONT_OPTIONS: FontOption[] = [
 ];
 
 export function fontById(id: string): FontOption {
-  return FONT_OPTIONS.find((f) => f.id === id) ?? FONT_OPTIONS[0];
+  const curated = FONT_OPTIONS.find((f) => f.id === id);
+  if (curated) return curated;
+  // An arbitrary Google family (searched by the user) → synthesize its option.
+  if (id && id !== "system") return fontFromFamily(id);
+  return FONT_OPTIONS[0];
 }
 
 export function fontCssFamily(id: string): string {

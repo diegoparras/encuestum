@@ -24,11 +24,19 @@ const _loaded = new Set<string>();
 export function loadFont(id: string): void {
   if (typeof document === "undefined") return;
   const font = fontById(id);
-  if (!font.google || _loaded.has(font.id)) return;
+  if (font.id === "system" || _loaded.has(font.id)) return;
   _loaded.add(font.id);
   const link = document.createElement("link");
   link.rel = "stylesheet";
-  link.href = `https://fonts.googleapis.com/css2?family=${font.google}&display=swap`;
+  if (font.google) {
+    // Curated font: CSS2 with the exact weight spec.
+    link.href = `https://fonts.googleapis.com/css2?family=${font.google}&display=swap`;
+  } else {
+    // Arbitrary searched family: the v1 API tolerates weights the font lacks
+    // (never 400s the whole stylesheet), so request a common set.
+    const fam = (font.family || font.id).replace(/\s+/g, "+");
+    link.href = `https://fonts.googleapis.com/css?family=${fam}:400,500,600,700&display=swap`;
+  }
   link.setAttribute("data-encuestum-font", font.id);
   document.head.appendChild(link);
 }
