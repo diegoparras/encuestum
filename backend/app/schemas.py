@@ -38,6 +38,9 @@ class SurveyUpdateRequest(BaseModel):
     evaluation: Optional[dict[str, Any]] = None
     closes_at: Optional[datetime] = None
     max_responses: Optional[int] = None
+    access_mode: Optional[str] = None  # public | pin | list
+    access_pin: Optional[str] = None
+    results_mode: Optional[str] = None  # immediate | on_release | never
 
 
 class SurveySummary(BaseModel):
@@ -63,6 +66,10 @@ class SurveyDetail(BaseModel):
     evaluation: Optional[dict[str, Any]]
     closes_at: Optional[datetime] = None
     max_responses: Optional[int] = None
+    access_mode: str = "public"
+    access_pin: Optional[str] = None
+    results_mode: str = "immediate"
+    results_released: bool = False
     created_at: datetime
     updated_at: datetime
 
@@ -72,6 +79,10 @@ class SurveyDetail(BaseModel):
             id=s.id, title=s.title, slug=s.slug, status=s.status, language=s.language,
             json_schema=s.json_schema or {}, theme=s.theme, evaluation=s.evaluation,
             closes_at=s.closes_at, max_responses=s.max_responses,
+            access_mode=getattr(s, "access_mode", "public"),
+            access_pin=getattr(s, "access_pin", None),
+            results_mode=getattr(s, "results_mode", "immediate"),
+            results_released=getattr(s, "results_released", False),
             created_at=s.created_at, updated_at=s.updated_at,
         )
 
@@ -85,12 +96,28 @@ class PublicSurvey(BaseModel):
     evaluation: Optional[dict[str, Any]] = None
     available: bool = True
     closed_reason: Optional[str] = None
+    # Access gating: when gated is True the schema is withheld until the
+    # respondent passes the access step (PIN or email+code).
+    access_mode: str = "public"
+    gated: bool = False
 
 
 class SubmitResponseRequest(BaseModel):
     answers: dict[str, Any] = Field(default_factory=dict)
     completed: bool = True
     meta: Optional[dict[str, Any]] = None
+    access_token: Optional[str] = None
+
+
+class SurveyAccessRequest(BaseModel):
+    pin: Optional[str] = None
+    email: Optional[str] = None
+    code: Optional[str] = None
+
+
+class ResultLookupRequest(BaseModel):
+    email: str
+    code: str
 
 
 class GradeQuestionRequest(BaseModel):

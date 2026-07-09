@@ -192,6 +192,20 @@ class Survey(SQLModel, table=True):
         sa_column=Column(DateTime(timezone=True)), default=None
     )
     max_responses: Optional[int] = Field(sa_column=Column(Integer), default=None)
+    # Access control: how respondents get in.
+    #   public → anyone with the link; pin → shared password; list → email allowlist.
+    access_mode: str = Field(
+        sa_column=Column(String, nullable=False, server_default="public"), default="public"
+    )
+    access_pin: Optional[str] = Field(sa_column=Column(String), default=None)
+    # When respondents may see their AI correction: immediate | on_release | never.
+    results_mode: str = Field(
+        sa_column=Column(String, nullable=False, server_default="immediate"), default="immediate"
+    )
+    # For results_mode=on_release: owner flips this to publish grades to respondents.
+    results_released: bool = Field(
+        sa_column=Column(Boolean, nullable=False, server_default="0"), default=False
+    )
     theme: Optional[dict] = Field(sa_column=Column(JSON), default=None)
     # Answer keys / rubrics / exam settings. SERVER-SIDE ONLY.
     evaluation: Optional[dict] = Field(sa_column=Column(JSON), default=None)
@@ -218,6 +232,13 @@ class SurveyResponse(SQLModel, table=True):
     )
     answers: dict = Field(sa_column=Column(JSON, nullable=False), default_factory=dict)
     meta: Optional[dict] = Field(sa_column=Column(JSON), default=None)
+    # Respondent identity (set when the survey is access-gated by email list).
+    respondent_email: Optional[str] = Field(
+        sa_column=Column(String, index=True), default=None
+    )
+    respondent_code: Optional[str] = Field(
+        sa_column=Column(String, index=True), default=None
+    )
     completed: bool = Field(
         sa_column=Column(Boolean, nullable=False, server_default="1"), default=True
     )
@@ -315,6 +336,36 @@ class AiModelPrice(SQLModel, table=True):
     model: str = Field(sa_column=Column(String, nullable=False))
     input_per_m: float = Field(sa_column=Column(Float, nullable=False))  # USD / 1M input tokens
     output_per_m: float = Field(sa_column=Column(Float, nullable=False))  # USD / 1M output tokens
+    created_at: datetime = Field(
+        sa_column=Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    )
+
+
+class SurveyInvitee(SQLModel, table=True):
+    """An email allowed to answer an access=list survey, with a unique code used
+    both to enter and to retrieve results later."""
+
+    __tablename__ = "survey_invitees"
+    __table_args__ = (UniqueConstraint("survey_id", "email", name="uq_invitee_survey_email"),)
+
+    id: uuid.UUID = Field(primary_key=True, default_factory=uuid.uuid4)
+    survey_id: uuid.UUID = Field(
+        sa_column=Column(
+            ForeignKey("surveys.id", ondelete="CASCADE"), index=True, nullable=False
+        )
+    )
+    email: str = Field(sa_column=Column(String, nullable=False, index=True))
+    code: str = Field(
+        sa_column=Column(String, nullable=False, index=True),
+        default_factory=lambda: secrets.token_hex(4).upper(),
+    )
+    name: Optional[str] = Field(sa_column=Column(String), default=None)
+    used_at: Optional[datetime] = Field(
+        sa_column=Column(DateTime(timezone=True)), default=None
+    )
+    sent_at: Optional[datetime] = Field(
+        sa_column=Column(DateTime(timezone=True)), default=None
+    )
     created_at: datetime = Field(
         sa_column=Column(DateTime(timezone=True), nullable=False, default=_utcnow)
     )

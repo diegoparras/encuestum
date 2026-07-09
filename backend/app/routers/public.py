@@ -5,14 +5,56 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from app.db import get_session
-from app.models import Survey, SurveyResponse
-from app.schemas import GradeQuestionRequest, PublicSurvey, SubmitResponseRequest, public_evaluation_meta
+from app.models import Survey, SurveyResponse, SurveyInvitee
+from app.schemas import (
+    GradeQuestionRequest,
+    PublicSurvey,
+    ResultLookupRequest,
+    SubmitResponseRequest,
+    SurveyAccessRequest,
+    public_evaluation_meta,
+)
 from app.grading import extract_question_types, grade_deterministic, grade_response
 from app.models import _utcnow
+from app.security import create_purpose_token, read_purpose_token
 from app.webhooks import schedule_response_delivery
 
 LOGGER = logging.getLogger(__name__)
 router = APIRouter(prefix="/public", tags=["public"])
+
+_ACCESS_PURPOSE = "survey_access"
+
+
+def _branding_theme(theme: dict | None) -> dict | None:
+    """Only the visual bits are safe to show on the access gate (no schema)."""
+    return theme
+
+
+async def _find_invitee(session: AsyncSession, survey_id, email: str, code: str) -> SurveyInvitee | None:
+    email = (email or "").strip().lower()
+    code = (code or "").strip().upper()
+    if not email or not code:
+        return None
+    inv = (
+        await session.scalars(
+            select(SurveyInvitee).where(
+                SurveyInvitee.survey_id == survey_id, SurveyInvitee.email == email
+            )
+        )
+    ).first()
+    if inv and inv.code.upper() == code:
+        return inv
+    return None
+
+
+def _valid_access(s: Survey, token: str | None) -> bool:
+    """Public surveys need no token; gated ones require a token minted for this slug."""
+    if getattr(s, "access_mode", "public") == "public":
+        return True
+    if not token:
+        return False
+    data = read_purpose_token(_ACCESS_PURPOSE, token)
+    return bool(data and data.get("slug") == s.slug)
 
 
 async def _visible(slug: str, session: AsyncSession) -> Survey:
@@ -78,18 +120,59 @@ def _respondent_view(grade: dict, evaluation: dict, schema: dict) -> dict:
     return view
 
 
-@router.get("/{slug}", response_model=PublicSurvey)
-async def get_public_survey(slug: str, session: AsyncSession = Depends(get_session)):
-    s = await _visible(slug, session)
-    available, reason = await _availability(s, session)
+def _public_payload(s: Survey, available: bool, reason: str | None, gated: bool) -> PublicSurvey:
+    show_form = available and not gated
     return PublicSurvey(
         slug=s.slug, title=s.title, language=s.language,
-        # When closed, don't ship the form — just the reason.
-        json_schema=(s.json_schema or {}) if available else {},
-        theme=s.theme,
-        evaluation=public_evaluation_meta(s.evaluation) if available else None,
+        json_schema=(s.json_schema or {}) if show_form else {},
+        theme=s.theme,  # theme carries branding; safe to show on the gate
+        evaluation=public_evaluation_meta(s.evaluation) if show_form else None,
         available=available, closed_reason=reason,
+        access_mode=getattr(s, "access_mode", "public"), gated=gated,
     )
+
+
+@router.get("/{slug}", response_model=PublicSurvey)
+async def get_public_survey(
+    slug: str, access_token: str | None = None, session: AsyncSession = Depends(get_session)
+):
+    s = await _visible(slug, session)
+    available, reason = await _availability(s, session)
+    gated = available and not _valid_access(s, access_token)
+    return _public_payload(s, available, reason, gated)
+
+
+@router.post("/{slug}/access")
+async def survey_access(
+    slug: str, payload: SurveyAccessRequest, session: AsyncSession = Depends(get_session)
+):
+    s = await _visible(slug, session)
+    available, reason = await _availability(s, session)
+    if not available:
+        raise HTTPException(status_code=403, detail=reason or "Esta encuesta está cerrada.")
+
+    mode = getattr(s, "access_mode", "public")
+    token_data: dict = {"slug": s.slug, "mode": mode}
+
+    if mode == "public":
+        pass
+    elif mode == "pin":
+        if not s.access_pin or (payload.pin or "").strip() != s.access_pin:
+            raise HTTPException(status_code=403, detail="Clave incorrecta")
+    elif mode == "list":
+        inv = await _find_invitee(session, s.id, payload.email or "", payload.code or "")
+        if not inv:
+            raise HTTPException(status_code=403, detail="Email o código inválido")
+        if inv.used_at is None:
+            inv.used_at = _utcnow()
+            session.add(inv)
+            await session.commit()
+        token_data.update({"email": inv.email, "code": inv.code})
+    else:
+        raise HTTPException(status_code=400, detail="Modo de acceso desconocido")
+
+    token = create_purpose_token(_ACCESS_PURPOSE, token_data, ttl_hours=12)
+    return {"access_token": token, "survey": _public_payload(s, True, None, gated=False)}
 
 
 @router.post("/{slug}/submit", status_code=201)
@@ -98,8 +181,18 @@ async def submit(slug: str, payload: SubmitResponseRequest, session: AsyncSessio
     available, reason = await _availability(s, session)
     if not available:
         raise HTTPException(status_code=403, detail=reason or "Esta encuesta está cerrada.")
+
+    # Gated surveys require a valid access token; capture respondent identity.
+    resp_email = resp_code = None
+    if getattr(s, "access_mode", "public") != "public":
+        if not _valid_access(s, payload.access_token):
+            raise HTTPException(status_code=403, detail="Necesitás acceso para responder esta encuesta.")
+        data = read_purpose_token(_ACCESS_PURPOSE, payload.access_token or "") or {}
+        resp_email, resp_code = data.get("email"), data.get("code")
+
     r = SurveyResponse(
-        survey_id=s.id, answers=payload.answers or {}, completed=payload.completed, meta=payload.meta
+        survey_id=s.id, answers=payload.answers or {}, completed=payload.completed, meta=payload.meta,
+        respondent_email=resp_email, respondent_code=resp_code,
     )
     session.add(r)
     await session.commit()
@@ -135,9 +228,50 @@ async def submit(slug: str, payload: SubmitResponseRequest, session: AsyncSessio
 
     if grade is None:
         return {"id": str(r.id), "status": "recorded"}
-    if evaluation.get("feedbackTiming", "onComplete") == "never":
-        return {"id": str(r.id), "status": "recorded"}
-    return {"id": str(r.id), "status": "graded", "result": _respondent_view(grade, evaluation, s.json_schema or {})}
+
+    # Whether the respondent sees their correction now depends on results_mode.
+    results_mode = getattr(s, "results_mode", "immediate")
+    if results_mode == "immediate":
+        return {"id": str(r.id), "status": "graded",
+                "result": _respondent_view(grade, evaluation, s.json_schema or {})}
+    if results_mode == "on_release":
+        return {"id": str(r.id), "status": "recorded", "results_pending": True,
+                "can_check": getattr(s, "access_mode", "public") == "list"}
+    # never
+    return {"id": str(r.id), "status": "recorded"}
+
+
+@router.post("/{slug}/result")
+async def lookup_result(
+    slug: str, payload: ResultLookupRequest, session: AsyncSession = Depends(get_session)
+):
+    """A respondent (email-list access) comes back with their code to see their
+    correction — once the owner has released results (or immediately)."""
+    s = await _visible(slug, session)
+    if getattr(s, "access_mode", "public") != "list":
+        raise HTTPException(status_code=404, detail="Esta encuesta no permite consultar resultados")
+    inv = await _find_invitee(session, s.id, payload.email, payload.code)
+    if not inv:
+        raise HTTPException(status_code=403, detail="Email o código inválido")
+
+    results_mode = getattr(s, "results_mode", "immediate")
+    if results_mode == "never":
+        raise HTTPException(status_code=403, detail="Los resultados no están disponibles.")
+    if results_mode == "on_release" and not getattr(s, "results_released", False):
+        return {"status": "pending", "detail": "Los resultados todavía no fueron publicados."}
+
+    r = (
+        await session.scalars(
+            select(SurveyResponse)
+            .where(SurveyResponse.survey_id == s.id, SurveyResponse.respondent_code == inv.code)
+            .order_by(SurveyResponse.submitted_at.desc())
+        )
+    ).first()
+    if not r:
+        raise HTTPException(status_code=404, detail="No encontramos tu respuesta")
+    if not r.grade:
+        return {"status": "pending", "detail": "Tu respuesta todavía no fue corregida."}
+    return {"status": "graded", "result": _respondent_view(r.grade, s.evaluation or {}, s.json_schema or {})}
 
 
 @router.post("/{slug}/grade-question")

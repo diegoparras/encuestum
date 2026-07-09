@@ -8,10 +8,13 @@ from sqlalchemy import delete, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
+from pydantic import BaseModel, EmailStr
+
 from app.db import get_session
 from app.deps import OrgContext, current_context
+from app.email import build_url, send_email
 from app.exporting import CSV_MEDIA, XLSX_MEDIA, export_rows, rows_to_csv, sheets_to_xlsx
-from app.models import Survey, SurveyResponse
+from app.models import Survey, SurveyInvitee, SurveyResponse, _utcnow
 from app.schemas import (
     VALID_STATUSES, ResponseItem, SurveyCreateRequest, SurveyDetail,
     SurveySummary, SurveyUpdateRequest,
@@ -95,6 +98,10 @@ async def update_survey(
     s = await _survey_or_404(sid, ctx.org.id, session)
     if payload.status is not None and payload.status not in VALID_STATUSES:
         raise HTTPException(status_code=400, detail=f"Invalid status. Expected {sorted(VALID_STATUSES)}")
+    if payload.access_mode is not None and payload.access_mode not in {"public", "pin", "list"}:
+        raise HTTPException(status_code=400, detail="access_mode inválido (public|pin|list)")
+    if payload.results_mode is not None and payload.results_mode not in {"immediate", "on_release", "never"}:
+        raise HTTPException(status_code=400, detail="results_mode inválido (immediate|on_release|never)")
     data = payload.model_dump(exclude_unset=True)
     # org_id / created_by are never client-settable.
     data.pop("org_id", None)
@@ -207,3 +214,140 @@ async def export_responses(
         iter([rows_to_csv(rows)]), media_type=CSV_MEDIA,
         headers={"Content-Disposition": f'attachment; filename="{base}-{stamp}.csv"'},
     )
+
+
+# ── Access control: invitees (email allowlist) and results release ───────────
+class InviteeIn(BaseModel):
+    email: EmailStr
+    name: str | None = None
+
+
+class InviteesBulkRequest(BaseModel):
+    invitees: List[InviteeIn]
+
+
+class InviteeOut(BaseModel):
+    id: uuid.UUID
+    email: str
+    name: str | None
+    code: str
+    used_at: datetime | None
+    sent_at: datetime | None
+    created_at: datetime
+
+    @classmethod
+    def of(cls, i: SurveyInvitee) -> "InviteeOut":
+        return cls(id=i.id, email=i.email, name=i.name, code=i.code,
+                   used_at=i.used_at, sent_at=i.sent_at, created_at=i.created_at)
+
+
+@router.get("/{sid}/invitees", response_model=List[InviteeOut])
+async def list_invitees(
+    sid: uuid.UUID,
+    ctx: OrgContext = Depends(current_context),
+    session: AsyncSession = Depends(get_session),
+):
+    await _survey_or_404(sid, ctx.org.id, session)
+    rows = (
+        await session.scalars(
+            select(SurveyInvitee).where(SurveyInvitee.survey_id == sid)
+            .order_by(SurveyInvitee.created_at.asc())
+        )
+    ).all()
+    return [InviteeOut.of(i) for i in rows]
+
+
+@router.post("/{sid}/invitees", response_model=List[InviteeOut])
+async def add_invitees(
+    sid: uuid.UUID,
+    payload: InviteesBulkRequest,
+    ctx: OrgContext = Depends(current_context),
+    session: AsyncSession = Depends(get_session),
+):
+    await _survey_or_404(sid, ctx.org.id, session)
+    existing = {
+        i.email
+        for i in (
+            await session.scalars(select(SurveyInvitee).where(SurveyInvitee.survey_id == sid))
+        ).all()
+    }
+    created: List[SurveyInvitee] = []
+    for item in payload.invitees:
+        email = item.email.strip().lower()
+        if not email or email in existing:
+            continue
+        existing.add(email)
+        inv = SurveyInvitee(survey_id=sid, email=email, name=(item.name or None))
+        session.add(inv)
+        created.append(inv)
+    await session.commit()
+    for inv in created:
+        await session.refresh(inv)
+    return [InviteeOut.of(i) for i in created]
+
+
+@router.delete("/{sid}/invitees/{iid}")
+async def delete_invitee(
+    sid: uuid.UUID,
+    iid: uuid.UUID,
+    ctx: OrgContext = Depends(current_context),
+    session: AsyncSession = Depends(get_session),
+):
+    await _survey_or_404(sid, ctx.org.id, session)
+    inv = await session.get(SurveyInvitee, iid)
+    if inv and inv.survey_id == sid:
+        await session.delete(inv)
+        await session.commit()
+    return {"detail": "Invitado eliminado"}
+
+
+@router.post("/{sid}/invitees/send")
+async def send_invitee_links(
+    sid: uuid.UUID,
+    only_unsent: bool = Query(True),
+    ctx: OrgContext = Depends(current_context),
+    session: AsyncSession = Depends(get_session),
+):
+    """Email each invitee a magic link (survey URL with their email+code)."""
+    from app.config import get_settings
+    s = await _survey_or_404(sid, ctx.org.id, session)
+    if not get_settings().smtp_configured:
+        raise HTTPException(status_code=400, detail="Falta configurar SMTP para enviar emails.")
+    stmt = select(SurveyInvitee).where(SurveyInvitee.survey_id == sid)
+    if only_unsent:
+        stmt = stmt.where(SurveyInvitee.sent_at.is_(None))
+    rows = (await session.scalars(stmt)).all()
+    sent = 0
+    title = s.title or "una encuesta"
+    for inv in rows:
+        link = build_url(f"/s/{s.slug}", email=inv.email, code=inv.code)
+        text = (
+            f"Hola{(' ' + inv.name) if inv.name else ''},\n\n"
+            f"Fuiste invitado/a a responder «{title}».\n"
+            f"Ingresá con este enlace:\n{link}\n\n"
+            f"Tu código de acceso es: {inv.code}\n"
+        )
+        try:
+            await send_email(inv.email, f"Invitación: {title}", text)
+            inv.sent_at = _utcnow()
+            session.add(inv)
+            sent += 1
+        except Exception:  # noqa: BLE001
+            continue
+    await session.commit()
+    return {"sent": sent, "total": len(rows)}
+
+
+@router.post("/{sid}/release-results", response_model=SurveyDetail)
+async def release_results(
+    sid: uuid.UUID,
+    released: bool = Query(True),
+    ctx: OrgContext = Depends(current_context),
+    session: AsyncSession = Depends(get_session),
+):
+    s = await _survey_or_404(sid, ctx.org.id, session)
+    s.results_released = released
+    session.add(s)
+    await session.commit()
+    await session.refresh(s)
+    return SurveyDetail.from_model(s)
