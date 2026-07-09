@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import Link from "next/link";
 import {
@@ -15,6 +15,7 @@ import {
   Sparkles,
   Users,
   Webhook,
+  WifiOff,
 } from "lucide-react";
 import { getMe, logout, switchOrg, type Me } from "@/utils/auth";
 import { MeProvider } from "./MeContext";
@@ -187,13 +188,16 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
   const pathname = usePathname();
   const [me, setMe] = useState<Me | null>(null);
-  const [status, setStatus] = useState<"loading" | "ready" | "unauth">("loading");
+  // "error" = couldn't reach the server (connection/5xx), distinct from "unauth"
+  // (a real 401 → go to login). We retry instead of pretending you're logged out.
+  const [status, setStatus] = useState<"loading" | "ready" | "unauth" | "error">("loading");
 
-  useEffect(() => {
-    let cancelled = false;
+  const cancelledRef = useRef(false);
+  const load = useCallback(() => {
+    setStatus((s) => (s === "ready" ? s : "loading"));
     getMe()
       .then((data) => {
-        if (cancelled) return;
+        if (cancelledRef.current) return;
         if (!data) {
           setStatus("unauth");
           router.replace("/login");
@@ -203,14 +207,56 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
         setStatus("ready");
       })
       .catch(() => {
-        if (cancelled) return;
-        setStatus("unauth");
-        router.replace("/login");
+        // Network error / server unreachable — NOT an auth problem.
+        if (cancelledRef.current) return;
+        setStatus("error");
       });
-    return () => {
-      cancelled = true;
-    };
   }, [router]);
+
+  useEffect(() => {
+    cancelledRef.current = false;
+    load();
+    return () => {
+      cancelledRef.current = true;
+    };
+  }, [load]);
+
+  // While disconnected, keep trying in the background so the app recovers on its
+  // own once the server is back (e.g. after a restart).
+  useEffect(() => {
+    if (status !== "error") return;
+    const t = setInterval(load, 4000);
+    return () => clearInterval(t);
+  }, [status, load]);
+
+  if (status === "error") {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-neutral-50 px-4">
+        <div className="flex max-w-sm flex-col items-center gap-4 text-center">
+          <div className="grid h-12 w-12 place-items-center rounded-full bg-red-50 text-red-500">
+            <WifiOff className="h-6 w-6" />
+          </div>
+          <div>
+            <p className="text-base font-semibold text-neutral-800">
+              Sin conexión con el servidor
+            </p>
+            <p className="mt-1 text-sm text-neutral-500">
+              No pudimos contactar a Encuestum. Revisá tu conexión o esperá unos
+              segundos — reintentamos solos.
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={load}
+            className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:opacity-90"
+          >
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Reintentando…
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   if (status !== "ready" || !me) {
     return (

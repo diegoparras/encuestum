@@ -64,8 +64,26 @@ async function errorMessage(res: Response, fallback: string): Promise<string> {
   return fallback;
 }
 
+// A fetch that turns a network failure (server unreachable) into a clear,
+// Spanish error instead of the browser's "Failed to fetch".
+export class ConnectionError extends Error {
+  constructor() {
+    super("No pudimos conectar con el servidor. Revisá tu conexión e intentá de nuevo.");
+    this.name = "ConnectionError";
+  }
+}
+
+async function safeFetch(input: string, init?: RequestInit): Promise<Response> {
+  try {
+    return await fetch(input, init);
+  } catch {
+    // TypeError: Failed to fetch → server unreachable / offline / CORS blocked.
+    throw new ConnectionError();
+  }
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(getApiUrl(path), {
+  const res = await safeFetch(getApiUrl(path), {
     cache: "no-store",
     credentials: "include",
     ...init,
@@ -78,10 +96,11 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   return (await res.json()) as T;
 }
 
-// Returns the current session, or null when unauthenticated (401). Never throws
-// on 401 so callers can probe for a session without try/catch.
+// Returns the current session, or null when unauthenticated (401). Throws a
+// ConnectionError when the server is unreachable so the shell can distinguish
+// "not logged in" from "offline".
 export async function getMe(): Promise<Me | null> {
-  const res = await fetch(getApiUrl("/api/v1/auth/me"), {
+  const res = await safeFetch(getApiUrl("/api/v1/auth/me"), {
     cache: "no-store",
     credentials: "include",
   });
