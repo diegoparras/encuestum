@@ -23,6 +23,7 @@ class UserOut(BaseModel):
     id: uuid.UUID
     email: str
     name: Optional[str]
+    is_superadmin: bool = False
     created_at: datetime
 
 

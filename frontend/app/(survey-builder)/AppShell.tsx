@@ -4,12 +4,14 @@ import { useEffect, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
 import Link from "next/link";
 import {
+  BarChart3,
   Building2,
   Check,
   ChevronDown,
   ClipboardList,
   Loader2,
   LogOut,
+  Shield,
   Users,
 } from "lucide-react";
 import { getMe, logout, switchOrg, type Me } from "@/utils/auth";
@@ -247,6 +249,22 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                 <NavLink href="/members" active={pathname === "/members"} icon={Users}>
                   Miembros
                 </NavLink>
+                <NavLink
+                  href="/panel"
+                  active={pathname === "/panel"}
+                  icon={BarChart3}
+                >
+                  Panel
+                </NavLink>
+                {me.user.is_superadmin && (
+                  <NavLink
+                    href="/admin"
+                    active={pathname === "/admin"}
+                    icon={Shield}
+                  >
+                    Admin
+                  </NavLink>
+                )}
               </nav>
             </div>
             <div className="flex items-center gap-2">

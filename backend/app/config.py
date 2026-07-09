@@ -36,6 +36,10 @@ class Settings:
         # Registration gate: allow public self-signup, or lock it down.
         self.allow_registration = _bool("ENCUESTUM_ALLOW_REGISTRATION", True)
 
+        # Platform super-admin: this email always has super-admin access (plus any
+        # user explicitly flagged is_superadmin).
+        self.superadmin_email = (os.getenv("ENCUESTUM_SUPERADMIN_EMAIL") or "").strip().lower() or None
+
         # Security headers / HSTS (only meaningful behind HTTPS).
         self.enable_hsts = _bool("ENCUESTUM_ENABLE_HSTS", True)
 

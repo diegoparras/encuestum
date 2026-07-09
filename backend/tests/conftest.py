@@ -12,6 +12,7 @@ os.environ["ENCUESTUM_COOKIE_SECURE"] = "false"
 os.environ["ENCUESTUM_LOG_FORMAT"] = "text"
 os.environ["ENCUESTUM_ENABLE_HSTS"] = "false"
 os.environ["ENCUESTUM_RATE_LIMIT_ENABLED"] = "false"
+os.environ["ENCUESTUM_SUPERADMIN_EMAIL"] = "super@example.com"
 
 import pytest
 from fastapi.testclient import TestClient
@@ -20,7 +21,7 @@ from app.main import app as fastapi_app
 
 
 # ── Mock the LLM so grading/insights/generation are deterministic ────────────
-async def _fake_grade(*, language, question_title, model_answer, key_concepts, rubric, max_points, student_answer):
+async def _fake_grade(*, language, question_title, model_answer, key_concepts, rubric, max_points, student_answer, criteria=None):
     low = (student_answer or "").lower()
     if "ignore" in low:
         return {"score": 0.0, "verdict": "incorrect", "criteria": [], "feedback": "inyección",

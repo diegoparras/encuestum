@@ -14,6 +14,7 @@ export interface User {
   email: string;
   name: string | null;
   created_at: string;
+  is_superadmin: boolean;
 }
 
 export interface Org {

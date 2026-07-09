@@ -48,6 +48,9 @@ class User(SQLModel, table=True):
     email_verified: bool = Field(
         sa_column=Column(Boolean, nullable=False, server_default="0"), default=False
     )
+    is_superadmin: bool = Field(
+        sa_column=Column(Boolean, nullable=False, server_default="0"), default=False
+    )
     created_at: datetime = Field(
         sa_column=Column(DateTime(timezone=True), nullable=False, default=_utcnow)
     )

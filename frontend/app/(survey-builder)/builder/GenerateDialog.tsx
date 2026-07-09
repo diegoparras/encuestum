@@ -1,7 +1,7 @@
 "use client";
 
-import React, { useState } from "react";
-import { Sparkles, Loader2, X } from "lucide-react";
+import React, { useRef, useState } from "react";
+import { Sparkles, Loader2, X, Upload, FileText } from "lucide-react";
 import { readableForeground } from "./model";
 
 interface Body {
@@ -34,13 +34,34 @@ export function GenerateDialog({ open, accent, language, onClose, onGenerate }: 
   const [difficulty, setDifficulty] = useState("media");
   const [types, setTypes] = useState<string[]>(["radiogroup", "comment"]);
   const [context, setContext] = useState("");
+  const [fileName, setFileName] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   if (!open) return null;
 
   function toggleType(v: string) {
     setTypes((cur) => (cur.includes(v) ? cur.filter((x) => x !== v) : [...cur, v]));
+  }
+
+  async function onFilePick(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    // Reset so re-selecting the same file fires onChange again.
+    e.target.value = "";
+    if (!file) return;
+    try {
+      const text = await file.text();
+      setContext((prev) => (prev.trim() ? `${prev.trim()}\n\n${text}` : text));
+      setFileName(file.name);
+    } catch {
+      setError("No se pudo leer el archivo.");
+    }
+  }
+
+  function removeFile() {
+    setFileName(null);
+    setContext("");
   }
 
   async function run() {
@@ -145,10 +166,27 @@ export function GenerateDialog({ open, accent, language, onClose, onGenerate }: 
             </div>
           </div>
 
-          <label className="block">
-            <span className="block text-xs font-medium text-neutral-600 mb-1.5">
-              Material de base (opcional)
-            </span>
+          <div>
+            <div className="mb-1.5 flex items-center justify-between gap-2">
+              <span className="text-xs font-medium text-neutral-600">
+                Material de base (opcional)
+              </span>
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="inline-flex items-center gap-1.5 rounded-md border border-neutral-200 px-2 py-1 text-xs font-medium text-neutral-600 hover:bg-neutral-50"
+              >
+                <Upload className="h-3.5 w-3.5" />
+                Subir documento (.md, .txt)
+              </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".md,.markdown,.txt,text/plain,text/markdown"
+                onChange={onFilePick}
+                className="hidden"
+              />
+            </div>
             <textarea
               value={context}
               onChange={(e) => setContext(e.target.value)}
@@ -156,7 +194,24 @@ export function GenerateDialog({ open, accent, language, onClose, onGenerate }: 
               placeholder="Pegá un texto y las preguntas se basarán en él"
               className="w-full rounded-md border border-neutral-200 px-2.5 py-2 text-sm outline-none focus:border-neutral-400"
             />
-          </label>
+            {fileName && (
+              <div className="mt-1.5 inline-flex max-w-full items-center gap-1.5 rounded-md bg-neutral-100 px-2 py-1 text-xs text-neutral-600">
+                <FileText className="h-3.5 w-3.5 shrink-0 text-neutral-400" />
+                <span className="truncate">{fileName}</span>
+                <button
+                  type="button"
+                  onClick={removeFile}
+                  className="shrink-0 text-neutral-400 hover:text-neutral-700"
+                  aria-label="Quitar archivo"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            )}
+            <p className="mt-1 text-[11px] text-neutral-400">
+              La IA generará preguntas basadas en este material.
+            </p>
+          </div>
 
           {error && <p className="text-sm text-red-600">{error}</p>}
         </div>

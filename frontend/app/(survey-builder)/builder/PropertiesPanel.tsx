@@ -3,10 +3,13 @@
 import React from "react";
 import { Switch } from "@/components/ui/switch";
 import {
+  AiCriteria,
   BuilderQuestion,
   EvaluationSettings,
+  FeedbackTone,
   LogicOperator,
   QUESTION_TYPE_LABEL,
+  Strictness,
   typeHasChoices,
   VisibilityRule,
 } from "./model";
@@ -14,7 +17,7 @@ import { ChoicesEditor } from "./ChoicesEditor";
 import { ImageChoicesEditor } from "./ImageChoicesEditor";
 import { GradingSection } from "./GradingSection";
 import { AssetPicker } from "./AssetPicker";
-import { Film } from "lucide-react";
+import { Film, Sparkles } from "lucide-react";
 
 interface Props {
   question: BuilderQuestion | null;
@@ -463,6 +466,121 @@ function ExamSettings({
           onChange={(v) => setIntegrity({ shuffleChoices: v })}
         />
       </div>
+
+      <AiGradingSection evaluation={evaluation} onChange={onChange} accent={accent} />
+    </div>
+  );
+}
+
+const FOCUS_SUGGESTIONS = [
+  "contenido",
+  "claridad",
+  "originalidad",
+  "ortografía",
+  "ejemplos",
+  "estructura",
+];
+
+function AiGradingSection({
+  evaluation,
+  onChange,
+  accent,
+}: {
+  evaluation: EvaluationSettings;
+  onChange: (e: EvaluationSettings) => void;
+  accent: string;
+}) {
+  const ai = evaluation.aiCriteria;
+  const setAi = (patch: Partial<AiCriteria>) =>
+    onChange({ ...evaluation, aiCriteria: { ...evaluation.aiCriteria, ...patch } });
+
+  function toggleFocus(value: string) {
+    const has = ai.focus.includes(value);
+    setAi({
+      focus: has ? ai.focus.filter((f) => f !== value) : [...ai.focus, value],
+    });
+  }
+
+  return (
+    <div className="mt-4 rounded-xl border border-neutral-200 bg-white p-3">
+      <div className="mb-1 inline-flex items-center gap-1.5 text-xs font-semibold text-neutral-700">
+        <Sparkles className="h-3.5 w-3.5" style={{ color: accent }} /> Corrección con IA
+      </div>
+
+      <ToggleRow
+        label="Usar criterios personalizados para la IA correctora"
+        checked={ai.enabled}
+        onChange={(v) => setAi({ enabled: v })}
+      />
+
+      {ai.enabled && (
+        <div className="mt-2 space-y-3">
+          <Field label="Nivel de exigencia">
+            <select
+              value={ai.strictness}
+              onChange={(e) => setAi({ strictness: e.target.value as Strictness })}
+              className="w-full rounded-md border border-neutral-200 px-2.5 py-1.5 text-sm outline-none focus:border-neutral-400 bg-white"
+            >
+              <option value="indulgente">Indulgente</option>
+              <option value="equilibrado">Equilibrado</option>
+              <option value="estricto">Estricto</option>
+            </select>
+          </Field>
+
+          <div>
+            <span className="mb-1.5 block text-xs font-medium text-neutral-600">
+              Qué priorizar
+            </span>
+            <div className="flex flex-wrap gap-2">
+              {FOCUS_SUGGESTIONS.map((f) => {
+                const active = ai.focus.includes(f);
+                return (
+                  <button
+                    key={f}
+                    type="button"
+                    onClick={() => toggleFocus(f)}
+                    className={`rounded-full border px-3 py-1 text-xs font-medium capitalize transition-colors ${
+                      active
+                        ? "text-white border-transparent"
+                        : "border-neutral-200 text-neutral-600 hover:bg-neutral-50"
+                    }`}
+                    style={active ? { backgroundColor: accent } : undefined}
+                  >
+                    {f}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <Field label="Tono del feedback">
+            <select
+              value={ai.tone}
+              onChange={(e) => setAi({ tone: e.target.value as FeedbackTone })}
+              className="w-full rounded-md border border-neutral-200 px-2.5 py-1.5 text-sm outline-none focus:border-neutral-400 bg-white"
+            >
+              <option value="motivador">Motivador</option>
+              <option value="neutral">Neutral</option>
+              <option value="directo">Directo</option>
+            </select>
+          </Field>
+
+          <Field label="Instrucciones">
+            <textarea
+              value={ai.instructions}
+              onChange={(e) => setAi({ instructions: e.target.value })}
+              rows={3}
+              placeholder="Ej. Penalizá respuestas sin ejemplos concretos"
+              className="w-full rounded-md border border-neutral-200 px-2.5 py-2 text-sm outline-none focus:border-neutral-400"
+            />
+          </Field>
+        </div>
+      )}
+
+      <p className="mt-2 text-[11px] leading-relaxed text-neutral-400">
+        Estos criterios guían a la IA que corrige las respuestas abiertas; no
+        anulan las reglas de seguridad.
+      </p>
     </div>
   );
 }

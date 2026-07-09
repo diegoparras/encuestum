@@ -5,7 +5,7 @@ import type { NextRequest } from "next/server";
 const SESSION_COOKIE = "enc_session";
 
 // Prefixes that require an authenticated session.
-const PROTECTED_PREFIXES = ["/surveys", "/members", "/settings"];
+const PROTECTED_PREFIXES = ["/surveys", "/members", "/settings", "/panel", "/admin"];
 
 // Auth pages that a logged-in user should be bounced away from.
 const AUTH_PAGES = ["/login", "/register"];

@@ -35,6 +35,14 @@ formularios. Backend FastAPI, frontend Next.js. Bring-your-own-key para el LLM.
 - **Corrección híbrida**: cerradas → determinística; abiertas → LLM con rúbrica,
   que devuelve puntaje, veredicto, feedback, **evidencia** citada, `needs_review`
   y `injection_flag`, con doble pasada.
+- **Motores de IA para evaluación**: la IA **genera** preguntas a partir de un
+  tema o de un **documento/markdown** que el docente pega o sube; y **corrige**
+  las respuestas abiertas con criterios personalizados que el profesor arma con
+  un **asistente** (exigencia, foco, tono, instrucciones) — sin anular las reglas
+  anti-alucinación/anti-inyección.
+- **Panel de administración**: por organización (métricas, actividad, export
+  global a Excel) y **super-admin de plataforma** (todas las organizaciones,
+  usuarios y uso, con export). `ENCUESTUM_SUPERADMIN_EMAIL` define al super-admin.
 - **Panel del profe**: cola de revisión, override manual de notas, analítica
   (distribución, tasa de aprobación, por-pregunta), insights de respuestas
   abiertas (anclados a las respuestas reales) y reporte por alumno.

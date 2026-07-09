@@ -79,6 +79,26 @@ export interface VisibilityRule {
   value: string; // ignored for empty/notempty
 }
 
+export type Strictness = "indulgente" | "equilibrado" | "estricto";
+export type FeedbackTone = "motivador" | "neutral" | "directo";
+
+// Teacher-built grading style for the LLM corrector (the "AI grading" wizard).
+export interface AiCriteria {
+  enabled: boolean;
+  strictness: Strictness;
+  focus: string[]; // e.g. ["contenido","claridad","originalidad","ortografía"]
+  tone: FeedbackTone;
+  instructions: string; // free-text extra guidance
+}
+
+export const DEFAULT_AI_CRITERIA: AiCriteria = {
+  enabled: false,
+  strictness: "equilibrado",
+  focus: [],
+  tone: "neutral",
+  instructions: "",
+};
+
 export interface EvaluationSettings {
   enabled: boolean;
   feedbackTiming: "immediate" | "onComplete" | "never";
@@ -86,6 +106,7 @@ export interface EvaluationSettings {
   showScoreToRespondent: boolean;
   doublePass: boolean;
   reviewThreshold: number;
+  aiCriteria: AiCriteria;
   integrity: {
     shuffleQuestions: boolean;
     shuffleChoices: boolean;
@@ -101,6 +122,7 @@ export const DEFAULT_EVALUATION: EvaluationSettings = {
   showScoreToRespondent: true,
   doublePass: false,
   reviewThreshold: 0.6,
+  aiCriteria: { ...DEFAULT_AI_CRITERIA },
   integrity: {
     shuffleQuestions: false,
     shuffleChoices: false,
@@ -631,6 +653,7 @@ function hydrateEvaluationSettings(
   if (!evaluation || typeof evaluation !== "object") {
     return { ...DEFAULT_EVALUATION, integrity: { ...DEFAULT_EVALUATION.integrity } };
   }
+  const ai = evaluation.aiCriteria || {};
   return {
     enabled: !!evaluation.enabled,
     feedbackTiming: evaluation.feedbackTiming ?? "onComplete",
@@ -638,6 +661,13 @@ function hydrateEvaluationSettings(
     showScoreToRespondent: evaluation.showScoreToRespondent ?? true,
     doublePass: !!evaluation.doublePass,
     reviewThreshold: evaluation.reviewThreshold ?? 0.6,
+    aiCriteria: {
+      enabled: !!ai.enabled,
+      strictness: ai.strictness ?? "equilibrado",
+      focus: Array.isArray(ai.focus) ? ai.focus : [],
+      tone: ai.tone ?? "neutral",
+      instructions: ai.instructions ?? "",
+    },
     integrity: {
       shuffleQuestions: !!evaluation.integrity?.shuffleQuestions,
       shuffleChoices: !!evaluation.integrity?.shuffleChoices,

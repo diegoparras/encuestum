@@ -131,6 +131,28 @@ def grade_deterministic(qcfg: dict, qtype: str, answer: Any) -> dict:
     }
 
 
+def build_ai_criteria(ai: Optional[dict]) -> Optional[str]:
+    """Turn the teacher's grading wizard answers into a criteria block for the
+    LLM grader. Returns None when disabled or empty."""
+    if not ai or not ai.get("enabled"):
+        return None
+    parts: List[str] = []
+    strict = (ai.get("strictness") or "").strip()
+    if strict:
+        parts.append(f"Nivel de exigencia: {strict}.")
+    focus = ai.get("focus") or []
+    if isinstance(focus, list) and focus:
+        parts.append("Priorizá especialmente: " + ", ".join(str(f) for f in focus) + ".")
+    tone = (ai.get("tone") or "").strip()
+    if tone:
+        parts.append(f"Tono del feedback: {tone}.")
+    instr = (ai.get("instructions") or "").strip()
+    if instr:
+        parts.append(instr)
+    text = "\n".join(parts).strip()
+    return text or None
+
+
 def _combine_passes(passes: List[dict], points: float, review_threshold: float) -> dict:
     scores = [float(p.get("score", 0) or 0) for p in passes]
     verdicts = [p.get("verdict") for p in passes]
@@ -181,6 +203,7 @@ async def grade_response(
     review_threshold = float((evaluation or {}).get("reviewThreshold", 0.6) or 0.6)
     double_pass = bool((evaluation or {}).get("doublePass", False))
     passing_pct = float((evaluation or {}).get("passingScore", 60) or 0)
+    ai_criteria = build_ai_criteria((evaluation or {}).get("aiCriteria"))
 
     results: List[dict] = []
     total = 0.0
@@ -212,6 +235,7 @@ async def grade_response(
                             rubric=qcfg.get("rubric", []),
                             max_points=points,
                             student_answer=student_answer,
+                            criteria=ai_criteria,
                         )
                     )
                 combined = _combine_passes(passes, points, review_threshold)

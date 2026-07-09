@@ -70,8 +70,16 @@ async def build_me(session: AsyncSession, user: User, active_org_id: uuid.UUID) 
         )
         for (m, org) in rows
     ]
+    settings = get_settings()
+    is_super = user.is_superadmin or (
+        settings.superadmin_email is not None
+        and user.email.lower() == settings.superadmin_email
+    )
     return MeOut(
-        user=UserOut(id=user.id, email=user.email, name=user.name, created_at=user.created_at),
+        user=UserOut(
+            id=user.id, email=user.email, name=user.name,
+            is_superadmin=is_super, created_at=user.created_at,
+        ),
         orgs=orgs,
         active_org_id=active_org_id,
     )

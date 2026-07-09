@@ -76,6 +76,13 @@ async def current_context(
     return OrgContext(user=user, org=org, membership=chosen)
 
 
+async def require_superadmin(user: User = Depends(current_user)) -> User:
+    s = get_settings()
+    if user.is_superadmin or (s.superadmin_email and user.email.lower() == s.superadmin_email):
+        return user
+    raise HTTPException(status_code=403, detail="Requiere super-admin de plataforma")
+
+
 def require_role(min_role: str):
     """Dependency factory: require the active membership to have at least `min_role`."""
     threshold = ROLE_RANK[min_role]
