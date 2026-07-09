@@ -1,4 +1,4 @@
-import { getApiUrl, adminHeaders } from "@/utils/api";
+import { getApiUrl } from "@/utils/api";
 
 export const SURVEY_ACCENT = "#e25a4e";
 
@@ -96,8 +96,9 @@ export interface GeneratedQuestion {
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(getApiUrl(path), {
     cache: "no-store",
+    credentials: "include",
     ...init,
-    headers: { "Content-Type": "application/json", ...adminHeaders(), ...init?.headers },
+    headers: { "Content-Type": "application/json", ...init?.headers },
   });
   if (!res.ok) {
     const detail = await res.text().catch(() => "");

@@ -38,15 +38,20 @@ Cómo dispararlo:
    certificado de EasyPanel.
 4. **Volumes**: montá un volumen persistente en **`/app_data`** (ahí vive el
    SQLite `encuestum.db` si no usás Postgres).
-5. **Environment**: pegá las variables (ver punto 3). Sin nada, arranca igual
-   con SQLite; para la corrección con IA hace falta una API key.
-6. Deploy.
+5. **Environment**: pegá las variables (ver punto 3). Como mínimo un
+   `ENCUESTUM_SESSION_SECRET` estable; para la corrección con IA, una API key.
+6. Deploy. La primera cuenta que se registre crea su organización y queda como
+   owner. El esquema se crea solo (migraciones al arranque).
 
 ## 3. Variables de entorno
 
-Todas opcionales; ver [`.env.example`](../.env.example).
+Ver [`.env.example`](../.env.example) para la lista completa.
 
 ```env
+# OBLIGATORIA: firma las cookies de sesión. Estable y secreta.
+#   openssl rand -hex 32
+ENCUESTUM_SESSION_SECRET=<hex-de-64-chars>
+
 # Base de datos: por defecto SQLite en /app_data. Para Postgres:
 # DATABASE_URL=postgresql://user:pass@host:5432/encuestum
 
@@ -55,31 +60,33 @@ ENCUESTUM_LLM_API_KEY=<tu-key>
 # ENCUESTUM_LLM_BASE_URL=https://openrouter.ai/api/v1   # default
 # ENCUESTUM_LLM_MODEL=openai/gpt-4o-mini                # default
 
-# Gate admin opcional: si lo definís, /api/v1/survey/surveys/* exige
-# el header X-Admin-Token. Las rutas públicas siempre quedan abiertas.
-# ENCUESTUM_ADMIN_TOKEN=<algo-seguro>
+# Cerrar el auto-registro una vez creadas las cuentas (opcional):
+# ENCUESTUM_ALLOW_REGISTRATION=false
 ```
 
+- **`ENCUESTUM_SESSION_SECRET`**: si no lo definís, se genera uno efímero y las
+  sesiones se caen en cada reinicio (verás un warning en el log). En producción,
+  fijalo.
+- **HTTPS**: con el dominio de EasyPanel en HTTPS, dejá `ENCUESTUM_COOKIE_SECURE`
+  en su default (`true`). Sólo lo ponés en `false` si servís por HTTP plano.
 - **Sin `ENCUESTUM_LLM_API_KEY`**: las encuestas y la corrección determinística
   funcionan; quedan inactivas la corrección por rúbrica con LLM, los insights y
   la generación de preguntas.
 - **Postgres**: `DATABASE_URL` con esquema plano; la app agrega el driver async
-  sola. Para Postgres, la imagen ya trae `asyncpg`.
-- **Gate admin**: si lo activás, el panel web (mismo dominio) necesita el token.
-  Como el frontend se sirve same-origin y no reenvía el token por defecto, para
-  un panel protegido conviene rebuildear la imagen con
-  `NEXT_PUBLIC_ENCUESTUM_ADMIN_TOKEN`, o dejar el gate apagado y proteger el
-  acceso a nivel EasyPanel (Basic Auth / IP allowlist).
+  sola. La imagen ya trae `asyncpg`. Las migraciones corren al arrancar.
 
 ## 4. Rutas del contenedor
 
 | Ruta | Va a | Auth |
 |---|---|---|
-| `/` , `/surveys`, `/surveys/*` | Next.js (panel admin) | según gate |
+| `/` | Next.js (landing pública) | abierta |
+| `/login`, `/register` | Next.js (cuentas) | abierta |
+| `/surveys/*`, `/members` | Next.js (panel) | sesión requerida |
 | `/s/{slug}` | Next.js (página pública de respuesta) | abierta |
+| `/api/v1/auth/*`, `/api/v1/orgs/*` | FastAPI (cuentas y organizaciones) | sesión (salvo login/register) |
 | `/api/v1/survey/public/*` | FastAPI (render/submit) | abierta |
-| `/api/v1/survey/surveys/*` | FastAPI (admin + evaluación) | gate opcional |
-| `/api/health`, `/docs`, `/openapi.json` | FastAPI | abierta |
+| `/api/v1/survey/surveys/*` | FastAPI (panel + evaluación) | sesión + organización |
+| `/api/health`, `/api/ready`, `/docs` | FastAPI | abierta |
 
 ## 5. Cortar un Release (recomendado para versionar la imagen)
 

@@ -7,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from app.db import get_session
+from app.deps import OrgContext, current_context
 from app.models import Survey, SurveyResponse
 from app.schemas import (
     VALID_STATUSES, ResponseItem, SurveyCreateRequest, SurveyDetail,
@@ -16,16 +17,21 @@ from app.schemas import (
 router = APIRouter(prefix="/surveys", tags=["surveys"])
 
 
-async def _survey_or_404(sid: uuid.UUID, session: AsyncSession) -> Survey:
+async def _survey_or_404(sid: uuid.UUID, org_id: uuid.UUID, session: AsyncSession) -> Survey:
     s = await session.get(Survey, sid)
-    if not s:
+    if not s or s.org_id != org_id:
         raise HTTPException(status_code=404, detail="Survey not found")
     return s
 
 
 @router.post("", response_model=SurveyDetail)
-async def create_survey(payload: SurveyCreateRequest, session: AsyncSession = Depends(get_session)):
+async def create_survey(
+    payload: SurveyCreateRequest,
+    ctx: OrgContext = Depends(current_context),
+    session: AsyncSession = Depends(get_session),
+):
     s = Survey(
+        org_id=ctx.org.id, created_by=ctx.user.id,
         title=payload.title, json_schema=payload.json_schema or {},
         language=payload.language, theme=payload.theme, evaluation=payload.evaluation,
     )
@@ -36,16 +42,26 @@ async def create_survey(payload: SurveyCreateRequest, session: AsyncSession = De
 
 
 @router.get("", response_model=List[SurveySummary])
-async def list_surveys(session: AsyncSession = Depends(get_session)):
-    surveys = (await session.scalars(select(Survey).order_by(Survey.updated_at.desc()))).all()
-    rows = (
-        await session.execute(
-            select(SurveyResponse.survey_id, func.count(SurveyResponse.id)).group_by(
-                SurveyResponse.survey_id
-            )
+async def list_surveys(
+    ctx: OrgContext = Depends(current_context),
+    session: AsyncSession = Depends(get_session),
+):
+    surveys = (
+        await session.scalars(
+            select(Survey).where(Survey.org_id == ctx.org.id).order_by(Survey.updated_at.desc())
         )
     ).all()
-    counts = {r[0]: r[1] for r in rows}
+    ids = [s.id for s in surveys]
+    counts: dict = {}
+    if ids:
+        rows = (
+            await session.execute(
+                select(SurveyResponse.survey_id, func.count(SurveyResponse.id))
+                .where(SurveyResponse.survey_id.in_(ids))
+                .group_by(SurveyResponse.survey_id)
+            )
+        ).all()
+        counts = {r[0]: r[1] for r in rows}
     return [
         SurveySummary(
             id=s.id, title=s.title, slug=s.slug, status=s.status, language=s.language,
@@ -58,16 +74,29 @@ async def list_surveys(session: AsyncSession = Depends(get_session)):
 
 
 @router.get("/{sid}", response_model=SurveyDetail)
-async def get_survey(sid: uuid.UUID, session: AsyncSession = Depends(get_session)):
-    return SurveyDetail.from_model(await _survey_or_404(sid, session))
+async def get_survey(
+    sid: uuid.UUID,
+    ctx: OrgContext = Depends(current_context),
+    session: AsyncSession = Depends(get_session),
+):
+    return SurveyDetail.from_model(await _survey_or_404(sid, ctx.org.id, session))
 
 
 @router.put("/{sid}", response_model=SurveyDetail)
-async def update_survey(sid: uuid.UUID, payload: SurveyUpdateRequest, session: AsyncSession = Depends(get_session)):
-    s = await _survey_or_404(sid, session)
+async def update_survey(
+    sid: uuid.UUID,
+    payload: SurveyUpdateRequest,
+    ctx: OrgContext = Depends(current_context),
+    session: AsyncSession = Depends(get_session),
+):
+    s = await _survey_or_404(sid, ctx.org.id, session)
     if payload.status is not None and payload.status not in VALID_STATUSES:
         raise HTTPException(status_code=400, detail=f"Invalid status. Expected {sorted(VALID_STATUSES)}")
-    for field, value in payload.model_dump(exclude_unset=True).items():
+    data = payload.model_dump(exclude_unset=True)
+    # org_id / created_by are never client-settable.
+    data.pop("org_id", None)
+    data.pop("created_by", None)
+    for field, value in data.items():
         setattr(s, field, value)
     session.add(s)
     await session.commit()
@@ -76,8 +105,12 @@ async def update_survey(sid: uuid.UUID, payload: SurveyUpdateRequest, session: A
 
 
 @router.post("/{sid}/publish", response_model=SurveyDetail)
-async def publish_survey(sid: uuid.UUID, session: AsyncSession = Depends(get_session)):
-    s = await _survey_or_404(sid, session)
+async def publish_survey(
+    sid: uuid.UUID,
+    ctx: OrgContext = Depends(current_context),
+    session: AsyncSession = Depends(get_session),
+):
+    s = await _survey_or_404(sid, ctx.org.id, session)
     s.status = "published"
     session.add(s)
     await session.commit()
@@ -86,8 +119,12 @@ async def publish_survey(sid: uuid.UUID, session: AsyncSession = Depends(get_ses
 
 
 @router.post("/{sid}/close", response_model=SurveyDetail)
-async def close_survey(sid: uuid.UUID, session: AsyncSession = Depends(get_session)):
-    s = await _survey_or_404(sid, session)
+async def close_survey(
+    sid: uuid.UUID,
+    ctx: OrgContext = Depends(current_context),
+    session: AsyncSession = Depends(get_session),
+):
+    s = await _survey_or_404(sid, ctx.org.id, session)
     s.status = "closed"
     session.add(s)
     await session.commit()
@@ -96,16 +133,24 @@ async def close_survey(sid: uuid.UUID, session: AsyncSession = Depends(get_sessi
 
 
 @router.delete("/{sid}", status_code=204)
-async def delete_survey(sid: uuid.UUID, session: AsyncSession = Depends(get_session)):
-    s = await _survey_or_404(sid, session)
+async def delete_survey(
+    sid: uuid.UUID,
+    ctx: OrgContext = Depends(current_context),
+    session: AsyncSession = Depends(get_session),
+):
+    s = await _survey_or_404(sid, ctx.org.id, session)
     await session.execute(delete(SurveyResponse).where(SurveyResponse.survey_id == sid))
     await session.delete(s)
     await session.commit()
 
 
 @router.get("/{sid}/responses", response_model=List[ResponseItem])
-async def list_responses(sid: uuid.UUID, session: AsyncSession = Depends(get_session)):
-    await _survey_or_404(sid, session)
+async def list_responses(
+    sid: uuid.UUID,
+    ctx: OrgContext = Depends(current_context),
+    session: AsyncSession = Depends(get_session),
+):
+    await _survey_or_404(sid, ctx.org.id, session)
     responses = (
         await session.scalars(
             select(SurveyResponse)
@@ -117,7 +162,13 @@ async def list_responses(sid: uuid.UUID, session: AsyncSession = Depends(get_ses
 
 
 @router.get("/{sid}/responses/{rid}", response_model=ResponseItem)
-async def get_response(sid: uuid.UUID, rid: uuid.UUID, session: AsyncSession = Depends(get_session)):
+async def get_response(
+    sid: uuid.UUID,
+    rid: uuid.UUID,
+    ctx: OrgContext = Depends(current_context),
+    session: AsyncSession = Depends(get_session),
+):
+    await _survey_or_404(sid, ctx.org.id, session)
     r = await session.get(SurveyResponse, rid)
     if not r or r.survey_id != sid:
         raise HTTPException(status_code=404, detail="Response not found")

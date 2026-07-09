@@ -1,15 +1,23 @@
+# Compose para DESARROLLO: backend y frontend como dos servicios separados.
+# Para producción usá la imagen all-in-one (Dockerfile de la raíz) — ver
+# docs/DEPLOY_EASYPANEL.md.
 services:
   backend:
     build: ./backend
     environment:
-      # Base de datos: SQLite persistida en el volumen (o poné DATABASE_URL).
       ENCUESTUM_DATA_DIR: /data
+      # Firma de sesiones. En dev un valor fijo alcanza; en prod usá un secreto real.
+      ENCUESTUM_SESSION_SECRET: ${ENCUESTUM_SESSION_SECRET:-dev-secret-change-me-please-32bytes-min}
+      # Frontend en otro puerto ⇒ cookies cross-port: sin HTTPS y con CORS al front.
+      ENCUESTUM_COOKIE_SECURE: "false"
+      ENCUESTUM_ENABLE_HSTS: "false"
+      ENCUESTUM_CORS_ORIGINS: ${NEXT_PUBLIC_API_URL_FRONT:-http://localhost:3000}
+      ENCUESTUM_ENV: dev
+      ENCUESTUM_LOG_FORMAT: text
       # Proveedor LLM (OpenAI-compatible). Bring-your-own-key.
       ENCUESTUM_LLM_API_KEY: ${ENCUESTUM_LLM_API_KEY:-}
       ENCUESTUM_LLM_BASE_URL: ${ENCUESTUM_LLM_BASE_URL:-https://openrouter.ai/api/v1}
       ENCUESTUM_LLM_MODEL: ${ENCUESTUM_LLM_MODEL:-openai/gpt-4o-mini}
-      # Gate admin opcional.
-      ENCUESTUM_ADMIN_TOKEN: ${ENCUESTUM_ADMIN_TOKEN:-}
     volumes:
       - encuestum_data:/data
     ports:

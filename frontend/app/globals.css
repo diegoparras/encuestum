@@ -23,8 +23,15 @@ body {
   font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
     Helvetica, Arial, sans-serif;
   -webkit-font-smoothing: antialiased;
+  color: hsl(var(--foreground));
+  background-color: hsl(var(--background));
 }
 
 * {
   box-sizing: border-box;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
 }

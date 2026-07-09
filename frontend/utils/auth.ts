@@ -1,0 +1,157 @@
+// Typed client for the Encuestum multi-tenant auth + orgs API.
+//
+// Every call uses `credentials: "include"` so the browser sends/receives the
+// session cookies (`enc_session`, `enc_org`) the backend sets. On a 4xx the
+// backend returns `{ detail: "mensaje en español" }`; we surface that message
+// by throwing `Error(detail)`.
+
+import { getApiUrl } from "@/utils/api";
+
+export type Role = "owner" | "admin" | "member";
+
+export interface User {
+  id: string;
+  email: string;
+  name: string | null;
+  created_at: string;
+}
+
+export interface Org {
+  id: string;
+  name: string;
+  slug: string;
+  role: Role;
+  created_at: string;
+}
+
+export interface Me {
+  user: User;
+  orgs: Org[];
+  active_org_id: string;
+}
+
+export interface Member {
+  user_id: string;
+  email: string;
+  name: string | null;
+  role: Role;
+  joined_at: string;
+}
+
+async function errorMessage(res: Response, fallback: string): Promise<string> {
+  try {
+    const data: unknown = await res.clone().json();
+    if (data && typeof data === "object" && !Array.isArray(data)) {
+      const detail = (data as { detail?: unknown }).detail;
+      if (typeof detail === "string" && detail.trim()) return detail;
+    }
+  } catch {
+    /* fall through to fallback */
+  }
+  return fallback;
+}
+
+async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const res = await fetch(getApiUrl(path), {
+    cache: "no-store",
+    credentials: "include",
+    ...init,
+    headers: { "Content-Type": "application/json", ...init?.headers },
+  });
+  if (!res.ok) {
+    throw new Error(await errorMessage(res, `La solicitud falló (${res.status})`));
+  }
+  if (res.status === 204) return undefined as T;
+  return (await res.json()) as T;
+}
+
+// Returns the current session, or null when unauthenticated (401). Never throws
+// on 401 so callers can probe for a session without try/catch.
+export async function getMe(): Promise<Me | null> {
+  const res = await fetch(getApiUrl("/api/v1/auth/me"), {
+    cache: "no-store",
+    credentials: "include",
+  });
+  if (res.status === 401) return null;
+  if (!res.ok) {
+    throw new Error(await errorMessage(res, `No se pudo obtener la sesión (${res.status})`));
+  }
+  return (await res.json()) as Me;
+}
+
+export function login(email: string, password: string): Promise<Me> {
+  return request<Me>("/api/v1/auth/login", {
+    method: "POST",
+    body: JSON.stringify({ email, password }),
+  });
+}
+
+export function register(input: {
+  email: string;
+  password: string;
+  name?: string;
+  orgName?: string;
+}): Promise<Me> {
+  const body: Record<string, string> = {
+    email: input.email,
+    password: input.password,
+  };
+  if (input.name && input.name.trim()) body.name = input.name.trim();
+  if (input.orgName && input.orgName.trim()) body.org_name = input.orgName.trim();
+  return request<Me>("/api/v1/auth/register", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+}
+
+export function logout(): Promise<void> {
+  return request<void>("/api/v1/auth/logout", { method: "POST" });
+}
+
+export function switchOrg(orgId: string): Promise<Me> {
+  return request<Me>("/api/v1/orgs/switch", {
+    method: "POST",
+    body: JSON.stringify({ org_id: orgId }),
+  });
+}
+
+export function createOrg(name: string): Promise<Org> {
+  return request<Org>("/api/v1/orgs", {
+    method: "POST",
+    body: JSON.stringify({ name }),
+  });
+}
+
+export function listMembers(orgId: string): Promise<Member[]> {
+  return request<Member[]>(`/api/v1/orgs/${orgId}/members`);
+}
+
+export function addMember(orgId: string, email: string, role: Role): Promise<Member> {
+  return request<Member>(`/api/v1/orgs/${orgId}/members`, {
+    method: "POST",
+    body: JSON.stringify({ email, role }),
+  });
+}
+
+export function updateMemberRole(
+  orgId: string,
+  userId: string,
+  role: Role
+): Promise<Member> {
+  return request<Member>(`/api/v1/orgs/${orgId}/members/${userId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ role }),
+  });
+}
+
+export function removeMember(orgId: string, userId: string): Promise<void> {
+  return request<void>(`/api/v1/orgs/${orgId}/members/${userId}`, {
+    method: "DELETE",
+  });
+}
+
+// Role hierarchy helper: is `role` at least `min`?
+const RANK: Record<Role, number> = { member: 0, admin: 1, owner: 2 };
+export function roleAtLeast(role: Role, min: Role): boolean {
+  return RANK[role] >= RANK[min];
+}

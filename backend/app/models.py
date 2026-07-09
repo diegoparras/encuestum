@@ -3,7 +3,16 @@ from typing import Optional
 import secrets
 import uuid
 
-from sqlalchemy import JSON, Boolean, Column, DateTime, Float, ForeignKey, String
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    Column,
+    DateTime,
+    Float,
+    ForeignKey,
+    String,
+    UniqueConstraint,
+)
 from sqlmodel import Field, SQLModel
 
 
@@ -15,10 +24,79 @@ def _new_slug() -> str:
     return secrets.token_urlsafe(8)
 
 
+# ── Roles within an organization ─────────────────────────────────────────────
+ROLE_OWNER = "owner"
+ROLE_ADMIN = "admin"
+ROLE_MEMBER = "member"
+VALID_ROLES = {ROLE_OWNER, ROLE_ADMIN, ROLE_MEMBER}
+# Rank for "at least" checks: owner > admin > member.
+ROLE_RANK = {ROLE_MEMBER: 1, ROLE_ADMIN: 2, ROLE_OWNER: 3}
+
+
+class User(SQLModel, table=True):
+    __tablename__ = "users"
+
+    id: uuid.UUID = Field(primary_key=True, default_factory=uuid.uuid4)
+    email: str = Field(
+        sa_column=Column(String, unique=True, index=True, nullable=False)
+    )
+    name: Optional[str] = Field(sa_column=Column(String), default=None)
+    password_hash: str = Field(sa_column=Column(String, nullable=False))
+    is_active: bool = Field(
+        sa_column=Column(Boolean, nullable=False, server_default="1"), default=True
+    )
+    created_at: datetime = Field(
+        sa_column=Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    )
+
+
+class Organization(SQLModel, table=True):
+    __tablename__ = "organizations"
+
+    id: uuid.UUID = Field(primary_key=True, default_factory=uuid.uuid4)
+    name: str = Field(sa_column=Column(String, nullable=False))
+    slug: str = Field(
+        sa_column=Column(String, unique=True, index=True, nullable=False),
+        default_factory=_new_slug,
+    )
+    created_at: datetime = Field(
+        sa_column=Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    )
+
+
+class Membership(SQLModel, table=True):
+    __tablename__ = "memberships"
+    __table_args__ = (UniqueConstraint("user_id", "org_id", name="uq_membership_user_org"),)
+
+    id: uuid.UUID = Field(primary_key=True, default_factory=uuid.uuid4)
+    user_id: uuid.UUID = Field(
+        sa_column=Column(
+            ForeignKey("users.id", ondelete="CASCADE"), index=True, nullable=False
+        )
+    )
+    org_id: uuid.UUID = Field(
+        sa_column=Column(
+            ForeignKey("organizations.id", ondelete="CASCADE"), index=True, nullable=False
+        )
+    )
+    role: str = Field(sa_column=Column(String, nullable=False), default=ROLE_MEMBER)
+    created_at: datetime = Field(
+        sa_column=Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    )
+
+
 class Survey(SQLModel, table=True):
     __tablename__ = "surveys"
 
     id: uuid.UUID = Field(primary_key=True, default_factory=uuid.uuid4)
+    org_id: uuid.UUID = Field(
+        sa_column=Column(
+            ForeignKey("organizations.id", ondelete="CASCADE"), index=True, nullable=False
+        )
+    )
+    created_by: Optional[uuid.UUID] = Field(
+        sa_column=Column(ForeignKey("users.id", ondelete="SET NULL")), default=None
+    )
     title: Optional[str] = Field(sa_column=Column(String), default=None)
     slug: str = Field(
         sa_column=Column(String, unique=True, index=True, nullable=False),

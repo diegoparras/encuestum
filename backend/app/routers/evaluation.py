@@ -6,6 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from app.db import get_session
+from app.deps import OrgContext, current_context
 from app.models import Survey, SurveyResponse, _utcnow
 from app.schemas import GenerateQuestionsRequest, OverrideRequest, ResponseItem
 from app.grading import extract_question_types, grade_response
@@ -13,9 +14,9 @@ from app.grading import extract_question_types, grade_response
 router = APIRouter(prefix="/surveys", tags=["evaluation"])
 
 
-async def _survey_or_404(sid, session):
+async def _survey_or_404(sid, org_id, session):
     s = await session.get(Survey, sid)
-    if not s:
+    if not s or s.org_id != org_id:
         raise HTTPException(status_code=404, detail="Survey not found")
     return s
 
@@ -42,8 +43,8 @@ async def _grade_and_store(s, r, session):
 
 
 @router.post("/{sid}/responses/{rid}/grade", response_model=ResponseItem)
-async def grade_one(sid: uuid.UUID, rid: uuid.UUID, session: AsyncSession = Depends(get_session)):
-    s = await _survey_or_404(sid, session)
+async def grade_one(sid: uuid.UUID, rid: uuid.UUID, ctx: OrgContext = Depends(current_context), session: AsyncSession = Depends(get_session)):
+    s = await _survey_or_404(sid, ctx.org.id, session)
     if not (s.evaluation or {}).get("enabled"):
         raise HTTPException(status_code=400, detail="Survey is not an assessment")
     r = await _response_or_404(sid, rid, session)
@@ -54,8 +55,8 @@ async def grade_one(sid: uuid.UUID, rid: uuid.UUID, session: AsyncSession = Depe
 
 
 @router.post("/{sid}/grade-all")
-async def grade_all(sid: uuid.UUID, only_ungraded: bool = True, session: AsyncSession = Depends(get_session)):
-    s = await _survey_or_404(sid, session)
+async def grade_all(sid: uuid.UUID, only_ungraded: bool = True, ctx: OrgContext = Depends(current_context), session: AsyncSession = Depends(get_session)):
+    s = await _survey_or_404(sid, ctx.org.id, session)
     if not (s.evaluation or {}).get("enabled"):
         raise HTTPException(status_code=400, detail="Survey is not an assessment")
     stmt = select(SurveyResponse).where(SurveyResponse.survey_id == sid)
@@ -75,8 +76,8 @@ async def grade_all(sid: uuid.UUID, only_ungraded: bool = True, session: AsyncSe
 
 
 @router.get("/{sid}/review-queue", response_model=List[ResponseItem])
-async def review_queue(sid: uuid.UUID, session: AsyncSession = Depends(get_session)):
-    await _survey_or_404(sid, session)
+async def review_queue(sid: uuid.UUID, ctx: OrgContext = Depends(current_context), session: AsyncSession = Depends(get_session)):
+    await _survey_or_404(sid, ctx.org.id, session)
     responses = (
         await session.scalars(
             select(SurveyResponse).where(SurveyResponse.survey_id == sid)
@@ -88,8 +89,8 @@ async def review_queue(sid: uuid.UUID, session: AsyncSession = Depends(get_sessi
 
 
 @router.post("/{sid}/responses/{rid}/override", response_model=ResponseItem)
-async def override_grade(sid: uuid.UUID, rid: uuid.UUID, payload: OverrideRequest, session: AsyncSession = Depends(get_session)):
-    await _survey_or_404(sid, session)
+async def override_grade(sid: uuid.UUID, rid: uuid.UUID, payload: OverrideRequest, ctx: OrgContext = Depends(current_context), session: AsyncSession = Depends(get_session)):
+    await _survey_or_404(sid, ctx.org.id, session)
     r = await _response_or_404(sid, rid, session)
     grade = dict(r.grade or {})
     questions = [dict(q) for q in grade.get("questions", [])]
@@ -122,8 +123,8 @@ async def override_grade(sid: uuid.UUID, rid: uuid.UUID, payload: OverrideReques
 
 
 @router.get("/{sid}/analytics")
-async def analytics(sid: uuid.UUID, session: AsyncSession = Depends(get_session)):
-    s = await _survey_or_404(sid, session)
+async def analytics(sid: uuid.UUID, ctx: OrgContext = Depends(current_context), session: AsyncSession = Depends(get_session)):
+    s = await _survey_or_404(sid, ctx.org.id, session)
     responses = (await session.scalars(select(SurveyResponse).where(SurveyResponse.survey_id == sid))).all()
     graded = [r for r in responses if r.grade]
     buckets = [0] * 10
@@ -169,14 +170,14 @@ def _open_titles(schema: dict) -> dict:
 
 
 @router.get("/{sid}/insights")
-async def get_insights(sid: uuid.UUID, session: AsyncSession = Depends(get_session)):
-    s = await _survey_or_404(sid, session)
+async def get_insights(sid: uuid.UUID, ctx: OrgContext = Depends(current_context), session: AsyncSession = Depends(get_session)):
+    s = await _survey_or_404(sid, ctx.org.id, session)
     return s.insights or {"questions": []}
 
 
 @router.post("/{sid}/insights")
-async def generate_insights(sid: uuid.UUID, session: AsyncSession = Depends(get_session)):
-    s = await _survey_or_404(sid, session)
+async def generate_insights(sid: uuid.UUID, ctx: OrgContext = Depends(current_context), session: AsyncSession = Depends(get_session)):
+    s = await _survey_or_404(sid, ctx.org.id, session)
     from app.llm_calls import summarize_open_responses
     titles = _open_titles(s.json_schema)
     if not titles:
@@ -197,8 +198,8 @@ async def generate_insights(sid: uuid.UUID, session: AsyncSession = Depends(get_
 
 
 @router.post("/{sid}/generate-questions")
-async def generate_questions(sid: uuid.UUID, payload: GenerateQuestionsRequest, session: AsyncSession = Depends(get_session)):
-    await _survey_or_404(sid, session)
+async def generate_questions(sid: uuid.UUID, payload: GenerateQuestionsRequest, ctx: OrgContext = Depends(current_context), session: AsyncSession = Depends(get_session)):
+    await _survey_or_404(sid, ctx.org.id, session)
     from app.llm_calls import generate_survey_questions
     return await generate_survey_questions(
         topic=payload.topic, count=max(1, min(20, payload.count)), types=payload.types,

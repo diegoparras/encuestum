@@ -1,11 +1,12 @@
 import React from "react";
+import AppShell from "./AppShell";
 
-// Standalone admin shell for the survey module. Kept separate from the deck
-// dashboard so it doesn't require an LLM to be configured (surveys don't need
-// one in this phase). Auth is enforced by the FastAPI session middleware on the
-// /api/v1/survey/* calls these pages make.
+// Authenticated shell for the platform (surveys + members). AppShell is a client
+// component that verifies the session on mount and renders the top nav, org
+// switcher and user menu. Auth on the /api/v1/* calls is enforced server-side by
+// the FastAPI session middleware; this shell is the UX gate.
 export const metadata = {
-  title: "Encuestas · Presentia",
+  title: "Encuestum",
 };
 
 export default function SurveyBuilderLayout({
@@ -13,5 +14,5 @@ export default function SurveyBuilderLayout({
 }: {
   children: React.ReactNode;
 }) {
-  return <div className="min-h-screen bg-neutral-50 text-neutral-900">{children}</div>;
+  return <AppShell>{children}</AppShell>;
 }
