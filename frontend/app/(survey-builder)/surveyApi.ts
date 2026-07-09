@@ -1,4 +1,7 @@
 import { getApiUrl } from "@/utils/api";
+import type { UsageInfo } from "./aiApi";
+
+export type { UsageInfo };
 
 export const SURVEY_ACCENT = "#e25a4e";
 
@@ -182,7 +185,7 @@ export const surveyApi = {
     id: string,
     body: { topic: string; count: number; types: string[]; language: string; difficulty?: string; context?: string }
   ) =>
-    request<{ questions: GeneratedQuestion[] }>(
+    request<{ questions: GeneratedQuestion[]; usage?: UsageInfo }>(
       `/api/v1/survey/surveys/${id}/generate-questions`,
       { method: "POST", body: JSON.stringify(body) }
     ),

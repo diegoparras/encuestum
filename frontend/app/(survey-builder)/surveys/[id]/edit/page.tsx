@@ -14,7 +14,8 @@ import {
   Check,
 } from "lucide-react";
 import { GraduationCap, Sparkles, Palette } from "lucide-react";
-import { surveyApi } from "../../../surveyApi";
+import { surveyApi, type UsageInfo } from "../../../surveyApi";
+import { UsageModal } from "../../../builder/UsageModal";
 import {
   BuilderQuestion,
   BuilderState,
@@ -55,6 +56,7 @@ export default function SurveyEditorPage() {
   const [savedTick, setSavedTick] = useState(false);
   const [genOpen, setGenOpen] = useState(false);
   const [designOpen, setDesignOpen] = useState(false);
+  const [lastUsage, setLastUsage] = useState<UsageInfo | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -449,8 +451,13 @@ export default function SurveyEditorPage() {
         onGenerate={async (body) => {
           const res = await surveyApi.generateQuestions(id, body);
           insertGenerated(res.questions || []);
+          if (res.usage) setLastUsage(res.usage);
         }}
       />
+
+      {lastUsage && (
+        <UsageModal usage={lastUsage} onClose={() => setLastUsage(null)} />
+      )}
     </div>
   );
 }

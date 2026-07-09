@@ -12,6 +12,7 @@ import {
   Loader2,
   LogOut,
   Shield,
+  Sparkles,
   Users,
   Webhook,
 } from "lucide-react";
@@ -263,6 +264,9 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                   icon={Webhook}
                 >
                   Integraciones
+                </NavLink>
+                <NavLink href="/ai" active={pathname === "/ai"} icon={Sparkles}>
+                  IA
                 </NavLink>
                 {me.user.is_superadmin && (
                   <NavLink
