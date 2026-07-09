@@ -57,6 +57,21 @@ class Settings:
         self.asset_max_audio_mb = float(os.getenv("ENCUESTUM_ASSET_MAX_AUDIO_MB", "15"))
         self.asset_max_video_mb = float(os.getenv("ENCUESTUM_ASSET_MAX_VIDEO_MB", "50"))
 
+        # Storage backend: "local" (disk under asset_dir) or "s3" (S3-compatible,
+        # e.g. Cloudflare R2). With s3, big files upload straight from the browser
+        # to the bucket via presigned URLs — the app server never holds them.
+        self.storage = (os.getenv("ENCUESTUM_STORAGE") or "local").strip().lower()
+        self.s3_endpoint = (os.getenv("ENCUESTUM_S3_ENDPOINT") or "").strip() or None
+        self.s3_bucket = (os.getenv("ENCUESTUM_S3_BUCKET") or "").strip() or None
+        self.s3_access_key = os.getenv("ENCUESTUM_S3_ACCESS_KEY_ID") or None
+        self.s3_secret_key = os.getenv("ENCUESTUM_S3_SECRET_ACCESS_KEY") or None
+        self.s3_region = (os.getenv("ENCUESTUM_S3_REGION") or "auto").strip()
+        # Public base to SERVE files (R2 public bucket domain or a CDN/custom domain).
+        self.s3_public_url = (os.getenv("ENCUESTUM_S3_PUBLIC_URL") or "").strip().rstrip("/") or None
+        self.s3_prefix = (os.getenv("ENCUESTUM_S3_PREFIX") or "").strip().strip("/")
+        # Presigned-upload URL lifetime (seconds).
+        self.upload_url_ttl = int(os.getenv("ENCUESTUM_UPLOAD_URL_TTL", "900"))
+
         # Public base URL used to build links in emails (invites, reset, verify).
         # Falls back to the first CORS origin, then localhost.
         self.public_base_url = (os.getenv("ENCUESTUM_PUBLIC_URL") or "").strip().rstrip("/")
@@ -87,6 +102,10 @@ class Settings:
     @property
     def smtp_configured(self) -> bool:
         return bool(self.smtp_host)
+
+    @property
+    def use_s3(self) -> bool:
+        return self.storage == "s3"
 
     @property
     def is_dev(self) -> bool:

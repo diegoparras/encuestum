@@ -9,6 +9,7 @@ import uuid
 from typing import List
 
 from fastapi import APIRouter, Depends, File, HTTPException, UploadFile
+from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
@@ -17,6 +18,7 @@ from app.config import get_settings
 from app.db import get_session
 from app.deps import OrgContext, current_context
 from app.models import Asset
+from app.storage import get_storage
 
 router = APIRouter(prefix="/assets", tags=["assets"])
 
@@ -48,9 +50,8 @@ class AssetOut(BaseModel):
 
 
 def _asset_url(org_id, filename: str) -> str:
-    # Relative URL — resolved against the API base by the frontend, and served
-    # by nginx (/assets → backend) in the all-in-one image.
-    return f"/assets/{org_id}/{filename}"
+    # Local → relative /assets/… (served by nginx); s3 → absolute bucket URL.
+    return get_storage().public_url(f"{org_id}/{filename}")
 
 
 def _to_out(a: Asset) -> AssetOut:
@@ -84,11 +85,10 @@ async def upload_asset(
     if not data:
         raise HTTPException(status_code=400, detail="Archivo vacío")
 
-    org_dir = os.path.join(settings.asset_dir, str(ctx.org.id))
-    os.makedirs(org_dir, exist_ok=True)
     stored = f"{uuid.uuid4().hex}{ext}"
-    with open(os.path.join(org_dir, stored), "wb") as fh:
-        fh.write(data)
+    # Small design assets are proxied through the server (fine either backend);
+    # respondent videos use presigned direct uploads (see /public/{slug}/upload-url).
+    await run_in_threadpool(get_storage().save_bytes, f"{ctx.org.id}/{stored}", data, ct)
 
     asset = Asset(
         org_id=ctx.org.id, kind=kind, filename=stored,
@@ -123,11 +123,6 @@ async def delete_asset(
     a = await session.get(Asset, asset_id)
     if not a or a.org_id != ctx.org.id:
         raise HTTPException(status_code=404, detail="Asset no encontrado")
-    path = os.path.join(get_settings().asset_dir, str(a.org_id), a.filename)
-    try:
-        if os.path.exists(path):
-            os.remove(path)
-    except OSError:
-        pass
+    await run_in_threadpool(get_storage().delete, f"{a.org_id}/{a.filename}")
     await session.delete(a)
     await session.commit()
