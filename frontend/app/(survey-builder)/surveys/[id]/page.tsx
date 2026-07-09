@@ -30,6 +30,7 @@ import { getMe, type Me } from "@/utils/auth";
 import { useAsyncData } from "@/lib/useAsyncData";
 import { LoadError } from "@/components/LoadError";
 import { GradesPanel } from "../../GradesPanel";
+import { GradebookPanel } from "../../GradebookPanel";
 import { InsightsPanel } from "../../InsightsPanel";
 import { SummaryPanel } from "../../SummaryPanel";
 import { themeToAccent } from "../../builder/model";
@@ -60,6 +61,7 @@ export default function SurveyDetailPage() {
   const [exporting, setExporting] = useState<"csv" | "xlsx" | null>(null);
   const [duplicating, setDuplicating] = useState(false);
   const [resultsTab, setResultsTab] = useState<"summary" | "responses">("summary");
+  const [evalTab, setEvalTab] = useState<"gradebook" | "grading">("gradebook");
 
   // Inicializa el título y el JSON editables cuando llega (o se recarga) la encuesta.
   useEffect(() => {
@@ -403,16 +405,41 @@ export default function SurveyDetailPage() {
         {survey.evaluation?.enabled ? (
           <>
             <div className="flex items-center justify-between gap-3 mb-3">
-              <h2 className="text-sm font-semibold text-neutral-700">
-                Notas y correcciones
-              </h2>
+              <div className="inline-flex rounded-lg border border-neutral-200 bg-neutral-50 p-0.5">
+                {(
+                  [
+                    ["gradebook", "Notas"],
+                    ["grading", "Correcciones"],
+                  ] as const
+                ).map(([key, label]) => {
+                  const active = evalTab === key;
+                  return (
+                    <button
+                      key={key}
+                      onClick={() => setEvalTab(key)}
+                      className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
+                        active
+                          ? "bg-white text-neutral-900 shadow-sm"
+                          : "text-neutral-500 hover:text-neutral-800"
+                      }`}
+                      style={active ? { color: SURVEY_ACCENT } : undefined}
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
               <ExportButtons
                 exporting={exporting}
                 disabled={!responses || responses.length === 0}
                 onExport={exportResponses}
               />
             </div>
-            <GradesPanel surveyId={id} accent={themeToAccent(survey.theme)} />
+            {evalTab === "gradebook" ? (
+              <GradebookPanel surveyId={id} accent={themeToAccent(survey.theme)} />
+            ) : (
+              <GradesPanel surveyId={id} accent={themeToAccent(survey.theme)} />
+            )}
           </>
         ) : (
           <>

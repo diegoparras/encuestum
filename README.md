@@ -14,43 +14,68 @@ formularios. Backend FastAPI, frontend Next.js. Bring-your-own-key para el LLM.
 
 ## Qué hace
 
-- **Cuentas y organizaciones (multi-tenant)**: registro/login con sesión segura
-  (cookies httpOnly, contraseñas con bcrypt). Cada usuario puede tener varias
-  organizaciones; los datos están aislados por organización.
-- **Roles**: `owner` · `admin` · `member`. Gestión de miembros (invitar por
-  email, cambiar rol, quitar) para admin o superior.
-- **Editor visual** drag-and-drop de encuestas y exámenes (opción, texto,
-  comentario, escala…), con vista previa en vivo, **plantillas listas para usar**
-  (NPS, feedback, registro a evento, evaluación de curso, quiz…) y **lógica
-  condicional** (mostrar una pregunta según la respuesta a otra).
-- **Exportar respuestas** a **CSV** y **Excel (XLSX)**.
-- **Diseño superior a Google/Microsoft Forms**: panel de diseño con **temas
-  predefinidos** de un clic, **tipografía** (fuentes curadas), color de acento y
-  de fondo, **imágenes** (portada, logo, fondo con opacidad, e imagen por
-  pregunta), **video** embebido por pregunta (YouTube/Vimeo o archivo propio),
-  preguntas de **opción-imagen** (elegir entre imágenes), y **música de fondo**
-  en la página pública — todo desde una biblioteca de medios por organización.
-- **Publicación pública**: cada encuesta tiene un slug y una página de respuesta
-  sin login (`/s/{slug}`) que corre el runtime de SurveyJS en el navegador.
-- **Corrección híbrida**: cerradas → determinística; abiertas → LLM con rúbrica,
-  que devuelve puntaje, veredicto, feedback, **evidencia** citada, `needs_review`
-  y `injection_flag`, con doble pasada.
-- **Motores de IA para evaluación**: la IA **genera** preguntas a partir de un
-  tema o de un **documento/markdown** que el docente pega o sube; y **corrige**
-  las respuestas abiertas con criterios personalizados que el profesor arma con
-  un **asistente** (exigencia, foco, tono, instrucciones) — sin anular las reglas
-  anti-alucinación/anti-inyección.
-- **Panel de administración**: por organización (métricas, actividad, export
-  global a Excel) y **super-admin de plataforma** (todas las organizaciones,
-  usuarios y uso, con export). `ENCUESTUM_SUPERADMIN_EMAIL` define al super-admin.
-- **Panel del profe**: cola de revisión, override manual de notas, analítica
-  (distribución, tasa de aprobación, por-pregunta), insights de respuestas
-  abiertas (anclados a las respuestas reales) y reporte por alumno.
-- **Generación de preguntas** con IA a partir de un tema.
+**Cuentas y organizaciones**
+- Multi-tenant: registro/login con sesión segura (cookies httpOnly, bcrypt),
+  varias organizaciones por usuario, datos aislados por organización.
+- Roles `owner` · `admin` · `member`, invitaciones por email, reset de
+  contraseña y verificación de email.
+- **Subdominio propio por organización** (`acme.tudominio.com`) con branding.
+- Super-admin de plataforma (`ENCUESTUM_SUPERADMIN_EMAIL`) con vista global.
+
+**Editor y tipos de pregunta**
+- Editor visual drag-and-drop con vista previa en vivo y **plantillas** listas.
+- Tipos: texto, párrafo, email, opción única/múltiple, desplegable, escala/NPS
+  (con presentaciones: números, rectángulos, estrellas, caritas, con gradiente),
+  sí/no, **opción-imagen**, **matriz**, **ranking**, **fecha**, **subir archivo**
+  y **respuesta en video** (grabación por webcam tipo Typeform).
+- **Lógica condicional** (mostrar según otra respuesta) y **piping** (`{pregunta}`
+  en el texto). Una-pregunta-por-pantalla estilo Typeform.
+
+**Diseño**
+- Temas de un clic (claros y oscuros), **modo oscuro**, color del texto de las
+  preguntas, preguntas transparentes, **buscador de Google Fonts**, color de
+  acento y de fondo, imágenes (portada, logo, fondo con opacidad, por pregunta),
+  video embebido y **música de fondo**.
+
+**Distribución y acceso**
+- Página pública `/s/{slug}` (SurveyJS en el navegador), **código QR**, **embed**
+  por iframe, **links con prefill** (`?campo=valor`), guardar-y-retomar.
+- **Control de acceso** por encuesta: pública, **con clave (PIN)** o **lista de
+  emails admitidos** con código único por persona (entrar + ver resultado) y
+  **link mágico** por email.
+- Cierre automático por **fecha** o **cupo** de respuestas.
+- Al terminar: **mensaje de gracias** personalizable o **redirect**.
+
+**Resultados**
+- Panel **"Resumen"** con gráficos por pregunta (barras, histograma NPS con
+  promedio, respuestas abiertas, archivos/videos).
+- Navegador de respuestas, **export CSV/XLSX**, **duplicar** encuesta.
+- **Notificaciones por email** al dueño en cada respuesta.
+- **Webhooks** firmados (HMAC) para Zapier / Google Sheets / Make.
+- Borrado de respuesta individual (GDPR).
+
+**IA (bring-your-own-key)**
+- **Genera** preguntas desde un tema o un documento/markdown.
+- **Corrige** respuestas abiertas con motor híbrido (rúbrica + LLM): puntaje,
+  veredicto, feedback, **evidencia** citada, `needs_review` e `injection_flag`,
+  con doble pasada. Determinística para las cerradas.
+- **Gestión de proveedores de IA** (OpenAI / OpenRouter / custom), listado de
+  modelos en vivo, config **híbrida** (por organización o global de plataforma),
+  y **rastreo de consumo** (tokens y costo aprox. por llamada).
+
+**Evaluaciones / educación**
+- Modo examen con integridad (mezclar preguntas/opciones, tiempo, intentos).
+- Cola de revisión, override manual, analítica, insights de abiertas.
+- **Gradebook** (planilla de notas por alumno) y **certificado** imprimible al
+  aprobar.
+
+**Almacenamiento**
+- Uploads (videos/archivos) directo del navegador a **Cloudflare R2 / S3** con
+  URL prefirmada (el servidor no toca los archivos), o disco local.
 
 Solidez: migraciones versionadas (Alembic), rate limiting, headers de seguridad,
-CORS configurable, logging estructurado, `/api/ready`, y tests (pytest + `next build`)
-en CI.
+CORS configurable, logging estructurado, manejo de errores de conexión en el
+frontend, y tests (pytest + `next build`) en CI.
 
 ## Arquitectura
 
@@ -94,6 +119,20 @@ docker run --rm -p 8080:80 -v encuestum_data:/app_data \
 
 Publicada en `ghcr.io/diegoparras/encuestum`. Deploy en EasyPanel:
 [docs/DEPLOY_EASYPANEL.md](docs/DEPLOY_EASYPANEL.md).
+
+### Self-host con Postgres (recomendado)
+
+Un comando levanta la app (imagen all-in-one) + Postgres:
+
+```bash
+cp .env.example .env
+# poné un ENCUESTUM_SESSION_SECRET real: openssl rand -hex 32
+docker compose -f docker-compose.prod.yml up -d
+# http://localhost:8080
+```
+
+Los datos persisten en el volumen `encuestum_pg`. Detrás de un dominio con HTTPS,
+poné `ENCUESTUM_PUBLIC_URL=https://tu-dominio` y `ENCUESTUM_COOKIE_SECURE=true`.
 
 ## Desarrollo (Docker Compose, dos servicios)
 
@@ -142,13 +181,19 @@ Ver [`.env.example`](.env.example) para todo. Lo principal:
 | `ENCUESTUM_CORS_ORIGINS` | (same-origin) | Orígenes permitidos (dev multi-puerto). |
 | `DATABASE_URL` | (SQLite) | Postgres u otra base async. |
 | `ENCUESTUM_DATA_DIR` | `/app_data` | Carpeta del SQLite si no hay `DATABASE_URL`. |
-| `ENCUESTUM_LLM_API_KEY` | — | Key del proveedor LLM (OpenRouter/OpenAI/local). |
+| `ENCUESTUM_LLM_API_KEY` | — | Key del proveedor LLM (OpenRouter/OpenAI/local). También configurable desde la app (por org o global). |
 | `ENCUESTUM_LLM_BASE_URL` | `https://openrouter.ai/api/v1` | Endpoint OpenAI-compatible. |
 | `ENCUESTUM_LLM_MODEL` | `openai/gpt-4o-mini` | Modelo a usar. |
+| `ENCUESTUM_BASE_DOMAIN` | — | Dominio base para subdominios por organización. |
+| `ENCUESTUM_PUBLIC_URL` | (CORS[0]) | URL base para los links de los emails. |
+| `ENCUESTUM_SMTP_HOST` … | — | SMTP para enviar emails (invitaciones, links, notificaciones). Ver `.env.example`. |
+| `ENCUESTUM_STORAGE` | `local` | `s3` para uploads directo a Cloudflare R2 / S3. Ver `.env.example`. |
 | `NEXT_PUBLIC_API_URL` | (same-origin) | URL del backend (embebida al buildear). |
 
-Sin API key, las encuestas y la corrección determinística funcionan; sólo quedan
-inactivas la corrección por rúbrica con LLM, los insights y la generación.
+Sin API key de LLM, las encuestas y la corrección determinística funcionan; sólo
+quedan inactivas la corrección por rúbrica con LLM, los insights y la generación.
+La IA es **bring-your-own-key**: podés setearla por env o desde la pantalla **IA**
+de la app (por organización o global), con rastreo de consumo.
 
 ## API
 
@@ -169,6 +214,10 @@ pytest              # auth, aislamiento por organización, roles y corrección (
 
 CI (GitHub Actions) corre pytest del backend y `next build` del frontend en cada push/PR.
 
+## Contribuir
+
+¡Bienvenidas las contribuciones! Ver [CONTRIBUTING.md](CONTRIBUTING.md).
+
 ## Licencia
 
-[MIT](LICENSE).
+[MIT](LICENSE) © 2026 Diego Parras. Construido sobre [SurveyJS](https://surveyjs.io/) (MIT).

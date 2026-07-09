@@ -127,6 +127,29 @@ export interface Analytics {
   }[];
 }
 
+// ---- Planilla de notas (gradebook) de una evaluación ----
+
+export interface GradebookRow {
+  response_id: string;
+  name: string;
+  email: string | null;
+  code: string | null;
+  score: number | null;
+  max_score: number | null;
+  percent: number | null;
+  passed: boolean;
+  needs_review: boolean;
+  graded: boolean;
+  submitted_at: string;
+}
+
+export interface Gradebook {
+  is_evaluation: boolean;
+  passing_score: number;
+  count: number;
+  rows: GradebookRow[];
+}
+
 export interface InsightTheme {
   label: string;
   count: number;
@@ -260,6 +283,8 @@ export const surveyApi = {
     ),
   analytics: (id: string) =>
     request<Analytics>(`/api/v1/survey/surveys/${id}/analytics`),
+  getGradebook: (id: string) =>
+    request<Gradebook>(`/api/v1/survey/surveys/${id}/gradebook`),
   response: (id: string, rid: string) =>
     request<ResponseItem>(`/api/v1/survey/surveys/${id}/responses/${rid}`),
   getInsights: (id: string) =>

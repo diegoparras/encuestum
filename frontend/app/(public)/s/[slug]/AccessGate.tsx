@@ -308,7 +308,7 @@ export function ResultCheck({
   accent: string;
   prefill?: { email?: string; code?: string };
   apiBase: () => string;
-  onGraded: (result: any) => void;
+  onGraded: (result: any, creds: { email: string; code: string }) => void;
 }) {
   const c = gatePalette(design);
   const [email, setEmail] = useState(prefill?.email || "");
@@ -341,7 +341,7 @@ export function ResultCheck({
         return;
       }
       if (body?.status === "graded" && body.result) {
-        onGraded(body.result);
+        onGraded(body.result, { email: email.trim(), code: code.trim() });
       } else if (body?.status === "pending") {
         setPending(body.detail || "Tus resultados todavía no están publicados.");
       } else {
@@ -425,7 +425,7 @@ export function PostSubmitScreen({
   slug: string;
   prefill?: { email?: string; code?: string };
   apiBase: () => string;
-  onGraded: (result: any) => void;
+  onGraded: (result: any, creds: { email: string; code: string }) => void;
 }) {
   const c = gatePalette(design);
   const [showCheck, setShowCheck] = useState(false);

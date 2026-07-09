@@ -6,7 +6,7 @@ import { Survey } from "survey-react-ui";
 import "survey-core/survey-core.min.css";
 import "survey-core/i18n/spanish";
 import { toast } from "sonner";
-import { Check, Music, Volume2, VolumeX } from "lucide-react";
+import { Award, Check, Music, Volume2, VolumeX } from "lucide-react";
 import { themeToDesign, type AudioSettings } from "../../../(survey-builder)/builder/model";
 import {
   absolutizeAssets,
@@ -21,6 +21,7 @@ import {
   PostSubmitScreen,
   useMagicLinkParams,
 } from "./AccessGate";
+import { Certificate } from "./Certificate";
 
 // Register the custom "videoresponse" question (webcam recorder) before any
 // Survey model parses JSON that uses it.
@@ -93,6 +94,11 @@ export default function SurveyView({ slug }: { slug: string }) {
   const [data, setData] = useState<PublicSurvey | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [results, setResults] = useState<GradedResult | null>(null);
+  // Credenciales (email + código) del respondiente en modo lista: habilitan el
+  // certificado imprimible en la pantalla de resultado.
+  const [certCreds, setCertCreds] = useState<{ email: string; code: string } | null>(
+    null
+  );
   // Encuesta terminada (para mostrar el mensaje de gracias personalizado).
   const [completed, setCompleted] = useState(false);
   // Redirección al terminar: mostramos "Redirigiendo…" antes de navegar.
@@ -349,6 +355,11 @@ export default function SurveyView({ slug }: { slug: string }) {
         }
         if (body?.status === "graded" && body.result) {
           setResults(body.result as GradedResult);
+          // En modo lista, si tenemos email + código (magic link), habilitamos
+          // el certificado al aprobar.
+          if (data.access_mode === "list" && magic.email && magic.code) {
+            setCertCreds({ email: magic.email, code: magic.code });
+          }
         } else if (body?.results_pending && body?.can_check) {
           // Results held back: offer the result-lookup screen instead.
           setPostSubmit({ pending: true });
@@ -367,7 +378,7 @@ export default function SurveyView({ slug }: { slug: string }) {
     });
 
     return survey;
-  }, [data, slug, accessToken]);
+  }, [data, slug, accessToken, magic]);
 
   const design = useMemo(() => themeToDesign(data?.theme), [data]);
   useEffect(() => {
@@ -415,7 +426,15 @@ export default function SurveyView({ slug }: { slug: string }) {
   }
 
   if (results) {
-    return <ResultsScreen results={results} accent={accent} />;
+    return (
+      <ResultsScreen
+        results={results}
+        accent={accent}
+        slug={slug}
+        apiBase={apiBase}
+        certCreds={certCreds}
+      />
+    );
   }
 
   // Encuesta terminada con mensaje de gracias propio (sin redirección).
@@ -462,7 +481,10 @@ export default function SurveyView({ slug }: { slug: string }) {
         slug={slug}
         prefill={{ email: magic.email, code: magic.code }}
         apiBase={apiBase}
-        onGraded={(result) => setResults(result as GradedResult)}
+        onGraded={(result, creds) => {
+          setResults(result as GradedResult);
+          setCertCreds(creds);
+        }}
       />
     );
   }
@@ -566,10 +588,27 @@ function AudioPlayer({ audio, accent }: { audio: AudioSettings; accent: string }
   );
 }
 
-function ResultsScreen({ results, accent }: { results: GradedResult; accent: string }) {
+function ResultsScreen({
+  results,
+  accent,
+  slug,
+  apiBase,
+  certCreds,
+}: {
+  results: GradedResult;
+  accent: string;
+  slug: string;
+  apiBase: () => string;
+  certCreds: { email: string; code: string } | null;
+}) {
   const pct = Math.round(results.percent ?? 0);
   const showScore = results.total !== undefined;
   const passed = results.passed;
+  const [showCert, setShowCert] = useState(false);
+  // El certificado se ofrece sólo si aprobó, no hay revisión pendiente y
+  // tenemos sus credenciales (email + código) para pedirlo.
+  const canCertify =
+    passed === true && !results.needs_review && !!certCreds;
 
   return (
     <div className="min-h-screen bg-neutral-50 flex items-start justify-center p-6">
@@ -619,6 +658,17 @@ function ResultsScreen({ results, accent }: { results: GradedResult; accent: str
               Algunas respuestas serán revisadas por una persona.
             </p>
           )}
+
+          {canCertify && (
+            <button
+              type="button"
+              onClick={() => setShowCert(true)}
+              className="mt-6 inline-flex items-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold text-white transition"
+              style={{ backgroundColor: accent }}
+            >
+              <Award className="h-4 w-4" /> Ver certificado
+            </button>
+          )}
         </div>
 
         {results.questions?.length > 0 && (
@@ -643,6 +693,17 @@ function ResultsScreen({ results, accent }: { results: GradedResult; accent: str
           </div>
         )}
       </div>
+
+      {showCert && certCreds && (
+        <Certificate
+          slug={slug}
+          email={certCreds.email}
+          code={certCreds.code}
+          accent={accent}
+          apiBase={apiBase}
+          onClose={() => setShowCert(false)}
+        />
+      )}
     </div>
   );
 }

@@ -1,0 +1,42 @@
+# Self-host de un comando: imagen all-in-one (nginx + Next + FastAPI) + Postgres.
+#
+#   cp .env.example .env   # y poné un ENCUESTUM_SESSION_SECRET real
+#   docker compose -f docker-compose.prod.yml up -d
+#   → http://localhost:8080
+#
+# Detrás de un dominio con HTTPS: poné ENCUESTUM_PUBLIC_URL=https://tu-dominio
+# y ENCUESTUM_COOKIE_SECURE=true, y serví el 8080 detrás de tu reverse proxy.
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-encuestum}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me-in-prod}
+      POSTGRES_DB: ${POSTGRES_DB:-encuestum}
+    volumes:
+      - encuestum_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-encuestum}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  app:
+    build: .            # o: image: ghcr.io/diegoparras/encuestum:latest
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-encuestum}:${POSTGRES_PASSWORD:-change-me-in-prod}@db:5432/${POSTGRES_DB:-encuestum}
+      ENCUESTUM_SESSION_SECRET: ${ENCUESTUM_SESSION_SECRET:?definí un secreto en .env}
+      ENCUESTUM_COOKIE_SECURE: ${ENCUESTUM_COOKIE_SECURE:-false}
+      ENCUESTUM_PUBLIC_URL: ${ENCUESTUM_PUBLIC_URL:-http://localhost:8080}
+      # IA opcional (o configurá desde la pantalla IA de la app):
+      ENCUESTUM_LLM_API_KEY: ${ENCUESTUM_LLM_API_KEY:-}
+      ENCUESTUM_LLM_BASE_URL: ${ENCUESTUM_LLM_BASE_URL:-https://openrouter.ai/api/v1}
+      ENCUESTUM_LLM_MODEL: ${ENCUESTUM_LLM_MODEL:-openai/gpt-4o-mini}
+    ports:
+      - "8080:80"
+
+volumes:
+  encuestum_pg:
