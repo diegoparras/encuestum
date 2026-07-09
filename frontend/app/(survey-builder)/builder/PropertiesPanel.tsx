@@ -30,12 +30,16 @@ interface Props {
   showProgress: boolean;
   closesAt: string | null;
   maxResponses: number | null;
+  thankyouMessage: string;
+  redirectUrl: string;
   onSurveyChange: (patch: {
     description?: string;
     onePerPage?: boolean;
     showProgress?: boolean;
     closesAt?: string | null;
     maxResponses?: number | null;
+    thankyouMessage?: string;
+    redirectUrl?: string;
   }) => void;
   evaluation: EvaluationSettings;
   onEvaluationChange: (evaluation: EvaluationSettings) => void;
@@ -51,6 +55,8 @@ export function PropertiesPanel({
   showProgress,
   closesAt,
   maxResponses,
+  thankyouMessage,
+  redirectUrl,
   onSurveyChange,
   evaluation,
   onEvaluationChange,
@@ -120,6 +126,36 @@ export function PropertiesPanel({
           </Field>
           <p className="text-xs text-neutral-400">
             La encuesta deja de aceptar respuestas al llegar la fecha o el cupo.
+          </p>
+        </div>
+
+        <div className="mt-5 border-t border-neutral-100 pt-4">
+          <SectionTitle>Al terminar</SectionTitle>
+          <Field label="Mensaje de agradecimiento">
+            <textarea
+              value={thankyouMessage}
+              onChange={(e) => onSurveyChange({ thankyouMessage: e.target.value })}
+              rows={3}
+              placeholder="¡Gracias por responder!"
+              className="w-full rounded-md border border-neutral-200 px-2.5 py-2 text-sm outline-none focus:border-neutral-400"
+            />
+          </Field>
+          <p className="-mt-2 mb-4 text-xs text-neutral-400">
+            Se muestra al terminar. Si lo dejás vacío, se muestra el mensaje por
+            defecto.
+          </p>
+          <Field label="Redirigir al terminar (opcional)">
+            <input
+              type="url"
+              value={redirectUrl}
+              onChange={(e) => onSurveyChange({ redirectUrl: e.target.value })}
+              placeholder="https://tu-sitio.com/gracias"
+              className="w-full rounded-md border border-neutral-200 px-2.5 py-2 text-sm outline-none focus:border-neutral-400"
+            />
+          </Field>
+          <p className="-mt-2 text-xs text-neutral-400">
+            Al enviar, se redirige a esta URL (ej. tu sitio o un agradecimiento
+            propio). Si está seteada, tiene prioridad sobre el mensaje.
           </p>
         </div>
 

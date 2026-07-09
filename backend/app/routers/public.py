@@ -129,6 +129,8 @@ def _public_payload(s: Survey, available: bool, reason: str | None, gated: bool)
         evaluation=public_evaluation_meta(s.evaluation) if show_form else None,
         available=available, closed_reason=reason,
         access_mode=getattr(s, "access_mode", "public"), gated=gated,
+        thankyou_message=getattr(s, "thankyou_message", None),
+        redirect_url=getattr(s, "redirect_url", None),
     )
 
 

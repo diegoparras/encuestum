@@ -42,6 +42,8 @@ class SurveyUpdateRequest(BaseModel):
     access_pin: Optional[str] = None
     results_mode: Optional[str] = None  # immediate | on_release | never
     notify_emails: Optional[str] = None  # comma-separated owner notification emails
+    thankyou_message: Optional[str] = None
+    redirect_url: Optional[str] = None
 
 
 class SurveySummary(BaseModel):
@@ -72,6 +74,8 @@ class SurveyDetail(BaseModel):
     results_mode: str = "immediate"
     results_released: bool = False
     notify_emails: Optional[str] = None
+    thankyou_message: Optional[str] = None
+    redirect_url: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 
@@ -86,6 +90,8 @@ class SurveyDetail(BaseModel):
             results_mode=getattr(s, "results_mode", "immediate"),
             results_released=getattr(s, "results_released", False),
             notify_emails=getattr(s, "notify_emails", None),
+            thankyou_message=getattr(s, "thankyou_message", None),
+            redirect_url=getattr(s, "redirect_url", None),
             created_at=s.created_at, updated_at=s.updated_at,
         )
 
@@ -103,6 +109,9 @@ class PublicSurvey(BaseModel):
     # respondent passes the access step (PIN or email+code).
     access_mode: str = "public"
     gated: bool = False
+    # Post-submit customization (rendered by the public page after completion).
+    thankyou_message: Optional[str] = None
+    redirect_url: Optional[str] = None
 
 
 class SubmitResponseRequest(BaseModel):

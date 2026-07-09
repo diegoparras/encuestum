@@ -86,6 +86,8 @@ export default function SurveyEditorPage() {
     built.design = themeToDesign(s.theme);
     built.closesAt = s.closes_at;
     built.maxResponses = s.max_responses;
+    built.thankyouMessage = s.thankyou_message ?? "";
+    built.redirectUrl = s.redirect_url ?? "";
     return { survey: s, built };
   }, [id]);
 
@@ -230,6 +232,8 @@ export default function SurveyEditorPage() {
         evaluation: builderToEvaluation(state),
         closes_at: state.closesAt,
         max_responses: state.maxResponses,
+        thankyou_message: state.thankyouMessage,
+        redirect_url: state.redirectUrl,
         language,
       });
       setDirty(false);
@@ -453,6 +457,8 @@ export default function SurveyEditorPage() {
             showProgress={state.showProgress}
             closesAt={state.closesAt}
             maxResponses={state.maxResponses}
+            thankyouMessage={state.thankyouMessage}
+            redirectUrl={state.redirectUrl}
             onSurveyChange={(patch) => mutate((prev) => ({ ...prev, ...patch }))}
             evaluation={state.evaluation}
             onEvaluationChange={setEvaluation}

@@ -38,6 +38,9 @@ export interface SurveyDetail {
   results_released: boolean;
   // Emails (separados por coma) a avisar cuando llega una respuesta.
   notify_emails?: string;
+  // Distribución: mensaje de agradecimiento y redirección al terminar.
+  thankyou_message?: string;
+  redirect_url?: string;
   created_at: string;
   updated_at: string;
 }
@@ -214,6 +217,8 @@ export const surveyApi = {
         | "access_pin"
         | "results_mode"
         | "notify_emails"
+        | "thankyou_message"
+        | "redirect_url"
       >
     >
   ) =>

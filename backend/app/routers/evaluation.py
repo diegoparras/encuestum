@@ -130,6 +130,50 @@ async def override_grade(sid: uuid.UUID, rid: uuid.UUID, payload: OverrideReques
     return ResponseItem.from_model(r)
 
 
+@router.get("/{sid}/gradebook")
+async def gradebook(sid: uuid.UUID, ctx: OrgContext = Depends(current_context), session: AsyncSession = Depends(get_session)):
+    """Per-respondent grades (planilla de notas). Identifies people by their
+    invitee email/name when the survey is access=list."""
+    from app.models import SurveyInvitee
+    s = await _survey_or_404(sid, ctx.org.id, session)
+    responses = (
+        await session.scalars(
+            select(SurveyResponse).where(SurveyResponse.survey_id == sid)
+            .order_by(SurveyResponse.submitted_at.desc())
+        )
+    ).all()
+    invitees = (
+        await session.scalars(select(SurveyInvitee).where(SurveyInvitee.survey_id == sid))
+    ).all()
+    names = {i.code.upper(): (i.name or i.email) for i in invitees}
+    emails = {i.code.upper(): i.email for i in invitees}
+
+    passing = float((s.evaluation or {}).get("passingScore", 60) or 60)
+    rows = []
+    for r in responses:
+        g = r.grade or {}
+        code = (r.respondent_code or "").upper()
+        pct = g.get("percent")
+        rows.append({
+            "response_id": str(r.id),
+            "name": names.get(code) or r.respondent_email or "Anónimo",
+            "email": emails.get(code) or r.respondent_email,
+            "code": r.respondent_code,
+            "score": r.score, "max_score": r.max_score,
+            "percent": pct,
+            "passed": (pct is not None and float(pct) >= passing),
+            "needs_review": r.needs_review,
+            "graded": r.grade is not None,
+            "submitted_at": r.submitted_at.isoformat(),
+        })
+    return {
+        "is_evaluation": bool((s.evaluation or {}).get("enabled")),
+        "passing_score": passing,
+        "count": len(rows),
+        "rows": rows,
+    }
+
+
 @router.get("/{sid}/analytics")
 async def analytics(sid: uuid.UUID, ctx: OrgContext = Depends(current_context), session: AsyncSession = Depends(get_session)):
     s = await _survey_or_404(sid, ctx.org.id, session)

@@ -331,6 +331,8 @@ export interface BuilderState {
   showProgress: boolean; // show "Pregunta X de Y" (only meaningful with onePerPage)
   closesAt: string | null; // ISO datetime; auto-close after this moment
   maxResponses: number | null; // auto-close after this many responses
+  thankyouMessage: string; // mensaje de agradecimiento al terminar (vacío = por defecto)
+  redirectUrl: string; // al enviar, se redirige a esta URL (vacío = sin redirección)
   questions: BuilderQuestion[];
   evaluation: EvaluationSettings;
   design: DesignSettings;
@@ -930,6 +932,8 @@ export function schemaToBuilder(
     showProgress,
     closesAt: null,
     maxResponses: null,
+    thankyouMessage: "",
+    redirectUrl: "",
     questions,
     evaluation: hydrateEvaluationSettings(evaluation),
     design: { ...DEFAULT_DESIGN },
