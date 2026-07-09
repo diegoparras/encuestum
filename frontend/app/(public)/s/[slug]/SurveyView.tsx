@@ -13,6 +13,7 @@ import {
   loadFont,
   resolveAssetUrl,
 } from "../../../(survey-builder)/builder/design";
+import { orgBranding } from "@/utils/auth";
 
 interface EvaluationMeta {
   enabled?: boolean;
@@ -68,6 +69,53 @@ export default function SurveyView({ slug }: { slug: string }) {
   const [data, setData] = useState<PublicSurvey | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [results, setResults] = useState<GradedResult | null>(null);
+  const [branding, setBranding] = useState<{
+    name: string;
+    logo: string | null;
+  } | null>(null);
+
+  // Branding header: when the survey is served from an organization's own
+  // subdomain (e.g. `acme.encuestum.example`), show that org's name/logo on top.
+  // On localhost, an IP, or an apex domain we render nothing (default behavior).
+  useEffect(() => {
+    let cancelled = false;
+    try {
+      const hostname = window.location.host.split(":")[0];
+      const isIp = /^\d{1,3}(\.\d{1,3}){3}$/.test(hostname);
+      const parts = hostname.split(".");
+      if (hostname === "localhost" || isIp || parts.length < 3) return;
+      const sub = parts[0].toLowerCase();
+      if (["www", "api", "app"].includes(sub)) return;
+      orgBranding(sub)
+        .then((b) => {
+          if (!cancelled && b) setBranding({ name: b.name, logo: b.logo });
+        })
+        .catch(() => {
+          /* branding is best-effort; ignore */
+        });
+    } catch {
+      /* window unavailable or parse error; ignore */
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const brandingHeader = branding ? (
+    <div className="flex items-center gap-3 border-b border-neutral-200 bg-white px-4 py-3">
+      {branding.logo && (
+        // eslint-disable-next-line @next/next/no-img-element
+        <img
+          src={resolveAssetUrl(branding.logo)}
+          alt={branding.name}
+          className="h-8 w-auto max-w-[160px] object-contain"
+        />
+      )}
+      <span className="text-sm font-semibold text-neutral-800">
+        {branding.name}
+      </span>
+    </div>
+  ) : null;
 
   useEffect(() => {
     let cancelled = false;
@@ -285,6 +333,7 @@ export default function SurveyView({ slug }: { slug: string }) {
 
   return (
     <div className="min-h-screen bg-neutral-50">
+      {brandingHeader}
       {submitting && (
         <div className="fixed top-0 inset-x-0 h-1 animate-pulse z-50" style={{ backgroundColor: accent }} />
       )}

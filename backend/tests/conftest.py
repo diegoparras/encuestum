@@ -14,6 +14,7 @@ os.environ["ENCUESTUM_ENABLE_HSTS"] = "false"
 os.environ["ENCUESTUM_RATE_LIMIT_ENABLED"] = "false"
 os.environ["ENCUESTUM_SUPERADMIN_EMAIL"] = "super@example.com"
 os.environ["ENCUESTUM_WEBHOOKS_ENABLED"] = "false"
+os.environ["ENCUESTUM_BASE_DOMAIN"] = "encuestum.example"
 
 import pytest
 from fastapi.testclient import TestClient

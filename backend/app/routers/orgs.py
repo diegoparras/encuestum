@@ -30,12 +30,30 @@ from app.schemas_auth import (
     MeOut,
     MemberOut,
     OrgOut,
+    SetSubdomainRequest,
     TokenRequest,
     UpdateMemberRoleRequest,
 )
 from app.security import create_purpose_token, read_purpose_token
 
+import re
+
 router = APIRouter(prefix="/orgs", tags=["organizations"])
+
+_SUBDOMAIN_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]{1,38}[a-z0-9])?$")
+_RESERVED_SUBDOMAINS = {
+    "www", "api", "app", "admin", "mail", "static", "cdn", "assets", "ftp",
+    "blog", "help", "support", "status", "docs", "dashboard", "public", "auth",
+    "login", "register", "survey", "surveys", "s", "panel", "integrations",
+    "members", "uploads", "files", "webhooks",
+}
+
+
+def _org_out(org: Organization, role: str) -> OrgOut:
+    return OrgOut(
+        id=org.id, name=org.name, slug=org.slug, role=role,
+        subdomain=org.subdomain, logo=org.logo, created_at=org.created_at,
+    )
 
 
 async def _membership(session: AsyncSession, user_id: uuid.UUID, org_id: uuid.UUID) -> Membership:
@@ -339,3 +357,56 @@ async def accept_invite(
 
     set_org_cookie(response, inv.org_id)
     return await build_me(session, user, inv.org_id)
+
+
+# ── Custom subdomain ─────────────────────────────────────────────────────────
+@router.post("/{org_id}/subdomain", response_model=OrgOut)
+async def set_subdomain(
+    org_id: uuid.UUID,
+    payload: SetSubdomainRequest,
+    session: AsyncSession = Depends(get_session),
+    user: User = Depends(current_user),
+):
+    caller = await _membership(session, user.id, org_id)
+    _require_rank(caller, ROLE_ADMIN)
+    org = await session.get(Organization, org_id)
+    if not org:
+        raise HTTPException(status_code=404, detail="Organización no encontrada")
+
+    sub = (payload.subdomain or "").strip().lower()
+    if not sub:
+        org.subdomain = None
+    else:
+        if not _SUBDOMAIN_RE.match(sub) or sub in _RESERVED_SUBDOMAINS:
+            raise HTTPException(
+                status_code=422,
+                detail="Subdominio inválido: 3-40 caracteres, letras/números/guiones, y no puede ser una palabra reservada.",
+            )
+        taken = (
+            await session.scalars(
+                select(Organization).where(
+                    Organization.subdomain == sub, Organization.id != org_id
+                )
+            )
+        ).first()
+        if taken:
+            raise HTTPException(status_code=409, detail="Ese subdominio ya está en uso")
+        org.subdomain = sub
+
+    session.add(org)
+    await session.commit()
+    await session.refresh(org)
+    return _org_out(org, caller.role)
+
+
+@router.get("/branding/{subdomain}")
+async def public_branding(subdomain: str, session: AsyncSession = Depends(get_session)):
+    """Public: resolve an org's public branding from its subdomain (for the
+    branded landing / survey pages served at {subdomain}.<base_domain>)."""
+    sub = (subdomain or "").strip().lower()
+    org = (
+        await session.scalars(select(Organization).where(Organization.subdomain == sub))
+    ).first()
+    if not org:
+        raise HTTPException(status_code=404, detail="No encontrado")
+    return {"name": org.name, "logo": org.logo, "subdomain": org.subdomain}

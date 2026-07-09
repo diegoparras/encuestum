@@ -23,12 +23,15 @@ export interface Org {
   slug: string;
   role: Role;
   created_at: string;
+  subdomain?: string | null;
+  logo?: string | null;
 }
 
 export interface Me {
   user: User;
   orgs: Org[];
   active_org_id: string;
+  base_domain?: string | null;
 }
 
 export interface Member {
@@ -130,6 +133,35 @@ export function createOrg(name: string): Promise<Org> {
     method: "POST",
     body: JSON.stringify({ name }),
   });
+}
+
+// Set (or clear) the organization's custom subdomain. Pass `null` or `""` to
+// remove it. Throws Error(detail) on 422 (invalid/reserved), 409 (taken) or
+// 404 (not admin/member).
+export function setSubdomain(
+  orgId: string,
+  subdomain: string | null
+): Promise<Org> {
+  return request<Org>(`/api/v1/orgs/${orgId}/subdomain`, {
+    method: "POST",
+    body: JSON.stringify({ subdomain }),
+  });
+}
+
+// Public branding lookup by subdomain (no auth). Returns `null` on 404 instead
+// of throwing, so callers can probe silently.
+export async function orgBranding(
+  subdomain: string
+): Promise<{ name: string; logo: string | null; subdomain: string } | null> {
+  const res = await fetch(
+    getApiUrl(`/api/v1/orgs/branding/${encodeURIComponent(subdomain)}`),
+    { cache: "no-store" }
+  );
+  if (res.status === 404) return null;
+  if (!res.ok) {
+    throw new Error(await errorMessage(res, `No se pudo obtener el branding (${res.status})`));
+  }
+  return (await res.json()) as { name: string; logo: string | null; subdomain: string };
 }
 
 export function listMembers(orgId: string): Promise<Member[]> {

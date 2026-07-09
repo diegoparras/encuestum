@@ -32,6 +32,8 @@ class OrgOut(BaseModel):
     name: str
     slug: str
     role: str
+    subdomain: Optional[str] = None
+    logo: Optional[str] = None
     created_at: datetime
 
 
@@ -39,6 +41,11 @@ class MeOut(BaseModel):
     user: UserOut
     orgs: List[OrgOut]
     active_org_id: uuid.UUID
+    base_domain: Optional[str] = None
+
+
+class SetSubdomainRequest(BaseModel):
+    subdomain: Optional[str] = None  # null/empty clears it
 
 
 class CreateOrgRequest(BaseModel):

@@ -25,6 +25,7 @@ import {
   SURVEY_ACCENT,
   downloadResponses,
 } from "../../surveyApi";
+import { getMe, type Me } from "@/utils/auth";
 import { GradesPanel } from "../../GradesPanel";
 import { InsightsPanel } from "../../InsightsPanel";
 import { themeToAccent } from "../../builder/model";
@@ -40,6 +41,8 @@ export default function SurveyDetailPage() {
   const [saving, setSaving] = useState(false);
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [copiedBranded, setCopiedBranded] = useState(false);
+  const [me, setMe] = useState<Me | null>(null);
   const [showQr, setShowQr] = useState(false);
   const [exporting, setExporting] = useState<"csv" | "xlsx" | null>(null);
 
@@ -61,6 +64,12 @@ export default function SurveyDetailPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
+  useEffect(() => {
+    getMe()
+      .then(setMe)
+      .catch(() => setMe(null));
+  }, []);
+
   const parsed = useMemo(() => {
     try {
       return { value: JSON.parse(schemaText) as Record<string, any>, error: null };
@@ -72,6 +81,12 @@ export default function SurveyDetailPage() {
   const publicUrl = survey
     ? `${typeof window !== "undefined" ? window.location.origin : ""}/s/${survey.slug}`
     : "";
+
+  const activeOrg = me?.orgs.find((o) => o.id === me.active_org_id) ?? me?.orgs[0];
+  const brandedUrl =
+    survey && activeOrg?.subdomain && me?.base_domain
+      ? `https://${activeOrg.subdomain}.${me.base_domain}/s/${survey.slug}`
+      : "";
 
   async function save() {
     if (!parsed.value) {
@@ -128,6 +143,13 @@ export default function SurveyDetailPage() {
     navigator.clipboard?.writeText(publicUrl).then(() => {
       setCopied(true);
       setTimeout(() => setCopied(false), 1800);
+    });
+  }
+
+  function copyBranded() {
+    navigator.clipboard?.writeText(brandedUrl).then(() => {
+      setCopiedBranded(true);
+      setTimeout(() => setCopiedBranded(false), 1800);
     });
   }
 
@@ -204,6 +226,26 @@ export default function SurveyDetailPage() {
           </a>
         )}
       </div>
+
+      {/* Branded (own subdomain) link */}
+      {brandedUrl && (
+        <div className="mt-2 flex items-center gap-2 rounded-lg border border-neutral-200 bg-white px-3 py-2 text-sm">
+          <span
+            className="shrink-0 rounded px-1.5 py-0.5 text-xs font-medium"
+            style={{ backgroundColor: `${SURVEY_ACCENT}1a`, color: SURVEY_ACCENT }}
+          >
+            Tu dominio
+          </span>
+          <span className="font-mono text-neutral-600 truncate">{brandedUrl}</span>
+          <button
+            onClick={copyBranded}
+            className="ml-auto inline-flex items-center gap-1 text-neutral-500 hover:text-neutral-900"
+          >
+            {copiedBranded ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
+            {copiedBranded ? "Copiado" : "Copiar"}
+          </button>
+        </div>
+      )}
 
       {showQr && (
         <div className="mt-3 flex flex-col items-center gap-2 rounded-lg border border-neutral-200 bg-white p-5">

@@ -6,9 +6,11 @@ import {
   Building2,
   Check,
   Copy,
+  Globe,
   Loader2,
   Mail,
   Plus,
+  Save,
   Trash2,
   UserPlus,
   Users,
@@ -23,6 +25,7 @@ import {
   removeMember,
   revokeInvitation,
   roleAtLeast,
+  setSubdomain,
   switchOrg,
   updateMemberRole,
   type Invitation,
@@ -76,6 +79,10 @@ export default function MembersPage() {
 
   const [pendingUser, setPendingUser] = useState<string | null>(null);
 
+  // Subdomain
+  const [subdomainInput, setSubdomainInput] = useState("");
+  const [savingSubdomain, setSavingSubdomain] = useState(false);
+
   const activeOrg = me?.orgs.find((o) => o.id === me.active_org_id) ?? me?.orgs[0];
   const myRole: Role = activeOrg?.role ?? "member";
   const canManage = roleAtLeast(myRole, "admin");
@@ -117,6 +124,11 @@ export default function MembersPage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  // Keep the subdomain field in sync with the active org.
+  useEffect(() => {
+    setSubdomainInput(activeOrg?.subdomain ?? "");
+  }, [activeOrg?.subdomain]);
 
   async function onAdd(e: React.FormEvent) {
     e.preventDefault();
@@ -198,6 +210,40 @@ export default function MembersPage() {
       toast.error(err instanceof Error ? err.message : "No se pudo crear la organización");
       setCreatingOrg(false);
     }
+  }
+
+  async function persistSubdomain(value: string | null) {
+    if (!me) return;
+    setSavingSubdomain(true);
+    try {
+      const updated = await setSubdomain(me.active_org_id, value);
+      setMe((prev) =>
+        prev
+          ? {
+              ...prev,
+              orgs: prev.orgs.map((o) => (o.id === updated.id ? updated : o)),
+            }
+          : prev
+      );
+      setSubdomainInput(updated.subdomain ?? "");
+      toast.success(updated.subdomain ? "Subdominio guardado" : "Subdominio quitado");
+    } catch (err) {
+      toast.error(
+        err instanceof Error ? err.message : "No se pudo guardar el subdominio"
+      );
+    } finally {
+      setSavingSubdomain(false);
+    }
+  }
+
+  async function onSaveSubdomain(e: React.FormEvent) {
+    e.preventDefault();
+    const value = subdomainInput.trim().toLowerCase();
+    await persistSubdomain(value || null);
+  }
+
+  async function onRemoveSubdomain() {
+    await persistSubdomain(null);
   }
 
   async function onInvite(e: React.FormEvent) {
@@ -373,6 +419,89 @@ export default function MembersPage() {
           ) : (
             <p className="py-6 text-center text-sm text-neutral-400">
               Todavía no hay miembros.
+            </p>
+          )}
+        </CardContent>
+      </Card>
+
+      {/* Subdomain */}
+      <Card>
+        <CardHeader className="flex flex-row items-center gap-2">
+          <Globe className="h-5 w-5 text-neutral-400" />
+          <CardTitle>Subdominio</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          {canManage ? (
+            <>
+              <form
+                onSubmit={onSaveSubdomain}
+                className="flex flex-col gap-3 sm:flex-row sm:items-end"
+              >
+                <div className="flex-1 space-y-1.5">
+                  <Label htmlFor="subdomain">Subdominio propio</Label>
+                  <div className="flex items-stretch">
+                    <Input
+                      id="subdomain"
+                      value={subdomainInput}
+                      onChange={(e) =>
+                        setSubdomainInput(e.target.value.toLowerCase())
+                      }
+                      placeholder="acme"
+                      autoCapitalize="none"
+                      autoCorrect="off"
+                      spellCheck={false}
+                      className={me?.base_domain ? "rounded-r-none" : ""}
+                    />
+                    {me?.base_domain && (
+                      <span className="inline-flex select-none items-center rounded-r-lg border border-l-0 border-neutral-300 bg-neutral-50 px-3 text-sm text-neutral-500">
+                        .{me.base_domain}
+                      </span>
+                    )}
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <Button type="submit" disabled={savingSubdomain}>
+                    {savingSubdomain ? (
+                      <Loader2 className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Save className="h-4 w-4" />
+                    )}
+                    Guardar
+                  </Button>
+                  {activeOrg?.subdomain && (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      disabled={savingSubdomain}
+                      onClick={onRemoveSubdomain}
+                    >
+                      Quitar
+                    </Button>
+                  )}
+                </div>
+              </form>
+              {!me?.base_domain && (
+                <p className="text-xs text-amber-600">
+                  Configurá <code>ENCUESTUM_BASE_DOMAIN</code> para habilitar la
+                  URL completa. Igual podés guardar el nombre.
+                </p>
+              )}
+              <p className="text-xs text-neutral-400">
+                Tu URL propia para encuestas y branding. Requiere configuración
+                de DNS/TLS (te la pasamos).
+              </p>
+            </>
+          ) : activeOrg?.subdomain ? (
+            <p className="text-sm text-neutral-700">
+              Subdominio:{" "}
+              <span className="font-mono text-neutral-900">
+                {activeOrg.subdomain}
+                {me?.base_domain ? `.${me.base_domain}` : ""}
+              </span>
+            </p>
+          ) : (
+            <p className="text-sm text-neutral-400">
+              Esta organización no tiene un subdominio configurado.
             </p>
           )}
         </CardContent>

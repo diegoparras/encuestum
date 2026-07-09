@@ -66,7 +66,8 @@ async def build_me(session: AsyncSession, user: User, active_org_id: uuid.UUID) 
     ).all()
     orgs = [
         OrgOut(
-            id=org.id, name=org.name, slug=org.slug, role=m.role, created_at=org.created_at
+            id=org.id, name=org.name, slug=org.slug, role=m.role,
+            subdomain=org.subdomain, logo=org.logo, created_at=org.created_at,
         )
         for (m, org) in rows
     ]
@@ -82,6 +83,7 @@ async def build_me(session: AsyncSession, user: User, active_org_id: uuid.UUID) 
         ),
         orgs=orgs,
         active_org_id=active_org_id,
+        base_domain=settings.base_domain,
     )
 
 

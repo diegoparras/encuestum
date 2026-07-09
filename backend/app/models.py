@@ -66,6 +66,11 @@ class Organization(SQLModel, table=True):
         sa_column=Column(String, unique=True, index=True, nullable=False),
         default_factory=_new_slug,
     )
+    # Optional custom subdomain (e.g. "acme" → acme.encuestum.com).
+    subdomain: Optional[str] = Field(
+        sa_column=Column(String, unique=True, index=True), default=None
+    )
+    logo: Optional[str] = Field(sa_column=Column(String), default=None)
     created_at: datetime = Field(
         sa_column=Column(DateTime(timezone=True), nullable=False, default=_utcnow)
     )

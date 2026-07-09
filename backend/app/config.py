@@ -40,6 +40,10 @@ class Settings:
         # user explicitly flagged is_superadmin).
         self.superadmin_email = (os.getenv("ENCUESTUM_SUPERADMIN_EMAIL") or "").strip().lower() or None
 
+        # Base domain for per-org subdomains (e.g. "encuestum.com" → acme.encuestum.com).
+        # Empty = subdomains disabled (the org can still claim a name, no URL is built).
+        self.base_domain = (os.getenv("ENCUESTUM_BASE_DOMAIN") or "").strip().lower().lstrip(".") or None
+
         # Security headers / HSTS (only meaningful behind HTTPS).
         self.enable_hsts = _bool("ENCUESTUM_ENABLE_HSTS", True)
 
