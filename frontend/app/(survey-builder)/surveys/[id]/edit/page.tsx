@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import {
   ArrowLeft,
   Loader2,
@@ -43,10 +44,24 @@ import {
 } from "../../../builder/model";
 import { QuestionListPanel } from "../../../builder/QuestionListPanel";
 import { PropertiesPanel } from "../../../builder/PropertiesPanel";
-import { LivePreview } from "../../../builder/LivePreview";
 import { AccentPicker } from "../../../builder/AccentPicker";
 import { DesignPanel } from "../../../builder/DesignPanel";
 import { GenerateDialog } from "../../../builder/GenerateDialog";
+
+// SurveyJS es pesado: diferimos la vista previa a un chunk perezoso (ssr:false)
+// para que no entre en el bundle inicial del editor. El registro del tipo de
+// pregunta "videoresponse" vive dentro de LivePreview y corre al cargar el chunk.
+const LivePreview = dynamic(
+  () => import("../../../builder/LivePreview").then((m) => m.LivePreview),
+  {
+    ssr: false,
+    loading: () => (
+      <div className="flex h-full items-center justify-center text-sm text-neutral-400">
+        <Loader2 className="w-4 h-4 animate-spin mr-2" /> Cargando vista previa…
+      </div>
+    ),
+  }
+);
 
 export default function SurveyEditorPage() {
   const { id } = useParams<{ id: string }>();

@@ -38,13 +38,16 @@ import { themeToAccent } from "../../builder/model";
 export default function SurveyDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
-  const { data, status, error, reload, setData } = useAsyncData(async () => {
-    const s = await surveyApi.get(id);
-    const r = await surveyApi.responses(id);
-    return { survey: s, responses: r };
-  }, [id]);
-  const survey = data?.survey ?? null;
-  const responses = data?.responses ?? null;
+  // Sólo la encuesta se carga al montar. La lista completa de respuestas es
+  // pesada y NO se descarga en la pestaña "Resumen": se baja perezosamente
+  // (ver abajo) sólo cuando hace falta mostrarla o exportarla.
+  const {
+    data: survey,
+    status,
+    error,
+    reload,
+    setData,
+  } = useAsyncData((signal) => surveyApi.get(id, signal), [id]);
 
   const [title, setTitle] = useState("");
   const [schemaText, setSchemaText] = useState("");
@@ -63,6 +66,58 @@ export default function SurveyDetailPage() {
   const [resultsTab, setResultsTab] = useState<"summary" | "responses">("summary");
   const [evalTab, setEvalTab] = useState<"gradebook" | "grading">("gradebook");
 
+  // Lista completa de respuestas: carga perezosa. `null` = todavía no pedida.
+  const [responses, setResponses] = useState<ResponseItem[] | null>(null);
+  // Conteo liviano de respuestas (sólo el agregado del funnel, sin bajar la
+  // lista) para habilitar la exportación en evaluaciones sin descargar todo.
+  const [evalResponseCount, setEvalResponseCount] = useState<number | null>(null);
+
+  // Al cambiar de encuesta, olvidamos las respuestas de la anterior.
+  useEffect(() => {
+    setResponses(null);
+    setEvalResponseCount(null);
+  }, [id]);
+
+  const loadResponses = useCallback(() => {
+    surveyApi
+      .responses(id)
+      .then(setResponses)
+      .catch(() => {
+        /* la tabla muestra su propio estado de carga; error silencioso */
+      });
+  }, [id]);
+
+  // Bajamos la lista completa SÓLO cuando la pestaña "Respuestas" está activa
+  // (encuestas comunes). En "Resumen" no se descarga nada de respuestas.
+  useEffect(() => {
+    if (
+      survey &&
+      !survey.evaluation?.enabled &&
+      resultsTab === "responses" &&
+      responses === null
+    ) {
+      loadResponses();
+    }
+  }, [survey, resultsTab, responses, loadResponses]);
+
+  // En evaluaciones sólo necesitamos un número (para habilitar la exportación).
+  // Lo tomamos del funnel (agregados) en vez de bajar toda la lista.
+  useEffect(() => {
+    if (!survey?.evaluation?.enabled) return;
+    let cancelled = false;
+    surveyApi
+      .getFunnel(id)
+      .then((f) => {
+        if (!cancelled) setEvalResponseCount(f.responses);
+      })
+      .catch(() => {
+        /* best-effort: si falla, dejamos la exportación habilitada */
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [survey?.evaluation?.enabled, id]);
+
   // Inicializa el título y el JSON editables cuando llega (o se recarga) la encuesta.
   useEffect(() => {
     if (survey) {
@@ -73,9 +128,7 @@ export default function SurveyDetailPage() {
 
   // Reemplaza la encuesta cargada tras guardar / publicar / cerrar.
   const setSurvey = useCallback(
-    (updated: SurveyDetail) => {
-      setData((prev) => (prev ? { ...prev, survey: updated } : prev!));
-    },
+    (updated: SurveyDetail) => setData(updated),
     [setData]
   );
 
@@ -431,7 +484,7 @@ export default function SurveyDetailPage() {
               </div>
               <ExportButtons
                 exporting={exporting}
-                disabled={!responses || responses.length === 0}
+                disabled={evalResponseCount === 0}
                 onExport={exportResponses}
               />
             </div>

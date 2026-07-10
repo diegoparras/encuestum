@@ -1,5 +1,5 @@
 import React from "react";
-import SurveyView from "./SurveyView";
+import SurveyViewClient from "./SurveyViewClient";
 
 // Public survey page. Rendered on the client: the SurveyJS runtime builds the
 // form model and posts responses straight to the (login-exempt) FastAPI
@@ -16,5 +16,5 @@ export default async function Page({
   params: Promise<{ slug: string }>;
 }) {
   const { slug } = await params;
-  return <SurveyView slug={slug} />;
+  return <SurveyViewClient slug={slug} />;
 }

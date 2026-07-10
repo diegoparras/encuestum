@@ -232,7 +232,8 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 
 export const surveyApi = {
   list: () => request<SurveySummary[]>("/api/v1/survey/surveys"),
-  get: (id: string) => request<SurveyDetail>(`/api/v1/survey/surveys/${id}`),
+  get: (id: string, signal?: AbortSignal) =>
+    request<SurveyDetail>(`/api/v1/survey/surveys/${id}`, { signal }),
   create: (body: {
     title?: string;
     json_schema?: Record<string, any>;
