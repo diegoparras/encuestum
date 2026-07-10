@@ -1,3 +1,5 @@
+import asyncio
+import logging
 import uuid
 from datetime import datetime, timezone
 from typing import List
@@ -21,6 +23,8 @@ from app.schemas import (
 )
 
 router = APIRouter(prefix="/surveys", tags=["surveys"])
+
+LOGGER = logging.getLogger(__name__)
 
 
 async def _survey_or_404(sid: uuid.UUID, org_id: uuid.UUID, session: AsyncSession) -> Survey:
@@ -233,18 +237,43 @@ async def funnel(
     pregunta (última pregunta vista por quienes no terminaron)."""
     from app.models import SurveyVisit
     s = await _survey_or_404(sid, ctx.org.id, session)
-    visits = (
-        await session.scalars(select(SurveyVisit).where(SurveyVisit.survey_id == sid))
-    ).all()
-    views = len(visits)
-    starts = sum(1 for v in visits if v.started)
-    completions = sum(1 for v in visits if v.completed)
+    views = int(
+        await session.scalar(
+            select(func.count(SurveyVisit.id)).where(SurveyVisit.survey_id == sid)
+        )
+        or 0
+    )
+    starts = int(
+        await session.scalar(
+            select(func.count(SurveyVisit.id)).where(
+                SurveyVisit.survey_id == sid, SurveyVisit.started == True  # noqa: E712
+            )
+        )
+        or 0
+    )
+    completions = int(
+        await session.scalar(
+            select(func.count(SurveyVisit.id)).where(
+                SurveyVisit.survey_id == sid, SurveyVisit.completed == True  # noqa: E712
+            )
+        )
+        or 0
+    )
 
     # Abandonos: última pregunta vista de las visitas que empezaron y no terminaron.
-    dropoff: dict[str, int] = {}
-    for v in visits:
-        if v.started and not v.completed and v.last_question:
-            dropoff[v.last_question] = dropoff.get(v.last_question, 0) + 1
+    dropoff_rows = (
+        await session.execute(
+            select(SurveyVisit.last_question, func.count())
+            .where(
+                SurveyVisit.survey_id == sid,
+                SurveyVisit.started == True,  # noqa: E712
+                SurveyVisit.completed == False,  # noqa: E712
+                SurveyVisit.last_question.isnot(None),
+            )
+            .group_by(SurveyVisit.last_question)
+        )
+    ).all()
+    dropoff: dict[str, int] = {q: n for q, n in dropoff_rows}
 
     # Títulos para mostrar (nombre → título).
     titles: dict[str, str] = {}
@@ -330,13 +359,14 @@ async def export_responses(
     base = s.slug or "encuesta"
 
     if format == "xlsx":
-        data = sheets_to_xlsx([("Respuestas", rows)])
+        data = await asyncio.to_thread(sheets_to_xlsx, [("Respuestas", rows)])
         return StreamingResponse(
             iter([data]), media_type=XLSX_MEDIA,
             headers={"Content-Disposition": f'attachment; filename="{base}-{stamp}.xlsx"'},
         )
+    csv_data = await asyncio.to_thread(rows_to_csv, rows)
     return StreamingResponse(
-        iter([rows_to_csv(rows)]), media_type=CSV_MEDIA,
+        iter([csv_data]), media_type=CSV_MEDIA,
         headers={"Content-Disposition": f'attachment; filename="{base}-{stamp}.csv"'},
     )
 
@@ -445,8 +475,12 @@ async def send_invitee_links(
     if only_unsent:
         stmt = stmt.where(SurveyInvitee.sent_at.is_(None))
     rows = (await session.scalars(stmt)).all()
-    sent = 0
     title = s.title or "una encuesta"
+
+    # Recolectá los emails a enviar y marcá sent_at antes de responder; el envío
+    # SMTP (bloqueante) se dispara fire-and-forget para no colgar el request.
+    outbox: list[tuple[str, str, str]] = []
+    subject = f"Invitación: {title}"
     for inv in rows:
         link = build_url(f"/s/{s.slug}", email=inv.email, code=inv.code)
         text = (
@@ -455,15 +489,26 @@ async def send_invitee_links(
             f"Ingresá con este enlace:\n{link}\n\n"
             f"Tu código de acceso es: {inv.code}\n"
         )
-        try:
-            await send_email(inv.email, f"Invitación: {title}", text)
-            inv.sent_at = _utcnow()
-            session.add(inv)
-            sent += 1
-        except Exception:  # noqa: BLE001
-            continue
+        outbox.append((inv.email, subject, text))
+        inv.sent_at = _utcnow()
+        session.add(inv)
     await session.commit()
-    return {"sent": sent, "total": len(rows)}
+
+    if outbox:
+        try:
+            asyncio.get_running_loop().create_task(_dispatch_invitee_emails(outbox))
+        except RuntimeError:
+            pass
+    return {"sent": len(outbox), "total": len(rows)}
+
+
+async def _dispatch_invitee_emails(outbox: list[tuple[str, str, str]]) -> None:
+    """Send queued invitee emails in the background (no DB access here)."""
+    for email, subject, text in outbox:
+        try:
+            await send_email(email, subject, text)
+        except Exception as exc:  # noqa: BLE001
+            LOGGER.warning("envío de invitación a %s falló: %s", email, exc)
 
 
 @router.post("/{sid}/release-results", response_model=SurveyDetail)

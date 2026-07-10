@@ -8,6 +8,7 @@ from typing import List, Optional
 import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field, field_validator
+from sqlalchemy import func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
@@ -318,31 +319,41 @@ async def usage(
         stmt = stmt.where(AiUsage.org_id == ctx.org.id)
     rows = (await session.scalars(stmt.limit(limit))).all()
 
-    # Totals across the whole (unlimited) scope.
-    all_stmt = select(AiUsage)
+    # Totals + by_operation aggregated in SQL over the whole (unlimited) scope.
+    # func.sum(cost_usd) ignores NULLs; func.count(cost_usd) counts only rows
+    # that actually reported a cost, so we can preserve the "None if no cost" rule.
+    agg_stmt = select(
+        AiUsage.operation,
+        func.count(),
+        func.coalesce(func.sum(AiUsage.total_tokens), 0),
+        func.coalesce(func.sum(AiUsage.cost_usd), 0),
+        func.count(AiUsage.cost_usd),
+    ).group_by(AiUsage.operation)
     if not global_scope:
-        all_stmt = all_stmt.where(AiUsage.org_id == ctx.org.id)
-    everything = (await session.scalars(all_stmt)).all()
+        agg_stmt = agg_stmt.where(AiUsage.org_id == ctx.org.id)
+    agg_rows = (await session.execute(agg_stmt)).all()
 
     by_op: dict[str, dict] = {}
+    total_calls = 0
     total_tokens = 0
     total_cost = 0.0
-    has_cost = False
-    for u in everything:
-        total_tokens += u.total_tokens
-        if u.cost_usd is not None:
-            total_cost += u.cost_usd
-            has_cost = True
-        b = by_op.setdefault(u.operation, {"calls": 0, "tokens": 0, "cost_usd": 0.0})
-        b["calls"] += 1
-        b["tokens"] += u.total_tokens
-        if u.cost_usd is not None:
-            b["cost_usd"] += u.cost_usd
+    cost_rows = 0
+    for operation, calls, tokens, cost_sum, cost_count in agg_rows:
+        by_op[operation] = {
+            "calls": calls,
+            "tokens": tokens,
+            "cost_usd": float(cost_sum),
+        }
+        total_calls += calls
+        total_tokens += tokens
+        total_cost += cost_sum
+        cost_rows += cost_count
+    has_cost = cost_rows > 0
 
     return {
         "scope": "global" if global_scope else "org",
         "totals": {
-            "calls": len(everything),
+            "calls": total_calls,
             "total_tokens": total_tokens,
             "total_cost_usd": round(total_cost, 4) if has_cost else None,
         },

@@ -1,5 +1,6 @@
 """Admin panels: per-organization overview/export and platform super-admin."""
 
+import asyncio
 import uuid
 from datetime import datetime, timezone
 
@@ -53,7 +54,9 @@ async def org_overview(
     await _member(session, user.id, org_id)
     surveys = (await session.scalars(select(Survey).where(Survey.org_id == org_id))).all()
     counts = await _response_counts(session, [s.id for s in surveys])
-    members = len((await session.scalars(select(Membership).where(Membership.org_id == org_id))).all())
+    members = await session.scalar(
+        select(func.count(Membership.id)).where(Membership.org_id == org_id)
+    )
     by_status = {"draft": 0, "published": 0, "closed": 0}
     for s in surveys:
         by_status[s.status] = by_status.get(s.status, 0) + 1
@@ -95,7 +98,7 @@ async def org_export(
             )
         ).all()
         sheets.append((s.title or s.slug or "Encuesta", export_rows(s, responses)))
-    data = sheets_to_xlsx(sheets)
+    data = await asyncio.to_thread(sheets_to_xlsx, sheets)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d")
     return StreamingResponse(
         iter([data]), media_type=XLSX_MEDIA,
@@ -110,18 +113,36 @@ async def admin_overview(
     _: User = Depends(require_superadmin),
 ):
     orgs = (await session.scalars(select(Organization).order_by(Organization.created_at.desc()))).all()
-    users_total = len((await session.scalars(select(User))).all())
-    surveys_total = len((await session.scalars(select(Survey))).all())
-    responses_total = len((await session.scalars(select(SurveyResponse))).all())
+    users_total = await session.scalar(select(func.count(User.id)))
+    surveys_total = await session.scalar(select(func.count(Survey.id)))
+    responses_total = await session.scalar(select(func.count(SurveyResponse.id)))
+
+    # Per-org aggregates in one query each (avoids the N+1 loop).
+    survey_counts = dict(
+        (await session.execute(
+            select(Survey.org_id, func.count(Survey.id)).group_by(Survey.org_id)
+        )).all()
+    )
+    response_counts = dict(
+        (await session.execute(
+            select(Survey.org_id, func.count(SurveyResponse.id))
+            .join(SurveyResponse, SurveyResponse.survey_id == Survey.id)
+            .group_by(Survey.org_id)
+        )).all()
+    )
+    member_counts = dict(
+        (await session.execute(
+            select(Membership.org_id, func.count(Membership.id)).group_by(Membership.org_id)
+        )).all()
+    )
 
     org_rows = []
     for o in orgs:
-        sids = [s.id for s in (await session.scalars(select(Survey).where(Survey.org_id == o.id))).all()]
-        counts = await _response_counts(session, sids)
-        members = len((await session.scalars(select(Membership).where(Membership.org_id == o.id))).all())
         org_rows.append({
             "id": str(o.id), "name": o.name, "slug": o.slug,
-            "surveys": len(sids), "responses": sum(counts.values()), "members": members,
+            "surveys": survey_counts.get(o.id, 0),
+            "responses": response_counts.get(o.id, 0),
+            "members": member_counts.get(o.id, 0),
             "created_at": o.created_at.isoformat(),
         })
     return {
@@ -141,7 +162,9 @@ async def admin_export(
     for o in orgs:
         sids = [s.id for s in (await session.scalars(select(Survey).where(Survey.org_id == o.id))).all()]
         counts = await _response_counts(session, sids)
-        members = len((await session.scalars(select(Membership).where(Membership.org_id == o.id))).all())
+        members = await session.scalar(
+            select(func.count(Membership.id)).where(Membership.org_id == o.id)
+        )
         org_sheet.append([o.name, o.slug, len(sids), sum(counts.values()), members, o.created_at.isoformat()])
 
     users = (await session.scalars(select(User).order_by(User.created_at.asc()))).all()
@@ -152,7 +175,9 @@ async def admin_export(
             "sí" if u.is_superadmin else "no", u.created_at.isoformat(),
         ])
 
-    data = sheets_to_xlsx([("Organizaciones", org_sheet), ("Usuarios", user_sheet)])
+    data = await asyncio.to_thread(
+        sheets_to_xlsx, [("Organizaciones", org_sheet), ("Usuarios", user_sheet)]
+    )
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d")
     return StreamingResponse(
         iter([data]), media_type=XLSX_MEDIA,
