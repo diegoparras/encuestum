@@ -21,6 +21,8 @@ import {
   ListOrdered,
   Calendar,
   Paperclip,
+  Rows3,
+  GitBranch,
 } from "lucide-react";
 import {
   BuilderQuestion,
@@ -44,6 +46,7 @@ const ICON: Record<QuestionType, React.ComponentType<{ className?: string }>> = 
   ranking: ListOrdered,
   date: Calendar,
   fileupload: Paperclip,
+  section: Rows3,
 };
 
 interface Props {
@@ -68,10 +71,20 @@ export function SortableQuestion({
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: question.id });
 
+  // Los marcadores de sección se ven como separador/encabezado, no como pregunta.
+  const isSection = question.type === "section";
+  const branchCount = !isSection ? question.branching?.length ?? 0 : 0;
+
   const style: React.CSSProperties = {
     transform: CSS.Transform.toString(transform),
     transition,
     opacity: isDragging ? 0.6 : 1,
+    ...(isSection
+      ? {
+          backgroundColor: selected ? `${accent}16` : `${accent}0a`,
+          borderTop: `3px solid ${accent}`,
+        }
+      : {}),
   };
 
   const Icon = ICON[question.type];
@@ -82,7 +95,13 @@ export function SortableQuestion({
       style={style}
       onClick={onSelect}
       className={`group relative flex items-center gap-2 rounded-lg border px-2 py-2 cursor-pointer transition-colors ${
-        selected ? "bg-white shadow-sm border-neutral-200" : "bg-white/60 hover:bg-white border-neutral-200"
+        isSection
+          ? selected
+            ? "shadow-sm border-neutral-200"
+            : "border-neutral-200 hover:shadow-sm"
+          : selected
+            ? "bg-white shadow-sm border-neutral-200"
+            : "bg-white/60 hover:bg-white border-neutral-200"
       }`}
     >
       <span
@@ -104,22 +123,42 @@ export function SortableQuestion({
       <span
         className="shrink-0 grid place-items-center w-7 h-7 rounded-md text-[13px]"
         style={{
-          backgroundColor: selected ? accent : "#f1f1f2",
-          color: selected ? readableForeground(accent) : "#6b7280",
+          backgroundColor: selected || isSection ? accent : "#f1f1f2",
+          color: selected || isSection ? readableForeground(accent) : "#6b7280",
         }}
       >
         <Icon className="w-4 h-4" />
       </span>
 
-      <div className="min-w-0 flex-1">
-        <div className="text-sm font-medium text-neutral-800 truncate">
-          {index + 1}. {question.title || "(sin título)"}
+      {isSection ? (
+        <div className="min-w-0 flex-1">
+          <div className="text-[11px] font-semibold uppercase tracking-wide text-neutral-700 truncate">
+            {question.title || "Sección"}
+          </div>
         </div>
-        <div className="text-[11px] text-neutral-400">
-          {QUESTION_TYPE_LABEL[question.type]}
-          {question.isRequired ? " · obligatoria" : ""}
+      ) : (
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-1.5 min-w-0">
+            <div className="text-sm font-medium text-neutral-800 truncate">
+              {index + 1}. {question.title || "(sin título)"}
+            </div>
+            {branchCount > 0 && (
+              <span
+                className="shrink-0 inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-semibold"
+                style={{ backgroundColor: `${accent}18`, color: accent }}
+                title={`${branchCount} salto${branchCount > 1 ? "s" : ""} configurado${branchCount > 1 ? "s" : ""}`}
+              >
+                <GitBranch className="w-3 h-3" />
+                {branchCount}
+              </span>
+            )}
+          </div>
+          <div className="text-[11px] text-neutral-400">
+            {QUESTION_TYPE_LABEL[question.type]}
+            {question.isRequired ? " · obligatoria" : ""}
+          </div>
         </div>
-      </div>
+      )}
 
       <div className="shrink-0 flex items-center opacity-0 group-hover:opacity-100 transition-opacity">
         <button

@@ -4,6 +4,8 @@ import React from "react";
 import { Switch } from "@/components/ui/switch";
 import {
   AiCriteria,
+  BRANCH_END,
+  BranchRule,
   BuilderQuestion,
   EvaluationSettings,
   FeedbackTone,
@@ -18,7 +20,7 @@ import { ChoicesEditor } from "./ChoicesEditor";
 import { ImageChoicesEditor } from "./ImageChoicesEditor";
 import { GradingSection } from "./GradingSection";
 import { AssetPicker } from "./AssetPicker";
-import { Film, Sparkles } from "lucide-react";
+import { Film, GitBranch, Plus, Sparkles, Trash2 } from "lucide-react";
 
 interface Props {
   question: BuilderQuestion | null;
@@ -174,6 +176,40 @@ export function PropertiesPanel({
   }
 
   const q = question;
+
+  // Las secciones no son preguntas: solo título, descripción y una nota.
+  if (q.type === "section") {
+    return (
+      <div className="p-5">
+        <SectionTitle>Sección</SectionTitle>
+
+        <Field label="Título de la sección">
+          <input
+            value={q.title}
+            onChange={(e) => onQuestionChange({ title: e.target.value })}
+            className="w-full rounded-md border border-neutral-200 px-2.5 py-2 text-sm outline-none focus:border-neutral-400"
+          />
+        </Field>
+
+        <Field label="Descripción (opcional)">
+          <textarea
+            value={q.description ?? ""}
+            onChange={(e) => onQuestionChange({ description: e.target.value })}
+            rows={3}
+            placeholder="Un texto introductorio para esta sección"
+            className="w-full rounded-md border border-neutral-200 px-2.5 py-2 text-sm outline-none focus:border-neutral-400"
+          />
+        </Field>
+
+        <p className="rounded-lg border border-neutral-100 bg-neutral-50/60 p-3 text-xs leading-relaxed text-neutral-500">
+          Las preguntas debajo de esta sección quedan agrupadas. En modo normal,
+          cada sección es una página con botón Siguiente; en una-por-pantalla,
+          la sección muestra una portada.
+        </p>
+      </div>
+    );
+  }
+
   const showPlaceholder = q.type === "text" || q.type === "email" || q.type === "comment";
 
   return (
@@ -493,6 +529,12 @@ export function PropertiesPanel({
         onQuestionChange={onQuestionChange}
       />
 
+      <BranchingSection
+        question={q}
+        questions={questions}
+        onQuestionChange={onQuestionChange}
+      />
+
       <details className="mt-4 group">
         <summary className="cursor-pointer text-xs font-medium text-neutral-400 hover:text-neutral-600 select-none">
           Avanzado
@@ -635,6 +677,181 @@ function VisibilitySection({
             </Field>
           )}
         </div>
+      )}
+    </div>
+  );
+}
+
+// Operadores para las reglas de salto (misma semántica que la visibilidad,
+// pero con etiquetas pensadas para "si la respuesta…").
+const BRANCH_OPERATOR_OPTIONS: { value: LogicOperator; label: string }[] = [
+  { value: "=", label: "es igual a" },
+  { value: "<>", label: "es distinta de" },
+  { value: "contains", label: "contiene" },
+  { value: ">", label: "es mayor que" },
+  { value: "<", label: "es menor que" },
+  { value: "empty", label: "está vacía" },
+  { value: "notempty", label: "tiene algo" },
+];
+
+function branchRuleId(): string {
+  try {
+    if (typeof crypto !== "undefined" && crypto.randomUUID) {
+      return crypto.randomUUID().slice(0, 8);
+    }
+  } catch {
+    /* fall through */
+  }
+  return Math.random().toString(36).slice(2, 10);
+}
+
+function BranchingSection({
+  question,
+  questions,
+  onQuestionChange,
+}: {
+  question: BuilderQuestion;
+  questions: BuilderQuestion[];
+  onQuestionChange: (patch: Partial<BuilderQuestion>) => void;
+}) {
+  // Solo se puede saltar hacia adelante: preguntas posteriores a la actual
+  // (las secciones no son destinos válidos, no existen como pregunta).
+  const idx = questions.findIndex((x) => x.id === question.id);
+  const targets = questions
+    .map((x, i) => ({ q: x, i }))
+    .filter(({ q: x, i }) => i > idx && x.type !== "section");
+
+  const rules = question.branching ?? [];
+  const currentChoices = question.choices ?? [];
+
+  function setRules(next: BranchRule[]) {
+    onQuestionChange({ branching: next.length ? next : undefined });
+  }
+
+  function addRule() {
+    const rule: BranchRule = {
+      id: branchRuleId(),
+      operator: "=",
+      value: "",
+      target: targets[0]?.q.name ?? BRANCH_END,
+    };
+    setRules([...rules, rule]);
+  }
+
+  function patchRule(id: string, patch: Partial<BranchRule>) {
+    setRules(rules.map((r) => (r.id === id ? { ...r, ...patch } : r)));
+  }
+
+  function removeRule(id: string) {
+    setRules(rules.filter((r) => r.id !== id));
+  }
+
+  return (
+    <div className="mt-4 rounded-xl border border-neutral-200 p-3">
+      <div className="mb-1 inline-flex items-center gap-1.5 text-xs font-semibold text-neutral-600">
+        <GitBranch className="h-3.5 w-3.5 text-neutral-400" /> Bifurcación (saltos)
+      </div>
+      <p className="mb-2 text-[11px] leading-relaxed text-neutral-400">
+        Según la respuesta, salta a una pregunta posterior o termina la encuesta.
+      </p>
+
+      {rules.map((rule) => {
+        const needsValue = rule.operator !== "empty" && rule.operator !== "notempty";
+        return (
+          <div
+            key={rule.id}
+            className="mb-2 rounded-lg border border-neutral-100 bg-neutral-50/60 p-2.5"
+          >
+            <div className="flex items-start gap-2">
+              <div className="min-w-0 flex-1 space-y-2">
+                <div className="flex items-center gap-2">
+                  <span className="shrink-0 text-xs text-neutral-500">
+                    Si la respuesta
+                  </span>
+                  <select
+                    value={rule.operator}
+                    onChange={(e) =>
+                      patchRule(rule.id, {
+                        operator: e.target.value as LogicOperator,
+                      })
+                    }
+                    className="min-w-0 flex-1 rounded-md border border-neutral-200 bg-white px-2 py-1.5 text-sm outline-none focus:border-neutral-400"
+                  >
+                    {BRANCH_OPERATOR_OPTIONS.map((o) => (
+                      <option key={o.value} value={o.value}>
+                        {o.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                {needsValue &&
+                  (currentChoices.length > 0 ? (
+                    <select
+                      value={rule.value}
+                      onChange={(e) => patchRule(rule.id, { value: e.target.value })}
+                      className="w-full rounded-md border border-neutral-200 bg-white px-2 py-1.5 text-sm outline-none focus:border-neutral-400"
+                    >
+                      <option value="">Elegí una opción…</option>
+                      {currentChoices.map((c) => (
+                        <option key={c.id} value={c.text}>
+                          {c.text}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <input
+                      value={rule.value}
+                      onChange={(e) => patchRule(rule.id, { value: e.target.value })}
+                      placeholder="Valor a comparar"
+                      className="w-full rounded-md border border-neutral-200 px-2 py-1.5 text-sm outline-none focus:border-neutral-400"
+                    />
+                  ))}
+
+                <div className="flex items-center gap-2">
+                  <span className="shrink-0 text-xs text-neutral-500">→ Ir a</span>
+                  <select
+                    value={rule.target}
+                    onChange={(e) => patchRule(rule.id, { target: e.target.value })}
+                    className="min-w-0 flex-1 rounded-md border border-neutral-200 bg-white px-2 py-1.5 text-sm outline-none focus:border-neutral-400"
+                  >
+                    {targets.map(({ q: x, i }) => (
+                      <option key={x.id} value={x.name}>
+                        {i + 1}. {x.title || x.name}
+                      </option>
+                    ))}
+                    <option value={BRANCH_END}>🏁 Terminar la encuesta</option>
+                  </select>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => removeRule(rule.id)}
+                className="shrink-0 p-1 text-neutral-400 hover:text-red-600"
+                aria-label="Eliminar salto"
+                title="Eliminar salto"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          </div>
+        );
+      })}
+
+      <button
+        type="button"
+        onClick={addRule}
+        className="mt-1 inline-flex items-center gap-1 rounded-md border border-dashed border-neutral-300 px-2.5 py-1.5 text-xs font-medium text-neutral-500 transition-colors hover:border-neutral-400 hover:text-neutral-700"
+      >
+        <Plus className="h-3.5 w-3.5" /> Agregar salto
+      </button>
+
+      {rules.length > 0 && (
+        <p className="mt-2 text-[11px] leading-relaxed text-neutral-400">
+          Los saltos se evalúan al responder. Tienen prioridad sobre el orden
+          normal.
+        </p>
       )}
     </div>
   );

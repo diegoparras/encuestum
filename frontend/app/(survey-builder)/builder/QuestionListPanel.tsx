@@ -32,6 +32,7 @@ import {
   Calendar,
   Paperclip,
   Plus,
+  Rows3,
 } from "lucide-react";
 import { BuilderQuestion, QUESTION_TYPES, QuestionType } from "./model";
 import { SortableQuestion } from "./SortableQuestion";
@@ -51,6 +52,7 @@ const PALETTE_ICON: Record<QuestionType, React.ComponentType<{ className?: strin
   ranking: ListOrdered,
   date: Calendar,
   fileupload: Paperclip,
+  section: Rows3,
 };
 
 interface Props {

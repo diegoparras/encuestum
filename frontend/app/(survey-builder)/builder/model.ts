@@ -17,7 +17,8 @@ export type QuestionType =
   | "matrix"
   | "ranking"
   | "date"
-  | "fileupload";
+  | "fileupload"
+  | "section"; // separador con título: agrupa las preguntas que le siguen
 
 export interface Choice {
   id: string;
@@ -92,7 +93,21 @@ export interface BuilderQuestion {
 
   // Conditional logic: show this question only when the rule holds.
   visibilityRule?: VisibilityRule;
+
+  // Branching: when the answer matches, jump ahead (or finish the survey).
+  branching?: BranchRule[];
 }
+
+// A branching (skip-logic) rule attached to a question: if the answer matches,
+// jump to a later question/section or end the survey right there.
+export interface BranchRule {
+  id: string;
+  operator: LogicOperator;
+  value: string; // ignored for empty/notempty
+  target: string; // question name to jump to, or "__end__" to finish
+}
+
+export const BRANCH_END = "__end__";
 
 // How a rating/NPS scale is presented to the respondent.
 export type RatePresentation =
@@ -404,6 +419,7 @@ export const QUESTION_TYPES: QuestionTypeMeta[] = [
   { type: "ranking", label: "Ranking", hint: "Ordenar opciones", hasChoices: true },
   { type: "date", label: "Fecha", hint: "Selector de fecha", hasChoices: false },
   { type: "fileupload", label: "Subir archivo", hint: "Adjuntar archivo", hasChoices: false },
+  { type: "section", label: "Sección", hint: "Agrupa preguntas", hasChoices: false },
 ];
 
 export const QUESTION_TYPE_LABEL: Record<QuestionType, string> = Object.fromEntries(
@@ -544,6 +560,8 @@ export function generatedToQuestion(gen: any, index: number): BuilderQuestion {
 
 function defaultTitle(type: QuestionType): string {
   switch (type) {
+    case "section":
+      return "Nueva sección";
     case "text":
       return "¿Cuál es tu respuesta?";
     case "email":
@@ -682,6 +700,10 @@ function questionToElement(q: BuilderQuestion): Record<string, any> {
   if (q.align === "left" || q.align === "center") {
     el.encAlign = q.align;
   }
+  // Branching rules round-trip (los triggers reales se generan a nivel survey).
+  if (q.branching && q.branching.length) {
+    el.encBranching = q.branching;
+  }
   if (q.type === "imagepicker") {
     el.choices = (q.choices ?? [])
       .map((c) => ({ value: c.text, text: c.text, imageLink: c.imageUrl || undefined }))
@@ -785,13 +807,66 @@ function questionBlock(q: BuilderQuestion): Record<string, any>[] {
 }
 
 export function builderToSchema(state: BuilderState): Record<string, any> {
+  // Agrupar la lista plana en secciones (cada marcador "section" abre un grupo).
+  type Group = { section: BuilderQuestion | null; items: BuilderQuestion[] };
+  const groups: Group[] = [];
+  let current: Group = { section: null, items: [] };
+  for (const q of state.questions) {
+    if (q.type === "section") {
+      if (current.section || current.items.length) groups.push(current);
+      current = { section: q, items: [] };
+    } else {
+      current.items.push(q);
+    }
+  }
+  groups.push(current);
+  const hasSections = groups.some((g) => g.section);
+
+  const sectionPageMeta = (s: BuilderQuestion) => ({
+    title: s.title || undefined,
+    description: s.description || undefined,
+    // Claves propias para reconstruir los marcadores al reabrir en el builder.
+    encSectionTitle: s.title || "",
+    encSectionDesc: s.description || "",
+  });
+
   let pages: Record<string, any>[];
   if (state.onePerPage) {
-    // One explicit page per question (media travels inside its page). This is
-    // what keeps a per-question video from showing on every other question.
-    pages = state.questions.map((q, i) => ({ name: `p${i + 1}`, elements: questionBlock(q) }));
+    // One explicit page per question (media travels inside its page). Cada
+    // sección agrega una página de portada (título + descripción).
+    pages = [];
+    let pi = 0;
+    for (const g of groups) {
+      if (g.section) {
+        pi += 1;
+        pages.push({
+          name: `s${pi}`,
+          ...sectionPageMeta(g.section),
+          // Un html vacío para que la portada de sección sea una página visible.
+          elements: [{ type: "html", name: `${g.section.name}__intro`, html: " " }],
+        });
+      }
+      for (const q of g.items) {
+        pi += 1;
+        pages.push({ name: `p${pi}`, elements: questionBlock(q) });
+      }
+    }
     if ((state.passthrough ?? []).length) {
       pages.push({ name: "extra", elements: state.passthrough });
+    }
+    if (pages.length === 0) pages = [{ name: "page1", elements: [] }];
+  } else if (hasSections) {
+    // Una página por sección (estilo Google Forms: Siguiente entre secciones).
+    pages = groups
+      .filter((g) => g.section || g.items.length)
+      .map((g, i) => ({
+        name: `page${i + 1}`,
+        ...(g.section ? sectionPageMeta(g.section) : {}),
+        elements: g.items.flatMap((q) => questionBlock(q)),
+      }));
+    if ((state.passthrough ?? []).length) {
+      if (pages.length === 0) pages = [{ name: "page1", elements: [] }];
+      pages[pages.length - 1].elements.push(...(state.passthrough ?? []));
     }
     if (pages.length === 0) pages = [{ name: "page1", elements: [] }];
   } else {
@@ -799,6 +874,26 @@ export function builderToSchema(state: BuilderState): Record<string, any> {
     for (const q of state.questions) elements.push(...questionBlock(q));
     elements.push(...(state.passthrough ?? []));
     pages = [{ name: "page1", elements }];
+  }
+
+  // Bifurcación: reglas por pregunta → triggers de SurveyJS (skip/complete).
+  const triggers: Record<string, any>[] = [];
+  for (const q of state.questions) {
+    if (q.type === "section") continue;
+    for (const r of q.branching ?? []) {
+      if (!r?.target) continue;
+      if (!r.value && r.operator !== "empty" && r.operator !== "notempty") continue;
+      const expression = ruleToExpr({
+        questionName: q.name,
+        operator: r.operator,
+        value: r.value,
+      });
+      if (r.target === BRANCH_END) {
+        triggers.push({ type: "complete", expression });
+      } else {
+        triggers.push({ type: "skip", expression, gotoName: r.target });
+      }
+    }
   }
 
   const schema: Record<string, any> = {
@@ -809,8 +904,12 @@ export function builderToSchema(state: BuilderState): Record<string, any> {
     progressBarType: "pages",
     widthMode: "responsive",
     completedHtml: "<h3>¡Gracias por responder! 🙌</h3>",
+    // Con secciones hay varias páginas aunque NO sea una-pregunta-por-pantalla;
+    // guardamos el modo explícito para no inferirlo mal al reabrir.
+    encOnePerPage: !!state.onePerPage,
     pages,
   };
+  if (triggers.length) schema.triggers = triggers;
   if (state.design?.logo) {
     schema.logo = state.design.logo;
     schema.logoPosition = "left";
@@ -880,6 +979,9 @@ function elementToQuestion(el: Record<string, any>, index: number): BuilderQuest
 
   if (el.encVisibility && typeof el.encVisibility === "object" && el.encVisibility.questionName) {
     q.visibilityRule = el.encVisibility as VisibilityRule;
+  }
+  if (Array.isArray(el.encBranching) && el.encBranching.length) {
+    q.branching = el.encBranching as BranchRule[];
   }
 
   if (type === "imagepicker" && Array.isArray(el.choices)) {
@@ -955,26 +1057,50 @@ export function schemaToBuilder(
     }
   });
 
+  const isSectionIntro = (el: any) =>
+    el?.type === "html" && named(el).endsWith("__intro");
+
   const questions: BuilderQuestion[] = [];
   const passthrough: Record<string, any>[] = [];
-  elements.forEach((el, i) => {
-    if (isImageCompanion(el) || isVideoCompanion(el)) return; // re-attached below
-    const q = elementToQuestion(el, i);
-    if (q) {
-      if (imageByBase[q.name]) q.imageUrl = imageByBase[q.name];
-      if (videoByBase[q.name]) q.videoUrl = videoByBase[q.name];
-      questions.push(q);
-    } else if (el && typeof el === "object") {
-      passthrough.push(el);
+  let sectionSeq = 0;
+  let elIndex = 0;
+  for (const page of pages) {
+    // Página marcada como sección → reinsertamos el marcador en la lista plana.
+    if (typeof page?.encSectionTitle === "string") {
+      sectionSeq += 1;
+      questions.push({
+        id: uid("q"),
+        type: "section",
+        name: `section_${sectionSeq}`,
+        title: page.encSectionTitle || page.title || "Sección",
+        description: page.encSectionDesc || page.description || undefined,
+        isRequired: false,
+      });
     }
-  });
+    for (const el of Array.isArray(page?.elements) ? page.elements : []) {
+      elIndex += 1;
+      if (isImageCompanion(el) || isVideoCompanion(el) || isSectionIntro(el)) continue;
+      const q = elementToQuestion(el, elIndex);
+      if (q) {
+        if (imageByBase[q.name]) q.imageUrl = imageByBase[q.name];
+        if (videoByBase[q.name]) q.videoUrl = videoByBase[q.name];
+        questions.push(q);
+      } else if (el && typeof el === "object") {
+        passthrough.push(el);
+      }
+    }
+  }
 
   hydrateGrading(questions, evaluation);
 
+  // Modo explícito si el schema lo trae (los guardados nuevos); si no, la
+  // heurística vieja (varias páginas ≈ una-por-pantalla).
   const onePerPage =
-    pages.length > 1 ||
-    s.showProgressBar === "top" ||
-    s.questionsOnPageMode === "questionPerPage";
+    typeof s.encOnePerPage === "boolean"
+      ? s.encOnePerPage
+      : pages.length > 1 ||
+        s.showProgressBar === "top" ||
+        s.questionsOnPageMode === "questionPerPage";
   const showProgress =
     s.showProgressBar === undefined ? true : s.showProgressBar !== "off";
 
