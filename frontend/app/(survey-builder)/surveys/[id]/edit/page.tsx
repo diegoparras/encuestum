@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import {
@@ -68,6 +68,12 @@ export default function SurveyEditorPage() {
   const [publishing, setPublishing] = useState(false);
   const [dirty, setDirty] = useState(false);
   const [savedTick, setSavedTick] = useState(false);
+  // Estado del autosave: alimenta el indicador junto al botón Guardar.
+  const [autoStatus, setAutoStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  // Evita autosaves concurrentes (si hay un save en vuelo, se espera al próximo tick).
+  const savingRef = useRef(false);
+  // Secuencia de cambios: si el usuario editó mientras se guardaba, no marcamos "limpio".
+  const changeSeqRef = useRef(0);
   const [genOpen, setGenOpen] = useState(false);
   const [designOpen, setDesignOpen] = useState(false);
   const [lastUsage, setLastUsage] = useState<UsageInfo | null>(null);
@@ -108,10 +114,20 @@ export default function SurveyEditorPage() {
   }, [loaded]);
 
   // Mutations ---------------------------------------------------------------
-  const mutate = useCallback((fn: (prev: BuilderState) => BuilderState) => {
-    setState((prev) => (prev ? fn(prev) : prev));
+  // Marca cambios pendientes e incrementa la secuencia (para que un save en
+  // vuelo no marque "limpio" si el usuario siguió editando mientras tanto).
+  const markDirty = useCallback(() => {
+    changeSeqRef.current += 1;
     setDirty(true);
   }, []);
+
+  const mutate = useCallback(
+    (fn: (prev: BuilderState) => BuilderState) => {
+      setState((prev) => (prev ? fn(prev) : prev));
+      markDirty();
+    },
+    [markDirty]
+  );
 
   const addQuestion = useCallback(
     (type: QuestionType) => {
@@ -121,9 +137,9 @@ export default function SurveyEditorPage() {
         setSelectedId(q.id);
         return { ...prev, questions: [...prev.questions, q] };
       });
-      setDirty(true);
+      markDirty();
     },
-    []
+    [markDirty]
   );
 
   const patchQuestion = useCallback(
@@ -157,9 +173,9 @@ export default function SurveyEditorPage() {
         setSelectedId(copy.id);
         return { ...prev, questions: next };
       });
-      setDirty(true);
+      markDirty();
     },
-    []
+    [markDirty]
   );
 
   const deleteQuestion = useCallback(
@@ -170,9 +186,9 @@ export default function SurveyEditorPage() {
           : prev
       );
       setSelectedId((cur) => (cur === qid ? null : cur));
-      setDirty(true);
+      markDirty();
     },
-    []
+    [markDirty]
   );
 
   const reorder = useCallback(
@@ -209,8 +225,8 @@ export default function SurveyEditorPage() {
         questions: [...prev.questions, ...created],
       };
     });
-    setDirty(true);
-  }, []);
+    markDirty();
+  }, [markDirty]);
 
   // Derived -----------------------------------------------------------------
   const schema = useMemo(
@@ -221,9 +237,16 @@ export default function SurveyEditorPage() {
     state?.questions.find((q) => q.id === selectedId) ?? null;
 
   // Actions -----------------------------------------------------------------
-  async function save() {
-    if (!state) return;
+  // Guarda la encuesta. Con `silent: true` (autosave) no molesta al usuario:
+  // sin alert de error (solo el indicador "Sin guardar") y sin tilde del botón.
+  async function save(opts: { silent?: boolean } = {}) {
+    if (!state || savingRef.current) return;
+    savingRef.current = true;
+    const seqAtStart = changeSeqRef.current;
     setSaving(true);
+    // El botón manual ya muestra su propio spinner; el indicador "Guardando…"
+    // es para el autosave.
+    if (opts.silent) setAutoStatus("saving");
     try {
       await surveyApi.update(id, {
         title: state.title,
@@ -236,15 +259,50 @@ export default function SurveyEditorPage() {
         redirect_url: state.redirectUrl,
         language,
       });
-      setDirty(false);
-      setSavedTick(true);
-      setTimeout(() => setSavedTick(false), 1800);
+      // Solo marcamos "limpio" si no hubo ediciones mientras viajaba el request.
+      if (changeSeqRef.current === seqAtStart) setDirty(false);
+      if (opts.silent) {
+        setAutoStatus("saved");
+        setTimeout(
+          () => setAutoStatus((s) => (s === "saved" ? "idle" : s)),
+          2500
+        );
+      } else {
+        setAutoStatus("idle"); // limpia un "Sin guardar" previo
+        setSavedTick(true);
+        setTimeout(() => setSavedTick(false), 1800);
+      }
     } catch (e: any) {
-      alert(e?.message || "No se pudo guardar.");
+      // El autosave no spamea toasts: deja el indicador rojo y reintenta con
+      // el próximo cambio. El aviso ruidoso queda para el guardado manual.
+      setAutoStatus("error");
+      if (!opts.silent) alert(e?.message || "No se pudo guardar.");
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
   }
+
+  // El autosave siempre reutiliza el MISMO save() de arriba (última versión,
+  // vía ref, para que el timer no capture estado viejo).
+  const saveRef = useRef(save);
+  useEffect(() => {
+    saveRef.current = save;
+  });
+
+  // Autosave con debounce: ~2.5s después del último cambio. Cada edición
+  // reinicia el timer (el efecto depende de `state`). Se pausa mientras el
+  // diálogo de IA está abierto (generación en curso) o durante publicar.
+  useEffect(() => {
+    if (!dirty || genOpen || publishing) return;
+    const timer = setTimeout(() => {
+      // Si ya hay un save en vuelo, no encimamos: el próximo cambio (o el
+      // propio save al no limpiar `dirty`) volverá a programar el autosave.
+      if (savingRef.current) return;
+      void saveRef.current({ silent: true });
+    }, 2500);
+    return () => clearTimeout(timer);
+  }, [dirty, state, language, genOpen, publishing]);
 
   async function togglePublish() {
     setPublishing(true);
@@ -379,8 +437,26 @@ export default function SurveyEditorPage() {
             </a>
           )}
 
+          {/* Indicador de autosave: guardando / guardado / sin guardar */}
+          {autoStatus === "saving" ? (
+            <span className="inline-flex items-center gap-1 text-[11px] text-neutral-400">
+              <Loader2 className="w-3 h-3 animate-spin" /> Guardando…
+            </span>
+          ) : autoStatus === "saved" ? (
+            <span className="inline-flex items-center gap-1 text-[11px] text-neutral-400">
+              <Check className="w-3 h-3" /> Guardado
+            </span>
+          ) : autoStatus === "error" ? (
+            <span
+              className="inline-flex items-center gap-1 text-[11px] font-medium text-red-600"
+              title="No se pudo guardar automáticamente; se reintenta con el próximo cambio."
+            >
+              Sin guardar
+            </span>
+          ) : null}
+
           <button
-            onClick={save}
+            onClick={() => save()}
             disabled={saving || !dirty}
             className="inline-flex items-center gap-1.5 rounded-lg border border-neutral-200 px-3 py-1.5 text-xs font-medium text-neutral-700 hover:bg-neutral-50 disabled:opacity-50"
           >

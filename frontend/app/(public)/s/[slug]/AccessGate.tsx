@@ -49,9 +49,10 @@ function GateShell({
   return (
     <div className="min-h-screen" style={{ backgroundColor: c.pageBg }}>
       {brandingHeader}
-      <div className="flex min-h-[80vh] flex-col items-center justify-center px-6 py-12">
+      {/* Padding más compacto en móvil para que la tarjeta aproveche el ancho. */}
+      <div className="flex min-h-[80vh] flex-col items-center justify-center px-4 py-8 sm:px-6 sm:py-12">
         <div
-          className="w-full max-w-md rounded-2xl p-8 shadow-sm"
+          className="w-full max-w-md rounded-2xl p-6 sm:p-8 shadow-sm"
           style={{
             backgroundColor: c.cardBg,
             boxShadow: `0 0 0 1px ${c.ring}`,
@@ -115,7 +116,9 @@ function GateInput({
           autoFocus={autoFocus}
           placeholder={placeholder}
           onChange={(e) => onChange(e.target.value)}
-          className="w-full rounded-lg px-3 py-2.5 text-sm outline-none transition focus:ring-2"
+          // min-h táctil (44px) y text-base en móvil: con menos de 16px iOS
+          // hace zoom automático al enfocar el input.
+          className="w-full min-h-[44px] rounded-lg px-3 py-2.5 text-base sm:text-sm outline-none transition focus:ring-2"
           style={{
             backgroundColor: c.inputBg,
             color: c.text,
@@ -279,7 +282,7 @@ export function AccessGate({
         <button
           type="submit"
           disabled={loading}
-          className="w-full rounded-lg px-4 py-2.5 text-sm font-semibold text-white transition disabled:opacity-60"
+          className="w-full min-h-[44px] rounded-lg px-4 py-2.5 text-sm font-semibold text-white transition disabled:opacity-60"
           style={{ backgroundColor: accent }}
         >
           {loading ? "Verificando…" : "Entrar"}
@@ -395,7 +398,7 @@ export function ResultCheck({
       <button
         type="submit"
         disabled={loading}
-        className="w-full rounded-lg px-4 py-2.5 text-sm font-semibold text-white transition disabled:opacity-60"
+        className="w-full min-h-[44px] rounded-lg px-4 py-2.5 text-sm font-semibold text-white transition disabled:opacity-60"
         style={{ backgroundColor: accent }}
       >
         {loading ? "Consultando…" : "Ver mi resultado"}
@@ -460,7 +463,7 @@ export function PostSubmitScreen({
         <button
           type="button"
           onClick={() => setShowCheck(true)}
-          className="w-full rounded-lg px-4 py-2.5 text-sm font-semibold text-white transition"
+          className="w-full min-h-[44px] rounded-lg px-4 py-2.5 text-sm font-semibold text-white transition"
           style={{ backgroundColor: accent }}
         >
           Ver mi resultado

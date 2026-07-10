@@ -95,6 +95,35 @@ function apiBase(): string {
   return process.env.NEXT_PUBLIC_API_URL || "";
 }
 
+// Anonymous visitor id (localStorage) for funnel analytics — no personal data.
+function getVisitorId(): string | null {
+  try {
+    const k = "enc_visitor";
+    let v = window.localStorage.getItem(k);
+    if (!v) {
+      v = crypto.randomUUID();
+      window.localStorage.setItem(k, v);
+    }
+    return v;
+  } catch {
+    return null;
+  }
+}
+
+// Fire-and-forget funnel ping (view | progress). Never blocks nor throws.
+function trackVisit(slug: string, event: "view" | "progress", question?: string) {
+  const vid = getVisitorId();
+  if (!vid) return;
+  fetch(`${apiBase()}/api/v1/survey/public/${encodeURIComponent(slug)}/track`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ visitor_id: vid, event, question }),
+    keepalive: true,
+  }).catch(() => {
+    /* analytics es best-effort */
+  });
+}
+
 export default function SurveyView({ slug }: { slug: string }) {
   const [status, setStatus] = useState<Status>("loading");
   const [data, setData] = useState<PublicSurvey | null>(null);
@@ -189,6 +218,14 @@ export default function SurveyView({ slug }: { slug: string }) {
     };
   }, [slug]);
 
+  // Funnel: una vista por visitante al cargar la encuesta (disponible o no gated).
+  useEffect(() => {
+    if (status === "ready" && data && data.available !== false) {
+      trackVisit(slug, "view");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [status, slug]);
+
   const model = useMemo(() => {
     if (!data) return null;
     const evalMeta = data.evaluation || {};
@@ -218,6 +255,20 @@ export default function SurveyView({ slug }: { slug: string }) {
         /* best-effort */
       }
     }
+
+    // Funnel: primer valor respondido = "comenzó"; cada cambio de página marca
+    // la última pregunta vista (punto de abandono si no termina).
+    let startedTracked = false;
+    survey.onValueChanged.add((_s, opt: any) => {
+      if (!startedTracked) {
+        startedTracked = true;
+        trackVisit(slug, "progress", opt?.name);
+      }
+    });
+    survey.onCurrentPageChanged.add((sender) => {
+      const first = sender.currentPage?.questions?.[0]?.name;
+      if (first) trackVisit(slug, "progress", first);
+    });
 
     // Screen transitions when it's one-question-per-page.
     const transition = themeDesign.pageTransition;
@@ -373,6 +424,7 @@ export default function SurveyView({ slug }: { slug: string }) {
               meta: {
                 locale: sender.locale || data.language || null,
                 referrer: typeof document !== "undefined" ? document.referrer : null,
+                visitor_id: getVisitorId(),
               },
             }),
           }
@@ -567,8 +619,9 @@ export default function SurveyView({ slug }: { slug: string }) {
         <img
           src={resolveAssetUrl(design.coverImage)}
           alt=""
-          className="w-full object-cover"
-          style={{ maxHeight: 280 }}
+          // Altura de portada que escala con el viewport: más baja en el
+          // celular para no comerse media pantalla antes de la primera pregunta.
+          className="w-full object-cover max-h-40 sm:max-h-56 md:max-h-[280px]"
         />
       )}
       <Survey model={model} />
@@ -606,6 +659,41 @@ const ENC_SURFACE_CSS = `
 @keyframes enc-zoom { from { opacity: 0; transform: scale(0.96); } to { opacity: 1; transform: scale(1); } }
 @keyframes enc-flip { from { opacity: 0; transform: perspective(1200px) rotateX(-10deg) translateY(18px); } to { opacity: 1; transform: perspective(1200px) rotateX(0) translateY(0); } }
 @keyframes enc-blur { from { opacity: 0; filter: blur(10px); } to { opacity: 1; filter: blur(0); } }
+
+/* --- Responsive móvil (≤640px): contener SurveyJS en pantallas chicas ---
+   Reglas SÓLO aditivas: compactan los paddings generosos de SurveyJS, evitan
+   el scroll horizontal en 360-400px y aseguran alto táctil en la navegación. */
+@media (max-width: 640px) {
+  .enc-scope { overflow-x: hidden; }
+  .enc-scope .sd-root-modern,
+  .enc-scope .sd-container-modern { min-width: 0; max-width: 100vw; }
+  .enc-scope .sd-body,
+  .enc-scope .sd-body.sd-body--static,
+  .enc-scope .sd-body.sd-body--responsive {
+    padding-left: 12px;
+    padding-right: 12px;
+    max-width: 100%;
+    box-sizing: border-box;
+  }
+  .enc-scope .sd-page {
+    padding-left: 0;
+    padding-right: 0;
+  }
+  /* Medios dentro de las preguntas nunca deben desbordar el ancho. */
+  .enc-scope .sd-question__content img,
+  .enc-scope .sd-question__content video,
+  .enc-scope .sd-html img {
+    max-width: 100%;
+    height: auto;
+  }
+  /* Botones de navegación (Anterior / Siguiente / Completar) táctiles. */
+  .enc-scope .sd-navigation__complete-btn,
+  .enc-scope .sd-navigation__next-btn,
+  .enc-scope .sd-navigation__prev-btn,
+  .enc-scope .sd-navigation__start-btn {
+    min-height: 44px;
+  }
+}
 `;
 
 // Floating background-music control. Browsers block autoplay with sound, so we
@@ -679,13 +767,15 @@ function AudioPlayer({ audio, accent }: { audio: AudioSettings; accent: string }
 
   const active = playing && !muted;
   return (
-    <div className="fixed bottom-4 right-4 z-50 flex items-center gap-2 rounded-full bg-white/95 shadow-lg ring-1 ring-black/5 px-3 py-2 backdrop-blur">
+    // En móvil el control sube por encima de la fila de navegación de SurveyJS
+    // (Anterior/Completar) para no taparla; en pantallas grandes queda abajo.
+    <div className="fixed bottom-20 right-3 sm:bottom-4 sm:right-4 z-50 flex items-center gap-2 rounded-full bg-white/95 shadow-lg ring-1 ring-black/5 px-2.5 py-1.5 sm:px-3 sm:py-2 backdrop-blur">
       {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
       <audio ref={ref} src={resolveAssetUrl(audio.url)} preload="auto" />
       <button
         type="button"
         onClick={toggle}
-        className={`grid h-8 w-8 place-items-center rounded-full text-white${active ? " animate-pulse" : ""}`}
+        className={`grid h-10 w-10 sm:h-8 sm:w-8 place-items-center rounded-full text-white${active ? " animate-pulse" : ""}`}
         style={{ backgroundColor: accent, opacity: active ? 1 : 0.85 }}
         aria-label={active ? "Pausar música" : "Reproducir música"}
         title={active ? "Pausar música" : "Reproducir música"}
@@ -696,7 +786,7 @@ function AudioPlayer({ audio, accent }: { audio: AudioSettings; accent: string }
         <button
           type="button"
           onClick={toggleMute}
-          className="grid h-8 w-8 place-items-center rounded-full text-neutral-500 hover:bg-neutral-100"
+          className="grid h-10 w-10 sm:h-8 sm:w-8 place-items-center rounded-full text-neutral-500 hover:bg-neutral-100"
           aria-label={muted ? "Activar sonido" : "Silenciar"}
           title={muted ? "Activar sonido" : "Silenciar"}
         >
@@ -730,9 +820,9 @@ function ResultsScreen({
     passed === true && !results.needs_review && !!certCreds;
 
   return (
-    <div className="min-h-screen bg-neutral-50 flex items-start justify-center p-6">
-      <div className="w-full max-w-xl mt-8">
-        <div className="bg-white rounded-2xl shadow-sm ring-1 ring-black/5 p-8 text-center">
+    <div className="min-h-screen bg-neutral-50 flex items-start justify-center p-4 sm:p-6">
+      <div className="w-full max-w-xl mt-4 sm:mt-8">
+        <div className="bg-white rounded-2xl shadow-sm ring-1 ring-black/5 p-6 sm:p-8 text-center">
           <h1 className="text-lg font-semibold text-neutral-800">
             {results.needs_review
               ? "¡Recibimos tus respuestas!"
@@ -782,7 +872,8 @@ function ResultsScreen({
             <button
               type="button"
               onClick={() => setShowCert(true)}
-              className="mt-6 inline-flex items-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold text-white transition"
+              // Ancho completo en móvil y alto táctil (≥44px) para el pulgar.
+              className="mt-6 inline-flex w-full sm:w-auto min-h-[44px] items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold text-white transition"
               style={{ backgroundColor: accent }}
             >
               <Award className="h-4 w-4" /> Ver certificado
@@ -848,10 +939,10 @@ function ThankYouScreen({
   return (
     <div className="min-h-screen" style={{ backgroundColor: pageBg }}>
       {brandingHeader}
-      <div className="flex items-start justify-center p-6">
-        <div className="w-full max-w-xl mt-10">
+      <div className="flex items-start justify-center p-4 sm:p-6">
+        <div className="w-full max-w-xl mt-6 sm:mt-10">
           <div
-            className="rounded-2xl p-8 text-center shadow-sm ring-1 ring-black/5"
+            className="rounded-2xl p-6 sm:p-8 text-center shadow-sm ring-1 ring-black/5"
             style={{ backgroundColor: cardBg }}
           >
             <div

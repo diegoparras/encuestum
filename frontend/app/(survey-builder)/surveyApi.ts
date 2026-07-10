@@ -87,6 +87,27 @@ export interface SummaryReport {
   questions: SummaryQuestion[];
 }
 
+// ---- Embudo de conversión (vistas → comenzaron → completaron) ----
+
+export interface FunnelDropoff {
+  /** Nombre técnico de la pregunta (name del schema). */
+  question: string;
+  /** Título legible de la pregunta. */
+  title: string;
+  /** Cantidad de personas que abandonaron en esta pregunta. */
+  count: number;
+}
+
+export interface Funnel {
+  views: number;
+  starts: number;
+  completions: number;
+  responses: number;
+  start_rate: number | null;
+  completion_rate: number | null;
+  dropoff: FunnelDropoff[];
+}
+
 // Invitado (modo lista): cada uno con su código de acceso único.
 export interface Invitee {
   id: string;
@@ -259,6 +280,8 @@ export const surveyApi = {
     request<ResponseItem[]>(`/api/v1/survey/surveys/${id}/responses`),
   getSummary: (id: string) =>
     request<SummaryReport>(`/api/v1/survey/surveys/${id}/summary`),
+  getFunnel: (id: string) =>
+    request<Funnel>(`/api/v1/survey/surveys/${id}/funnel`),
   duplicateSurvey: (id: string) =>
     request<SurveyDetail>(`/api/v1/survey/surveys/${id}/duplicate`, {
       method: "POST",

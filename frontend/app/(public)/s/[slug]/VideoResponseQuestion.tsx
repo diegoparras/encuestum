@@ -366,9 +366,10 @@ function VideoRecorder({ question }: { question: QuestionVideoResponseModel }) {
     borderColor: "var(--sjs-border-default, rgba(0,0,0,0.12))",
     color: "var(--sjs-general-forecolor, #1f2937)",
   };
-  // Botón secundario (borde) que también sigue el tema.
+  // Botón secundario (borde) que también sigue el tema. min-h táctil (44px)
+  // para que sea cómodo de tocar en el celular.
   const ghostBtnClass =
-    "inline-flex items-center gap-2 rounded-lg border px-4 py-2 text-sm font-medium hover:opacity-80";
+    "inline-flex min-h-[44px] items-center gap-2 rounded-lg border px-4 py-2 text-sm font-medium hover:opacity-80";
   const ghostBtnStyle: React.CSSProperties = {
     borderColor: "var(--sjs-border-default, rgba(0,0,0,0.12))",
     color: "var(--sjs-general-forecolor-light, #525252)",
@@ -390,7 +391,7 @@ function VideoRecorder({ question }: { question: QuestionVideoResponseModel }) {
           preload="auto"
           src={src}
           onLoadedData={forceFirstFrame}
-          className="w-full max-h-80 rounded-lg bg-black"
+          className="w-full max-h-56 sm:max-h-72 md:max-h-80 rounded-lg bg-black"
         />
         {isPreviewOnly && (
           <p className="text-xs" style={hintStyle}>
@@ -401,7 +402,7 @@ function VideoRecorder({ question }: { question: QuestionVideoResponseModel }) {
           <button
             type="button"
             onClick={removeSaved}
-            className="inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-white"
+            className="inline-flex min-h-[44px] items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-white"
             style={{ backgroundColor: ACCENT }}
           >
             <RotateCcw className="h-4 w-4" />
@@ -431,7 +432,7 @@ function VideoRecorder({ question }: { question: QuestionVideoResponseModel }) {
           autoPlay
           muted
           playsInline
-          className="w-full max-h-80 rounded-lg bg-black"
+          className="w-full max-h-56 sm:max-h-72 md:max-h-80 rounded-lg bg-black"
         />
         <p className="text-xs" style={hintStyle}>
           Acomodate y tocá <strong>Grabar</strong> cuando estés listo.
@@ -440,7 +441,7 @@ function VideoRecorder({ question }: { question: QuestionVideoResponseModel }) {
           <button
             type="button"
             onClick={beginRecording}
-            className="inline-flex items-center gap-2 rounded-lg px-5 py-2.5 text-sm font-semibold text-white"
+            className="inline-flex min-h-[44px] items-center gap-2 rounded-lg px-5 py-2.5 text-sm font-semibold text-white"
             style={{ backgroundColor: REC_RED }}
           >
             <Circle className="h-4 w-4" fill="currentColor" />
@@ -470,7 +471,7 @@ function VideoRecorder({ question }: { question: QuestionVideoResponseModel }) {
           autoPlay
           muted
           playsInline
-          className="w-full max-h-80 rounded-lg bg-black"
+          className="w-full max-h-56 sm:max-h-72 md:max-h-80 rounded-lg bg-black"
         />
         <div
           className="flex items-center gap-2 text-sm font-semibold"
@@ -488,7 +489,7 @@ function VideoRecorder({ question }: { question: QuestionVideoResponseModel }) {
         <button
           type="button"
           onClick={stopRecording}
-          className="inline-flex items-center gap-2 rounded-lg px-5 py-2 text-sm font-medium text-white"
+          className="inline-flex min-h-[44px] items-center gap-2 rounded-lg px-5 py-2 text-sm font-medium text-white"
           style={{ backgroundColor: REC_RED }}
         >
           <Square className="h-4 w-4" fill="currentColor" />
@@ -509,13 +510,13 @@ function VideoRecorder({ question }: { question: QuestionVideoResponseModel }) {
           preload="auto"
           src={recordedUrl}
           onLoadedData={forceFirstFrame}
-          className="w-full max-h-80 rounded-lg bg-black"
+          className="w-full max-h-56 sm:max-h-72 md:max-h-80 rounded-lg bg-black"
         />
         <div className="flex flex-wrap items-center justify-center gap-2">
           <button
             type="button"
             onClick={useRecordedVideo}
-            className="inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-white"
+            className="inline-flex min-h-[44px] items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-white"
             style={{ backgroundColor: ACCENT }}
           >
             <Upload className="h-4 w-4" />
@@ -562,7 +563,7 @@ function VideoRecorder({ question }: { question: QuestionVideoResponseModel }) {
             <button
               type="button"
               onClick={useRecordedVideo}
-              className="inline-flex items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-white"
+              className="inline-flex min-h-[44px] items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-white"
               style={{ backgroundColor: ACCENT }}
             >
               <RotateCcw className="h-4 w-4" />
@@ -592,7 +593,7 @@ function VideoRecorder({ question }: { question: QuestionVideoResponseModel }) {
             "No pudimos acceder a la cámara. Podés subir un archivo."}
         </p>
         <label
-          className="inline-flex cursor-pointer items-center gap-2 rounded-lg border px-4 py-2 text-sm font-medium hover:opacity-80"
+          className="inline-flex min-h-[44px] cursor-pointer items-center gap-2 rounded-lg border px-4 py-2 text-sm font-medium hover:opacity-80"
           style={ghostBtnStyle}
         >
           <Upload className="h-4 w-4" />
@@ -615,14 +616,14 @@ function VideoRecorder({ question }: { question: QuestionVideoResponseModel }) {
         <button
           type="button"
           onClick={startCamera}
-          className="inline-flex items-center gap-2 rounded-lg px-5 py-2.5 text-sm font-medium text-white"
+          className="inline-flex min-h-[44px] items-center gap-2 rounded-lg px-5 py-2.5 text-sm font-medium text-white"
           style={{ backgroundColor: ACCENT }}
         >
           <Video className="h-4 w-4" />
           Grabar video
         </button>
         <label
-          className="inline-flex cursor-pointer items-center gap-2 rounded-lg border px-5 py-2.5 text-sm font-medium hover:opacity-80"
+          className="inline-flex min-h-[44px] cursor-pointer items-center gap-2 rounded-lg border px-5 py-2.5 text-sm font-medium hover:opacity-80"
           style={ghostBtnStyle}
         >
           <Upload className="h-4 w-4" />

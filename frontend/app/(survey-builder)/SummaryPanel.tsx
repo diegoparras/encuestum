@@ -7,11 +7,15 @@ import {
   MessageSquareText,
   FileText,
   ExternalLink,
+  Eye,
+  Filter,
+  ChevronDown,
 } from "lucide-react";
 import {
   surveyApi,
   type SummaryQuestion,
   type SummaryOption,
+  type Funnel,
 } from "./surveyApi";
 import { useAsyncData } from "@/lib/useAsyncData";
 import { LoadError, LoadSpinner } from "@/components/LoadError";
@@ -65,6 +69,159 @@ export function SummaryPanel({
       {data.questions.map((q) => (
         <QuestionCard key={q.name} q={q} accent={accent} />
       ))}
+    </div>
+  );
+}
+
+/**
+ * Tarjeta "Embudo": vistas → comenzaron → completaron, con barras
+ * decrecientes y el % de conversión entre pasos. Incluye "Dónde abandonan"
+ * (top 5 preguntas donde la gente dejó la encuesta a medias).
+ */
+export function FunnelCard({
+  surveyId,
+  accent,
+}: {
+  surveyId: string;
+  accent: string;
+}) {
+  const { data, status, error, reload } = useAsyncData(
+    () => surveyApi.getFunnel(surveyId),
+    [surveyId]
+  );
+
+  if (status === "loading") return <LoadSpinner compact />;
+  if (status === "error")
+    return <LoadError message={error} onRetry={reload} compact />;
+  if (!data) return null;
+
+  return (
+    <div className="rounded-xl border border-neutral-200 bg-white p-5">
+      <div className="mb-4 flex items-start justify-between gap-3">
+        <div>
+          <h3 className="font-medium text-neutral-900">Embudo</h3>
+          <p className="mt-0.5 text-xs text-neutral-400">
+            De la vista a la respuesta completa
+          </p>
+        </div>
+        <span
+          className="inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium"
+          style={{ backgroundColor: `${accent}1a`, color: accent }}
+        >
+          <Filter className="h-3 w-3" /> Conversión
+        </span>
+      </div>
+      {data.views === 0 ? (
+        <div className="rounded-lg border border-dashed border-neutral-300 py-10 text-center">
+          <Eye className="mx-auto mb-2 h-6 w-6 text-neutral-300" />
+          <p className="text-sm font-medium text-neutral-600">
+            Todavía no hay visitas registradas
+          </p>
+          <p className="mx-auto mt-1 max-w-xs text-sm text-neutral-400">
+            Las vistas se cuentan desde ahora: compartí el enlace y acá vas a
+            ver cuánta gente entra, empieza y completa la encuesta.
+          </p>
+        </div>
+      ) : (
+        <FunnelSteps funnel={data} accent={accent} />
+      )}
+      {data.dropoff.length > 0 && <DropoffList items={data.dropoff} />}
+    </div>
+  );
+}
+
+/** Los tres pasos del embudo con barras decrecientes y % entre pasos. */
+function FunnelSteps({ funnel, accent }: { funnel: Funnel; accent: string }) {
+  const steps = [
+    { label: "Vistas", count: funnel.views },
+    { label: "Comenzaron", count: funnel.starts },
+    { label: "Completaron", count: funnel.completions },
+  ];
+  const base = Math.max(1, funnel.views);
+
+  return (
+    <div>
+      {steps.map((step, i) => {
+        const width = Math.min(100, (step.count / base) * 100);
+        // % de conversión respecto del paso anterior (se calcula del conteo
+        // para no depender de la escala de los rates del backend).
+        const prev = i > 0 ? steps[i - 1].count : null;
+        const rate =
+          prev !== null && prev > 0
+            ? Math.round((step.count / prev) * 100)
+            : null;
+        return (
+          <React.Fragment key={step.label}>
+            {i > 0 && (
+              <div className="flex items-center gap-1.5 py-1.5 pl-1 text-xs text-neutral-400">
+                <ChevronDown className="h-3.5 w-3.5" />
+                <span>
+                  {rate !== null ? (
+                    <>
+                      <span className="font-semibold text-neutral-600">
+                        {rate}%
+                      </span>{" "}
+                      {i === 1 ? "comenzaron" : "completaron"}
+                    </>
+                  ) : (
+                    "—"
+                  )}
+                </span>
+              </div>
+            )}
+            <div>
+              <div className="mb-1 flex items-baseline justify-between gap-3">
+                <span className="text-sm text-neutral-600">{step.label}</span>
+                <span className="text-2xl font-semibold tabular-nums text-neutral-900">
+                  {step.count.toLocaleString("es-AR")}
+                </span>
+              </div>
+              <div className="h-3 w-full overflow-hidden rounded-full bg-neutral-100">
+                <div
+                  className="h-full rounded-full transition-all"
+                  style={{
+                    width: `${step.count > 0 ? Math.max(width, 2) : 0}%`,
+                    backgroundColor: accent,
+                    // Cada paso un poco más tenue, para reforzar el embudo.
+                    opacity: 1 - i * 0.25,
+                  }}
+                />
+              </div>
+            </div>
+          </React.Fragment>
+        );
+      })}
+    </div>
+  );
+}
+
+/** Top 5 de preguntas donde más gente abandonó, ordenado descendente. */
+function DropoffList({ items }: { items: Funnel["dropoff"] }) {
+  const top = [...items].sort((a, b) => b.count - a.count).slice(0, 5);
+  const max = Math.max(1, ...top.map((d) => d.count));
+  return (
+    <div className="mt-5 border-t border-neutral-100 pt-4">
+      <h4 className="mb-3 text-xs font-semibold uppercase tracking-wide text-neutral-500">
+        Dónde abandonan
+      </h4>
+      <div className="space-y-2">
+        {top.map((d) => (
+          <div key={d.question} className="flex items-center gap-3">
+            <span className="min-w-0 flex-1 truncate text-sm text-neutral-700">
+              {d.title || d.question}
+            </span>
+            <div className="hidden h-1.5 w-24 shrink-0 overflow-hidden rounded-full bg-neutral-100 sm:block">
+              <div
+                className="h-full rounded-full bg-neutral-400"
+                style={{ width: `${(d.count / max) * 100}%` }}
+              />
+            </div>
+            <span className="shrink-0 tabular-nums text-sm text-neutral-500">
+              {d.count}
+            </span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }

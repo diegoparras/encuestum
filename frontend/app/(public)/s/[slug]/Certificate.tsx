@@ -112,12 +112,13 @@ export function Certificate({
       `}</style>
 
       <div className="w-full max-w-2xl">
-        {/* Barra de acciones (no se imprime). */}
-        <div className="enc-print-hide mb-3 flex items-center justify-between gap-2">
+        {/* Barra de acciones (no se imprime). En móvil envuelve y mantiene
+            alto táctil (≥44px) en los dos botones. */}
+        <div className="enc-print-hide mb-3 flex flex-wrap items-center justify-between gap-2">
           <button
             type="button"
             onClick={onClose}
-            className="inline-flex items-center gap-1.5 rounded-lg bg-white/90 px-3 py-2 text-sm font-medium text-neutral-700 hover:bg-white"
+            className="inline-flex min-h-[44px] items-center gap-1.5 rounded-lg bg-white/90 px-3 py-2 text-sm font-medium text-neutral-700 hover:bg-white"
           >
             <X className="h-4 w-4" /> Cerrar
           </button>
@@ -125,7 +126,7 @@ export function Certificate({
             <button
               type="button"
               onClick={() => window.print()}
-              className="inline-flex items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-semibold text-white"
+              className="inline-flex min-h-[44px] items-center gap-1.5 rounded-lg px-4 py-2 text-sm font-semibold text-white"
               style={{ backgroundColor: accent }}
             >
               <Printer className="h-4 w-4" /> Imprimir / Guardar PDF
@@ -156,7 +157,9 @@ export function Certificate({
 
         {data && !loading && (
           <div
-            className="enc-cert-print relative overflow-hidden rounded-2xl bg-white p-8 shadow-xl sm:p-12"
+            // Padding compacto en móvil para que el contenido no toque el
+            // marco decorativo y el certificado entre completo en 360px.
+            className="enc-cert-print relative overflow-hidden rounded-2xl bg-white p-6 shadow-xl sm:p-12"
             style={{ color: "#1f2937" }}
           >
             {/* Marco decorativo */}
@@ -184,7 +187,9 @@ export function Certificate({
               )}
 
               <h1
-                className="mt-4 text-2xl font-bold uppercase tracking-[0.25em] sm:text-3xl"
+                // Tipografía y tracking más chicos en móvil para que el título
+                // espaciado no desborde en 360px.
+                className="mt-4 text-xl font-bold uppercase tracking-[0.2em] sm:text-3xl sm:tracking-[0.25em]"
                 style={{ color: accent }}
               >
                 Certificado
@@ -196,7 +201,8 @@ export function Certificate({
               <p className="mt-8 text-sm text-neutral-500">
                 Se certifica que
               </p>
-              <p className="mt-2 text-3xl font-semibold text-neutral-900 sm:text-4xl">
+              {/* break-words: nombres largos no deben desbordar en móvil. */}
+              <p className="mt-2 max-w-full break-words text-2xl font-semibold text-neutral-900 sm:text-4xl">
                 {data.name}
               </p>
 
@@ -214,7 +220,8 @@ export function Certificate({
                 Nota mínima de aprobación: {data.passing_score}%
               </p>
 
-              <div className="mt-10 flex w-full items-end justify-between gap-6 text-left">
+              {/* flex-wrap: en 360px la fecha y el código pueden apilarse. */}
+              <div className="mt-8 sm:mt-10 flex w-full flex-wrap items-end justify-between gap-4 sm:gap-6 text-left">
                 <div>
                   <p className="text-[11px] uppercase tracking-wide text-neutral-400">
                     Fecha
@@ -227,7 +234,7 @@ export function Certificate({
                   <p className="text-[11px] uppercase tracking-wide text-neutral-400">
                     Código de verificación
                   </p>
-                  <p className="font-mono text-sm font-medium text-neutral-700">
+                  <p className="break-all font-mono text-sm font-medium text-neutral-700">
                     {data.code}
                   </p>
                 </div>

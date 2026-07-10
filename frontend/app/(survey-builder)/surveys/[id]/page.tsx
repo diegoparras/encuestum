@@ -32,7 +32,7 @@ import { LoadError } from "@/components/LoadError";
 import { GradesPanel } from "../../GradesPanel";
 import { GradebookPanel } from "../../GradebookPanel";
 import { InsightsPanel } from "../../InsightsPanel";
-import { SummaryPanel } from "../../SummaryPanel";
+import { FunnelCard, SummaryPanel } from "../../SummaryPanel";
 import { themeToAccent } from "../../builder/model";
 
 export default function SurveyDetailPage() {
@@ -477,7 +477,11 @@ export default function SurveyDetailPage() {
               )}
             </div>
             {resultsTab === "summary" ? (
-              <SummaryPanel surveyId={id} accent={themeToAccent(survey.theme)} />
+              <div className="space-y-4">
+                {/* Embudo de conversión: vistas → comenzaron → completaron */}
+                <FunnelCard surveyId={id} accent={themeToAccent(survey.theme)} />
+                <SummaryPanel surveyId={id} accent={themeToAccent(survey.theme)} />
+              </div>
             ) : responses === null ? (
               <div className="text-sm text-neutral-400">Cargando…</div>
             ) : responses.length === 0 ? (
