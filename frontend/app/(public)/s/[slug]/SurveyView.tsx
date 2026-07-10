@@ -766,6 +766,10 @@ const ENC_SURFACE_CSS = `
   .enc-scope .sd-navigation__start-btn {
     min-height: 44px;
   }
+  /* Inputs a 16px: evita el zoom automático de iOS al enfocar en el celular. */
+  .enc-scope input, .enc-scope textarea, .enc-scope select, .enc-scope .sd-input {
+    font-size: 16px;
+  }
 }
 `;
 

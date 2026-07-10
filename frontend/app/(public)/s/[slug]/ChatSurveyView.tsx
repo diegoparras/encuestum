@@ -382,7 +382,11 @@ export function ChatSurveyView({
                 </Row>
 
                 {chips ? (
-                  <div className="enc-chat-chips">
+                  <div
+                    className={`enc-chat-chips${
+                      currentQ.getType?.() === "rating" ? " enc-chips-scale" : ""
+                    }`}
+                  >
                     {chips.items.map((it, i) => {
                       const selected = chips.multi
                         ? Array.isArray(currentQ.value) && currentQ.value.includes(it.value)
@@ -504,10 +508,12 @@ function chatCss(th: ChatTheme, gap: number): string {
   const font = th.fontFamily ? `font-family:${th.fontFamily};` : "";
   const bgPattern = th.pattern ? `background-image:${th.pattern};` : "";
   return `
-.enc-chat { position:relative; display:flex; flex-direction:column; min-height:100dvh; ${font} background:${th.pageBg}; ${bgPattern} }
+.enc-chat { position:relative; display:flex; flex-direction:column; min-height:100dvh; overflow-x:hidden; ${font} background:${th.pageBg}; ${bgPattern} }
 .enc-chat.enc-chat-embed { min-height:0; height:100%; }
-.enc-chat-scroll { flex:1; overflow-y:auto; -webkit-overflow-scrolling:touch; }
-.enc-chat-thread { max-width:640px; margin:0 auto; width:100%; padding:20px 16px 140px; display:flex; flex-direction:column; gap:${gap}px; }
+.enc-chat-scroll { flex:1; overflow-y:auto; overflow-x:hidden; -webkit-overflow-scrolling:touch; }
+.enc-chat-thread { max-width:640px; margin:0 auto; width:100%; min-width:0; box-sizing:border-box; padding:20px 16px 56px; display:flex; flex-direction:column; gap:${gap}px; }
+/* Inputs a 16px: evita el zoom automático de iOS al enfocar en el celular. */
+.enc-chat input, .enc-chat textarea, .enc-chat select, .enc-chat .sd-input { font-size:16px !important; }
 
 /* Header */
 .enc-chat-header { display:flex; align-items:center; gap:10px; padding:10px 16px; background:${th.headerBg}; color:${th.headerFg}; box-shadow:0 1px 6px rgba(0,0,0,.08); position:relative; z-index:5; }
@@ -560,5 +566,18 @@ function chatCss(th: ChatTheme, gap: number): string {
 .enc-chat .sd-title, .enc-chat .sd-description, .enc-chat .sd-header, .enc-chat .sd-page__title, .enc-chat .sd-page__description, .enc-chat .sd-question__header, .enc-chat .sd-question__num, .enc-chat .sd-navigation, .enc-chat .sd-action-bar, .enc-chat .sd-progress, .enc-chat .sd-progress-buttons, .enc-chat .sd-body__navigation { display:none !important; }
 .enc-chat .sd-root-modern, .enc-chat .sd-container-modern, .enc-chat .sd-body, .enc-chat .sd-page, .enc-chat .sd-row, .enc-chat .sd-question, .enc-chat .sd-element__content, .enc-chat .sd-question__content { background:transparent !important; box-shadow:none !important; margin:0 !important; padding:0 !important; min-width:0 !important; }
 .enc-chat .sd-body { max-width:100% !important; }
+
+/* ── Celular (≤640px): SÓLO aditivo, el desktop queda intacto ─────────────── */
+@media (max-width:640px) {
+  .enc-chat-thread { padding:16px 12px calc(28px + env(safe-area-inset-bottom)); }
+  .enc-chat-header { padding:9px 12px; }
+  .enc-chat-avatar { width:34px; height:34px; font-size:18px; }
+  .enc-bubble { max-width:86%; }
+  .enc-chat-compose { padding:8px 10px; }
+  .enc-chip { padding:9px 13px; min-height:42px; }
+  .enc-chat-send { flex:0 0 auto; }
+  /* Chips numéricos (rating): que la escala se lea de izquierda a derecha. */
+  .enc-chat-chips.enc-chips-scale { justify-content:flex-start; }
+}
 `;
 }
