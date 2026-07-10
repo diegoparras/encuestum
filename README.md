@@ -58,11 +58,14 @@ Encuestum es una **plataforma multi-tenant** de encuestas y evaluaciones. Cualqu
 ### 🎨 Diseño de otra liga
 Panel de diseño con **temas de un clic** (claros y oscuros), **modo oscuro** de la encuesta, **buscador de Google Fonts**, color de acento/fondo/texto, **cuadros glass** (color + opacidad + desenfoque), **contenedor por pregunta**, **transiciones** entre pantallas (fundido, deslizar, zoom, voltear, desenfoque), **alineación** (izquierda/centro), color y sombra de botones, imágenes (portada, logo, fondo con opacidad, por pregunta), video embebido y **música de fondo**. Además, **estilo por pregunta**: transparencia y alineación individuales.
 
+**💬 Modo conversacional (chat).** Un motor de chat tipo Typebot montado sobre el render: una pregunta a la vez, respuestas como **quick-reply chips**, indicador de *"escribiendo…"*, auto-avance y burbujas. Con **9 skins de un clic** (Encuestum, WhatsApp, Telegram, iMessage, Messenger, Slack, Discord, Terminal, Minimal), **identidad del bot** (avatar + nombre + estado) y comportamiento configurable.
+
 ### 🚪 Distribución y control de acceso
 - Página pública `/s/{slug}` (SurveyJS en el navegador), **código QR**, **embed** por iframe, **links con prefill** (`?campo=valor`), guardar-y-retomar.
 - **3 modos de acceso** por encuesta: **pública**, **con clave (PIN)**, o **lista de emails admitidos** — cada persona con su **código único** (para entrar y para ver su resultado después) y **link mágico** por email.
 - **Cierre automático** por fecha o cupo.
-- Al terminar: **mensaje de gracias** personalizable o **redirect** a tu sitio.
+- **Protección anti-bot** opcional en encuestas públicas: un **captcha proof-of-work** self-hosted (sin terceros, sin keys, invisible para la persona) que frena el spam de respuestas.
+- **Pantalla de gracias totalmente customizable**: **confeti**, ícono/emoji/imagen a elección, layouts (tarjeta/minimal/hero), colores propios, **tokens** (`¡Gracias, {nombre}!`), **botones CTA**, **compartir** (WhatsApp/X/LinkedIn), **redirect con cuenta regresiva** — y en modo chat, cierre como última burbuja del bot.
 
 ### 📊 Resultados y analítica
 - Panel **"Resumen"** con **gráficos por pregunta** (barras, histograma NPS con promedio, respuestas abiertas, archivos/videos).
@@ -78,7 +81,7 @@ Panel de diseño con **temas de un clic** (claros y oscuros), **modo oscuro** de
 Modo examen con integridad (mezclar preguntas/opciones, tiempo límite, intentos), **cola de revisión**, override manual, **gradebook** (planilla de notas por alumno) y **certificado imprimible** al aprobar.
 
 ### 🏢 Plataforma
-Multi-tenant (organizaciones, roles owner/admin/member), invitaciones, reset de contraseña, verificación de email, **subdominio propio por organización** con branding, panel de super-admin, y **almacenamiento de archivos directo a Cloudflare R2 / S3** con URL prefirmada (el servidor no toca los archivos grandes).
+Multi-tenant (organizaciones, roles owner/admin/member), invitaciones, reset de contraseña, verificación de email, **subdominio propio por organización** con branding, panel de super-admin, **interfaz en 7 idiomas** (English, Español, Français, Português, Italiano, 中文, 日本語), y **almacenamiento de archivos directo a Cloudflare R2 / S3** con URL prefirmada (el servidor no toca los archivos grandes).
 
 ---
 
