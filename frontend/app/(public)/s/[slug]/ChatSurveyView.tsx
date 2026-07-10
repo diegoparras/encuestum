@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import type { Model } from "survey-core";
 import { Survey } from "survey-react-ui";
 import { ArrowLeft, Send } from "lucide-react";
@@ -60,13 +60,17 @@ export function ChatSurveyView({ model, accent, dark, embedded }: Props) {
 
   const bump = () => setVersion((v) => v + 1);
 
-  // Una pregunta por pantalla: es la base del formato conversacional.
+  // Una pregunta por pantalla: es la base del formato conversacional. Al aplicarlo
+  // SurveyJS reorganiza las páginas (una pregunta c/u), así que bump() para que el
+  // conteo de progreso y el transcript se recalculen sobre las páginas nuevas.
   useEffect(() => {
     try {
       model.questionsOnPageMode = "questionPerPage";
     } catch {
       /* algunos esquemas ya vienen así */
     }
+    bump();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [model]);
 
   const startTyping = (ms: number) => {
@@ -85,11 +89,11 @@ export function ChatSurveyView({ model, accent, dark, embedded }: Props) {
     };
     const onValue = (_s: any, opt: any) => {
       bump();
-      const q = model.currentPage?.questions?.[0] as any;
+      const q = (model as any).currentSingleQuestion || model.currentPage?.questions?.[0];
       if (q && q.name === opt?.name && isAutoAdvance(q) && !q.isEmpty?.()) {
         if (advanceTimer.current) clearTimeout(advanceTimer.current);
         advanceTimer.current = setTimeout(() => {
-          const cur = model.currentPage?.questions?.[0] as any;
+          const cur = (model as any).currentSingleQuestion || model.currentPage?.questions?.[0];
           if (cur && cur.name === q.name && !cur.isEmpty?.()) advanceRef.current();
         }, 520);
       }
@@ -115,14 +119,36 @@ export function ChatSurveyView({ model, accent, dark, embedded }: Props) {
     if (el) el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
   }, [version, typing]);
 
+  // En modo "questionPerPage" (v2) SurveyJS mantiene 1 página lógica pero pagina
+  // pregunta por pregunta: contamos y navegamos por PREGUNTAS, no por páginas.
+  function visibleQuestions(): any[] {
+    try {
+      return (model.getAllQuestions(false) as any[]).filter((q) => q.isVisible !== false);
+    } catch {
+      return [];
+    }
+  }
+  function currentQuestion(): any {
+    return (model as any).currentSingleQuestion || model.currentPage?.questions?.[0];
+  }
+
   function advance() {
     try {
-      if (!model.validateCurrentPage()) {
+      const cur = currentQuestion();
+      // Validamos SOLO la pregunta actual (no toda la página, que tiene todas).
+      if (cur?.validate && !cur.validate(true)) {
         bump();
         return;
       }
-      if (model.isLastPage) model.completeLastPage();
-      else model.nextPage();
+      const qs = visibleQuestions();
+      const idx = cur ? qs.findIndex((q) => q.name === cur.name) : 0;
+      if (idx >= qs.length - 1) {
+        model.completeLastPage();
+      } else {
+        model.nextPage();
+        startTyping(600);
+      }
+      bump();
     } catch {
       /* SurveyJS maneja los errores de validación in-place */
     }
@@ -130,26 +156,28 @@ export function ChatSurveyView({ model, accent, dark, embedded }: Props) {
   advanceRef.current = advance;
 
   function back() {
-    if (typing || model.isFirstPage) return;
+    if (typing) return;
     try {
-      model.prevPage();
+      const qs = visibleQuestions();
+      const cur = currentQuestion();
+      const idx = cur ? qs.findIndex((q) => q.name === cur.name) : 0;
+      if (idx > 0) {
+        model.prevPage();
+        bump();
+      }
     } catch {
       /* ignore */
     }
   }
 
-  const pages: any[] = useMemo(() => {
-    try {
-      return (model.visiblePages as any[]) || [];
-    } catch {
-      return [];
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [model, version]);
-
-  const curNo = model.currentPageNo ?? 0;
-  const currentQ = pages[curNo]?.questions?.[0] as any;
-  const total = pages.length || 1;
+  // Se lee fresco en cada render (el estado `version` dispara los re-renders en
+  // cada evento del modelo).
+  void version;
+  const allQ = visibleQuestions();
+  const currentQ = currentQuestion();
+  const curIdx = currentQ ? Math.max(0, allQ.findIndex((q) => q.name === currentQ.name)) : 0;
+  const total = allQ.length || 1;
+  const isLastQ = curIdx >= total - 1;
   const fallbackAnswer = t("public.chat.answered");
 
   return (
@@ -158,8 +186,7 @@ export function ChatSurveyView({ model, accent, dark, embedded }: Props) {
       <div className="enc-chat-scroll" ref={scrollRef}>
         <div className="enc-chat-thread">
           {/* Transcript: preguntas ya respondidas como burbujas bot + usuario. */}
-          {pages.slice(0, curNo).map((p, i) => {
-            const q = p?.questions?.[0] as any;
+          {allQ.slice(0, curIdx).map((q, i) => {
             if (!q) return null;
             const a = answerText(q, fallbackAnswer);
             return (
@@ -189,7 +216,7 @@ export function ChatSurveyView({ model, accent, dark, embedded }: Props) {
                       título/num/nav quedan ocultos por CSS). */}
                   <Survey model={model} />
                   <div className="enc-chat-actions">
-                    {!model.isFirstPage && (
+                    {curIdx > 0 && (
                       <button
                         type="button"
                         onClick={back}
@@ -206,7 +233,7 @@ export function ChatSurveyView({ model, accent, dark, embedded }: Props) {
                       className="enc-chat-send"
                       style={{ backgroundColor: accent }}
                     >
-                      {model.isLastPage ? t("public.chat.send") : t("public.chat.next")}
+                      {isLastQ ? t("public.chat.send") : t("public.chat.next")}
                       <Send size={16} />
                     </button>
                   </div>
@@ -217,7 +244,7 @@ export function ChatSurveyView({ model, accent, dark, embedded }: Props) {
         </div>
       </div>
       <div className="enc-chat-progress" aria-hidden>
-        {t("public.chat.progress", { n: Math.min(curNo + 1, total), total })}
+        {t("public.chat.progress", { n: Math.min(curIdx + 1, total), total })}
       </div>
     </div>
   );
