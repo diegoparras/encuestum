@@ -211,6 +211,71 @@ export function PropertiesPanel({
         onChange={(videoUrl) => onQuestionChange({ videoUrl })}
       />
 
+      {/* Estilo SOLO de esta pregunta (pisa el diseño general) */}
+      <div className="mt-1 mb-4 rounded-lg border border-neutral-100 bg-neutral-50/60 p-3">
+        <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-neutral-400">
+          Estilo de esta pregunta
+        </p>
+
+        <Field label="Alineación">
+          <div className="grid grid-cols-3 gap-2">
+            {(
+              [
+                { value: undefined, label: "General" },
+                { value: "left", label: "Izquierda" },
+                { value: "center", label: "Centrado" },
+              ] as const
+            ).map((opt) => {
+              const active = q.align === opt.value;
+              return (
+                <button
+                  key={opt.label}
+                  type="button"
+                  onClick={() => onQuestionChange({ align: opt.value })}
+                  className={`rounded-md border px-2 py-1.5 text-xs font-medium transition-colors ${
+                    active
+                      ? "border-[#e25a4e] bg-[#e25a4e0a] text-neutral-800"
+                      : "border-neutral-200 text-neutral-500 hover:border-neutral-300"
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              );
+            })}
+          </div>
+        </Field>
+
+        <ToggleRow
+          label="Transparencia personalizada"
+          hint="Pisa la opacidad del diseño solo acá"
+          checked={q.boxOpacity != null}
+          onChange={(v) => onQuestionChange({ boxOpacity: v ? 0 : undefined })}
+        />
+        {q.boxOpacity != null && (
+          <div className="mt-2">
+            <div className="mb-1 flex items-center justify-between text-xs text-neutral-600">
+              <span>Opacidad del cuadro</span>
+              <span className="tabular-nums text-neutral-400">
+                {Math.round((q.boxOpacity ?? 0) * 100)}%
+              </span>
+            </div>
+            <input
+              type="range"
+              min={0}
+              max={100}
+              value={Math.round((q.boxOpacity ?? 0) * 100)}
+              onChange={(e) =>
+                onQuestionChange({ boxOpacity: Number(e.target.value) / 100 })
+              }
+              className="w-full accent-[#e25a4e]"
+            />
+            <p className="mt-1 text-[11px] leading-relaxed text-neutral-400">
+              0% = sin cuadro (ideal para escalas/NPS sobre una imagen de fondo).
+            </p>
+          </div>
+        )}
+      </div>
+
       {showPlaceholder && (
         <Field label="Texto de ejemplo (placeholder)">
           <input

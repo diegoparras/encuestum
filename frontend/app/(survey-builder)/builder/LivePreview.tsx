@@ -6,7 +6,7 @@ import { Survey } from "survey-react-ui";
 import "survey-core/survey-core.min.css";
 import "survey-core/i18n/spanish";
 import { Monitor, Smartphone } from "lucide-react";
-import { DesignSettings, DEFAULT_DESIGN, designToTheme } from "./model";
+import { DesignSettings, DEFAULT_DESIGN, designToTheme, perQuestionStyleCss } from "./model";
 import { absolutizeAssets, buttonOverrideCss, ENC_ALIGN_CSS, loadFont, resolveAssetUrl } from "./design";
 import { registerVideoResponseQuestion } from "../../(public)/s/[slug]/VideoResponseQuestion";
 
@@ -102,8 +102,13 @@ export function LivePreview({ schema, accent, design, language }: Props) {
             className={`enc-scope${d.alignment === "center" ? " enc-center" : ""} mx-auto bg-white rounded-2xl shadow-sm ring-1 ring-black/5 overflow-hidden transition-all`}
             style={{ maxWidth: device === "mobile" ? 380 : 720 }}
           >
-            {/* Color de botones + alineación, igual que en la página pública. */}
-            <style>{ENC_ALIGN_CSS + buttonOverrideCss(d.buttonColor)}</style>
+            {/* Color de botones + alineación + estilos por pregunta, igual que
+                en la página pública. */}
+            <style>
+              {ENC_ALIGN_CSS +
+                buttonOverrideCss(d.buttonColor) +
+                perQuestionStyleCss(debounced, d)}
+            </style>
             {d.coverImage && (
               // eslint-disable-next-line @next/next/no-img-element
               <img

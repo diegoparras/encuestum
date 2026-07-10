@@ -7,7 +7,11 @@ import "survey-core/survey-core.min.css";
 import "survey-core/i18n/spanish";
 import { toast } from "sonner";
 import { Award, Check, Music, Volume2, VolumeX } from "lucide-react";
-import { themeToDesign, type AudioSettings } from "../../../(survey-builder)/builder/model";
+import {
+  perQuestionStyleCss,
+  themeToDesign,
+  type AudioSettings,
+} from "../../../(survey-builder)/builder/model";
 import {
   absolutizeAssets,
   buttonOverrideCss,
@@ -546,8 +550,14 @@ export default function SurveyView({ slug }: { slug: string }) {
       className={`min-h-screen enc-scope${design.glass ? " enc-glass" : ""}${design.alignment === "center" ? " enc-center" : ""}`}
       style={wrapperStyle}
     >
-      {/* Glass (frosted) blur behind the boxes + screen transitions + alignment. */}
-      <style>{ENC_SURFACE_CSS + ENC_ALIGN_CSS + buttonOverrideCss(design.buttonColor)}</style>
+      {/* Glass (frosted) blur behind the boxes + screen transitions + alignment
+          + per-question style overrides (transparencia/alineación individual). */}
+      <style>
+        {ENC_SURFACE_CSS +
+          ENC_ALIGN_CSS +
+          buttonOverrideCss(design.buttonColor) +
+          perQuestionStyleCss(data?.json_schema, design)}
+      </style>
       {brandingHeader}
       {submitting && (
         <div className="fixed top-0 inset-x-0 h-1 animate-pulse z-50" style={{ backgroundColor: accent }} />

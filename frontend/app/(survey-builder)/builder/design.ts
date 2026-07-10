@@ -61,8 +61,12 @@ export const ENC_ALIGN_CSS = `
 .enc-center .sd-question__header, .enc-center .sd-question__title, .enc-center .sd-question__description { text-align: center; }
 .enc-center .sd-question__title { justify-content: center; }
 .enc-center .sd-action-bar, .enc-center .sd-footer, .enc-center .sd-body__navigation { justify-content: center; }
-.enc-center .sd-rating { justify-content: center; }
-.enc-center .sd-selectbase { margin-left: auto; margin-right: auto; width: fit-content; min-width: 50%; }
+.enc-center .sd-rating { justify-content: center; margin-left: auto; margin-right: auto; width: fit-content; }
+.enc-center .sd-rating__min-text { margin-right: 12px; }
+.enc-center .sd-rating__max-text { margin-left: 12px; }
+.enc-center .sd-selectbase, .enc-center .sd-imagepicker { margin-left: auto; margin-right: auto; width: fit-content; min-width: 40%; }
+.enc-center .sd-boolean { margin-left: auto; margin-right: auto; }
+.enc-center .sd-completedpage { text-align: center; }
 `;
 
 /** Resolve an asset URL. Relative (/assets/…) → absolute against the API base. */

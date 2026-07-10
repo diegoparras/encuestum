@@ -74,6 +74,10 @@ export interface BuilderQuestion {
   // imagepicker: allow selecting more than one image.
   multiSelect?: boolean;
 
+  // Per-question style overrides (undefined = follow the global design):
+  boxOpacity?: number; // 0..1 box transparency for THIS question only
+  align?: "left" | "center"; // alignment for THIS question only
+
   // ---- matrix (grilla de opción única) ----
   matrixRows?: Choice[]; // filas de la grilla (cada una recibe una respuesta)
   matrixColumns?: Choice[]; // columnas = opciones únicas por fila
@@ -667,6 +671,13 @@ function questionToElement(q: BuilderQuestion): Record<string, any> {
   if ((q.type === "text" || q.type === "comment") && q.maxLength && q.maxLength > 0) {
     el.maxLength = Math.floor(q.maxLength);
   }
+  // Per-question style overrides (custom keys; read back from the raw JSON).
+  if (typeof q.boxOpacity === "number") {
+    el.encBoxOpacity = Math.max(0, Math.min(1, q.boxOpacity));
+  }
+  if (q.align === "left" || q.align === "center") {
+    el.encAlign = q.align;
+  }
   if (q.type === "imagepicker") {
     el.choices = (q.choices ?? [])
       .map((c) => ({ value: c.text, text: c.text, imageLink: c.imageUrl || undefined }))
@@ -858,6 +869,9 @@ function elementToQuestion(el: Record<string, any>, index: number): BuilderQuest
     placeholder: el.placeholder || undefined,
     maxLength:
       typeof el.maxLength === "number" && el.maxLength > 0 ? el.maxLength : undefined,
+    boxOpacity:
+      typeof el.encBoxOpacity === "number" ? el.encBoxOpacity : undefined,
+    align: el.encAlign === "left" || el.encAlign === "center" ? el.encAlign : undefined,
   };
 
   if (el.encVisibility && typeof el.encVisibility === "object" && el.encVisibility.questionName) {
@@ -1273,6 +1287,49 @@ export function themeToDesign(theme: Record<string, any> | null | undefined): De
     logo: e.logo || undefined,
     audio: e.audio && typeof e.audio === "object" && e.audio.url ? e.audio : null,
   };
+}
+
+// CSS with the per-question style overrides (transparencia `encBoxOpacity` y
+// alineación `encAlign` en el JSON). SurveyJS pone data-name en la raíz de cada
+// pregunta, así que scopeamos las variables/reglas ahí y el resto hereda del
+// tema o de la alineación global.
+export function perQuestionStyleCss(
+  schema: Record<string, any> | null | undefined,
+  design: DesignSettings
+): string {
+  const dark = design.mode === "dark";
+  const surfaceColor = design.questionColor || (dark ? "#252b36" : "#ffffff");
+  let css = "";
+  for (const page of (schema?.pages as any[]) ?? []) {
+    for (const el of (page?.elements as any[]) ?? []) {
+      if (!el?.name) continue;
+      const name = String(el.name).replace(/["\\]/g, "");
+      const sel = `.enc-scope [data-name="${name}"]`;
+
+      if (typeof el.encBoxOpacity === "number") {
+        const op = Math.max(0, Math.min(1, el.encBoxOpacity));
+        const surface = op >= 1 ? surfaceColor : rgba(surfaceColor, op);
+        // Opacidad 0 = totalmente limpio (también los controles internos).
+        const inputOp = op === 0 ? 0 : Math.min(1, op + 0.12);
+        const input = inputOp >= 1 ? surfaceColor : rgba(surfaceColor, inputOp);
+        css +=
+          `${sel} { --sjs-question-background: ${surface}; ` +
+          `--sjs-general-backcolor: ${surface}; ` +
+          `--sjs-editorpanel-backcolor: ${input}; }\n`;
+      }
+
+      if (el.encAlign === "center") {
+        css +=
+          `${sel} .sd-question__header, ${sel} .sd-question__title, ${sel} .sd-question__description { text-align: center; justify-content: center; }\n` +
+          `${sel} .sd-rating, ${sel} .sd-selectbase, ${sel} .sd-imagepicker { margin-left: auto; margin-right: auto; width: fit-content; }\n`;
+      } else if (el.encAlign === "left") {
+        css +=
+          `${sel} .sd-question__header, ${sel} .sd-question__title, ${sel} .sd-question__description { text-align: left; justify-content: flex-start; }\n` +
+          `${sel} .sd-rating, ${sel} .sd-selectbase, ${sel} .sd-imagepicker { margin-left: 0; margin-right: auto; width: auto; }\n`;
+      }
+    }
+  }
+  return css;
 }
 
 export interface Palette {
