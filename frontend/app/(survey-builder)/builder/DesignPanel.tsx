@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { X, Type, Palette, Image as ImageIcon, Music, Check, Sparkles, Contrast, Sun, Moon, Search, Square, Wand2, MousePointerClick } from "lucide-react";
+import { X, Type, Palette, Image as ImageIcon, Music, Check, Sparkles, Contrast, Sun, Moon, Search, Square, Wand2, MousePointerClick, AlignCenter, AlignLeft } from "lucide-react";
 import {
   ACCENT_PALETTE,
   AudioSettings,
@@ -16,6 +16,7 @@ import {
   fontCssFamily,
   fontFromFamily,
   readableForeground,
+  PAGE_TRANSITIONS,
 } from "./model";
 import { loadFont } from "./design";
 import { AssetPicker } from "./AssetPicker";
@@ -546,23 +547,49 @@ export function DesignPanel({
             </p>
           </Section>
 
-          {/* Transiciones */}
-          <Section icon={<Wand2 className="w-4 h-4" />} title="Transiciones">
+          {/* Alineación */}
+          <Section icon={<AlignCenter className="w-4 h-4" />} title="Alineación">
             <div className="grid grid-cols-2 gap-2">
               {(
                 [
-                  { value: "none", label: "Ninguna" },
-                  { value: "fade", label: "Fundido" },
-                  { value: "slide", label: "Deslizar" },
-                  { value: "zoom", label: "Zoom" },
+                  { value: "left", label: "Izquierda", icon: AlignLeft },
+                  { value: "center", label: "Centrado", icon: AlignCenter },
                 ] as const
               ).map((opt) => {
-                const active = (design.pageTransition ?? "none") === opt.value;
+                const active = (design.alignment ?? "left") === opt.value;
+                const Icon = opt.icon;
                 return (
                   <button
                     key={opt.value}
                     type="button"
-                    onClick={() => patch({ pageTransition: opt.value })}
+                    onClick={() => patch({ alignment: opt.value })}
+                    className={`flex items-center justify-center gap-2 rounded-lg border px-3 py-2.5 text-sm font-medium transition-colors ${
+                      active
+                        ? "border-[#e25a4e] bg-[#e25a4e0a] text-neutral-800"
+                        : "border-neutral-200 text-neutral-500 hover:border-neutral-300"
+                    }`}
+                  >
+                    <Icon className="w-4 h-4" />
+                    {opt.label}
+                  </button>
+                );
+              })}
+            </div>
+            <p className="mt-2 text-[11px] leading-relaxed text-neutral-400">
+              Centra el título, las preguntas y los botones.
+            </p>
+          </Section>
+
+          {/* Transiciones */}
+          <Section icon={<Wand2 className="w-4 h-4" />} title="Transiciones">
+            <div className="grid grid-cols-2 gap-2">
+              {PAGE_TRANSITIONS.map((opt) => {
+                const active = (design.pageTransition ?? "none") === opt.id;
+                return (
+                  <button
+                    key={opt.id}
+                    type="button"
+                    onClick={() => patch({ pageTransition: opt.id })}
                     className={`flex items-center justify-center rounded-lg border px-3 py-2.5 text-sm font-medium transition-colors ${
                       active
                         ? "border-[#e25a4e] bg-[#e25a4e0a] text-neutral-800"

@@ -177,7 +177,24 @@ export interface AudioSettings {
 
 // Visual design of the survey: typography, colors, media and music. Persisted
 // inside the SurveyJS theme object (native fields + an `_encuestum` block).
-export type PageTransition = "none" | "fade" | "slide" | "zoom";
+export type PageTransition =
+  | "none"
+  | "fade"
+  | "slide" // desliza desde abajo
+  | "slide-left" // desliza lateral
+  | "zoom"
+  | "flip" // voltea levemente en 3D
+  | "blur"; // entra desenfocado
+
+export const PAGE_TRANSITIONS: { id: PageTransition; label: string }[] = [
+  { id: "none", label: "Ninguna" },
+  { id: "fade", label: "Fundido" },
+  { id: "slide", label: "Deslizar ↑" },
+  { id: "slide-left", label: "Deslizar ←" },
+  { id: "zoom", label: "Zoom" },
+  { id: "flip", label: "Voltear" },
+  { id: "blur", label: "Desenfoque" },
+];
 
 export interface DesignSettings {
   fontFamily: string; // one of FONT_OPTIONS ids
@@ -192,6 +209,7 @@ export interface DesignSettings {
   // (so a white glass box gets dark text even if the question titles are white).
   inputTextColor?: string;
   buttonColor?: string; // navigation buttons color (default: the accent)
+  alignment?: "left" | "center"; // title/questions/buttons alignment
   pageTransition?: PageTransition; // screen transition in one-question-per-page
   backgroundColor?: string;
   backgroundImage?: string; // asset URL (relative /assets/…)
@@ -1219,6 +1237,7 @@ export function designToTheme(accent: string, design: DesignSettings): Record<st
     glass: !!design.glass,
     inputTextColor: design.inputTextColor ?? null,
     buttonColor: design.buttonColor ?? null,
+    alignment: design.alignment ?? "left",
     pageTransition: design.pageTransition ?? "none",
     backgroundColor: design.backgroundColor ?? null,
     backgroundImage: design.backgroundImage ?? null,
@@ -1245,6 +1264,7 @@ export function themeToDesign(theme: Record<string, any> | null | undefined): De
     glass: !!e.glass,
     inputTextColor: e.inputTextColor || undefined,
     buttonColor: e.buttonColor || undefined,
+    alignment: e.alignment === "center" ? "center" : "left",
     pageTransition: e.pageTransition || "none",
     backgroundColor: e.backgroundColor || theme?.cssVariables?.["--sjs-general-backcolor-dim"] || undefined,
     backgroundImage: e.backgroundImage || theme?.backgroundImage || undefined,

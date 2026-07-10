@@ -11,6 +11,7 @@ import { themeToDesign, type AudioSettings } from "../../../(survey-builder)/bui
 import {
   absolutizeAssets,
   buttonOverrideCss,
+  ENC_ALIGN_CSS,
   loadFont,
   resolveAssetUrl,
 } from "../../../(survey-builder)/builder/design";
@@ -306,9 +307,10 @@ export default function SurveyView({ slug }: { slug: string }) {
       /* prefill es best-effort; ignorar errores de parseo */
     }
 
-    // Si hay redirección o mensaje de gracias propio (y no es examen), evitamos
-    // la pantalla final por defecto de SurveyJS: renderizamos la nuestra.
-    if (!isExam && (safeRedirectUrl(data.redirect_url) || data.thankyou_message)) {
+    // La pantalla final por defecto de SurveyJS es pobre y no respeta el tema:
+    // para encuestas comunes siempre renderizamos nuestra pantalla de gracias
+    // (con el mensaje personalizado si hay, o el texto por defecto).
+    if (!isExam) {
       survey.showCompletedPage = false;
     }
 
@@ -466,11 +468,12 @@ export default function SurveyView({ slug }: { slug: string }) {
     );
   }
 
-  // Encuesta terminada con mensaje de gracias propio (sin redirección).
-  if (completed && data?.thankyou_message) {
+  // Encuesta terminada (sin redirección): pantalla de gracias con el tema,
+  // usando el mensaje personalizado o el texto por defecto.
+  if (completed) {
     return (
       <ThankYouScreen
-        message={data.thankyou_message}
+        message={data?.thankyou_message || "¡Gracias por responder! 🙌"}
         accent={accent}
         design={design}
         brandingHeader={brandingHeader}
@@ -540,11 +543,11 @@ export default function SurveyView({ slug }: { slug: string }) {
 
   return (
     <div
-      className={`min-h-screen enc-scope${design.glass ? " enc-glass" : ""}`}
+      className={`min-h-screen enc-scope${design.glass ? " enc-glass" : ""}${design.alignment === "center" ? " enc-center" : ""}`}
       style={wrapperStyle}
     >
-      {/* Glass (frosted) blur behind the boxes + screen transitions. */}
-      <style>{ENC_SURFACE_CSS + buttonOverrideCss(design.buttonColor)}</style>
+      {/* Glass (frosted) blur behind the boxes + screen transitions + alignment. */}
+      <style>{ENC_SURFACE_CSS + ENC_ALIGN_CSS + buttonOverrideCss(design.buttonColor)}</style>
       {brandingHeader}
       {submitting && (
         <div className="fixed top-0 inset-x-0 h-1 animate-pulse z-50" style={{ backgroundColor: accent }} />
@@ -589,7 +592,10 @@ const ENC_SURFACE_CSS = `
 }
 @keyframes enc-fade { from { opacity: 0; } to { opacity: 1; } }
 @keyframes enc-slide { from { opacity: 0; transform: translateY(28px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes enc-slide-left { from { opacity: 0; transform: translateX(48px); } to { opacity: 1; transform: translateX(0); } }
 @keyframes enc-zoom { from { opacity: 0; transform: scale(0.96); } to { opacity: 1; transform: scale(1); } }
+@keyframes enc-flip { from { opacity: 0; transform: perspective(1200px) rotateX(-10deg) translateY(18px); } to { opacity: 1; transform: perspective(1200px) rotateX(0) translateY(0); } }
+@keyframes enc-blur { from { opacity: 0; filter: blur(10px); } to { opacity: 1; filter: blur(0); } }
 `;
 
 // Floating background-music control. Browsers block autoplay with sound, so we
@@ -597,35 +603,59 @@ const ENC_SURFACE_CSS = `
 // otherwise we show a play button. Loop/volume come from the survey design.
 function AudioPlayer({ audio, accent }: { audio: AudioSettings; accent: string }) {
   const ref = useRef<HTMLAudioElement | null>(null);
+  // El estado se sincroniza con los EVENTOS reales del <audio> (play/pause/
+  // ended/volumechange), así los botones nunca quedan desfasados del sonido.
   const [playing, setPlaying] = useState(false);
   const [muted, setMuted] = useState(!!audio.autoplay);
+  const [failed, setFailed] = useState(false);
 
   useEffect(() => {
     const el = ref.current;
     if (!el) return;
-    el.volume = Math.max(0, Math.min(1, audio.volume ?? 0.6));
+    // Volumen 0 configurado por error dejaría el control "muerto": mínimo audible.
+    el.volume = Math.max(0.05, Math.min(1, audio.volume ?? 0.6));
     el.loop = audio.loop ?? true;
+    const sync = () => {
+      setPlaying(!el.paused);
+      setMuted(el.muted);
+    };
+    el.addEventListener("play", sync);
+    el.addEventListener("pause", sync);
+    el.addEventListener("ended", sync);
+    el.addEventListener("volumechange", sync);
+    const onError = () => setFailed(true);
+    el.addEventListener("error", onError);
     if (audio.autoplay) {
       el.muted = true;
-      el.play().then(() => setPlaying(true)).catch(() => setPlaying(false));
+      el.play().catch(() => {
+        /* autoplay bloqueado: el usuario tocará el botón */
+      });
     }
+    return () => {
+      el.removeEventListener("play", sync);
+      el.removeEventListener("pause", sync);
+      el.removeEventListener("ended", sync);
+      el.removeEventListener("volumechange", sync);
+      el.removeEventListener("error", onError);
+    };
   }, [audio.autoplay, audio.loop, audio.volume]);
 
   async function toggle() {
     const el = ref.current;
     if (!el) return;
-    if (playing && !el.muted) {
-      el.pause();
-      setPlaying(false);
-      return;
-    }
-    el.muted = false;
-    setMuted(false);
     try {
-      await el.play();
-      setPlaying(true);
+      if (el.paused) {
+        // Reproducir: siempre con sonido (es un gesto del usuario).
+        el.muted = false;
+        await el.play();
+      } else if (el.muted) {
+        // Sonando en silencio (autoplay): activar el sonido.
+        el.muted = false;
+      } else {
+        el.pause();
+      }
     } catch {
-      /* ignored */
+      toast.error("No se pudo reproducir la música.");
     }
   }
 
@@ -633,9 +663,11 @@ function AudioPlayer({ audio, accent }: { audio: AudioSettings; accent: string }
     const el = ref.current;
     if (!el) return;
     el.muted = !el.muted;
-    setMuted(el.muted);
   }
 
+  if (failed) return null; // archivo inaccesible: no mostramos un control muerto
+
+  const active = playing && !muted;
   return (
     <div className="fixed bottom-4 right-4 z-50 flex items-center gap-2 rounded-full bg-white/95 shadow-lg ring-1 ring-black/5 px-3 py-2 backdrop-blur">
       {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
@@ -643,10 +675,10 @@ function AudioPlayer({ audio, accent }: { audio: AudioSettings; accent: string }
       <button
         type="button"
         onClick={toggle}
-        className="grid h-8 w-8 place-items-center rounded-full text-white"
-        style={{ backgroundColor: accent }}
-        aria-label={playing ? "Pausar música" : "Reproducir música"}
-        title={playing ? "Pausar música" : "Reproducir música"}
+        className={`grid h-8 w-8 place-items-center rounded-full text-white${active ? " animate-pulse" : ""}`}
+        style={{ backgroundColor: accent, opacity: active ? 1 : 0.85 }}
+        aria-label={active ? "Pausar música" : "Reproducir música"}
+        title={active ? "Pausar música" : "Reproducir música"}
       >
         <Music className="h-4 w-4" />
       </button>
