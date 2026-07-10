@@ -147,6 +147,7 @@ async def duplicate_survey(
         closes_at=s.closes_at, max_responses=s.max_responses,
         access_mode=s.access_mode, access_pin=s.access_pin,
         results_mode=s.results_mode, notify_emails=s.notify_emails,
+        require_captcha=getattr(s, "require_captcha", False),
         status="draft",  # copies start unpublished
     )
     session.add(copy)

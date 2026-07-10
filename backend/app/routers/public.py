@@ -21,6 +21,8 @@ from app.grading import extract_question_types, grade_deterministic, grade_respo
 from app.models import _utcnow
 from app.security import create_purpose_token, read_purpose_token
 from app.webhooks import schedule_response_delivery
+from app.config import get_settings
+from app import captcha
 
 LOGGER = logging.getLogger(__name__)
 router = APIRouter(prefix="/public", tags=["public"])
@@ -130,6 +132,8 @@ def _public_payload(s: Survey, available: bool, reason: str | None, gated: bool)
         access_mode=getattr(s, "access_mode", "public"), gated=gated,
         thankyou_message=getattr(s, "thankyou_message", None),
         redirect_url=getattr(s, "redirect_url", None),
+        require_captcha=bool(getattr(s, "require_captcha", False))
+        and get_settings().captcha_enabled,
     )
 
 
@@ -141,6 +145,13 @@ async def get_public_survey(
     available, reason = await _availability(s, session)
     gated = available and not _valid_access(s, access_token)
     return _public_payload(s, available, reason, gated)
+
+
+@router.get("/{slug}/challenge")
+async def captcha_challenge(slug: str, request: Request):
+    """Fresh proof-of-work challenge for the anti-bot check on submit."""
+    await rate_limit(request, f"challenge:{slug}", limit=60, window_s=60)
+    return captcha.make_challenge()
 
 
 # ── Funnel tracking (anonymous): view → start → drop-off point ───────────────
@@ -231,6 +242,14 @@ async def submit(
     available, reason = await _availability(s, session)
     if not available:
         raise HTTPException(status_code=403, detail=reason or "Esta encuesta está cerrada.")
+
+    # Anti-bot proof-of-work: required only on surveys that opt in.
+    if bool(getattr(s, "require_captcha", False)) and get_settings().captcha_enabled:
+        if not captcha.verify_solution(payload.captcha):
+            raise HTTPException(
+                status_code=400,
+                detail="Verificación anti-bot inválida o vencida. Recargá y probá de nuevo.",
+            )
 
     # Gated surveys require a valid access token; capture respondent identity.
     resp_email = resp_code = None

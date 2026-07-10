@@ -211,6 +211,11 @@ class Survey(SQLModel, table=True):
     # After submit: a custom thank-you message and/or a redirect URL.
     thankyou_message: Optional[str] = Field(sa_column=Column(String), default=None)
     redirect_url: Optional[str] = Field(sa_column=Column(String), default=None)
+    # Anti-bot: require a proof-of-work challenge before accepting a submission
+    # (only meaningful for public/anonymous surveys).
+    require_captcha: bool = Field(
+        sa_column=Column(Boolean, nullable=False, server_default="0"), default=False
+    )
     theme: Optional[dict] = Field(sa_column=Column(JSON), default=None)
     # Answer keys / rubrics / exam settings. SERVER-SIDE ONLY.
     evaluation: Optional[dict] = Field(sa_column=Column(JSON), default=None)

@@ -44,6 +44,7 @@ class SurveyUpdateRequest(BaseModel):
     notify_emails: Optional[str] = None  # comma-separated owner notification emails
     thankyou_message: Optional[str] = None
     redirect_url: Optional[str] = None
+    require_captcha: Optional[bool] = None
 
 
 class SurveySummary(BaseModel):
@@ -76,6 +77,7 @@ class SurveyDetail(BaseModel):
     notify_emails: Optional[str] = None
     thankyou_message: Optional[str] = None
     redirect_url: Optional[str] = None
+    require_captcha: bool = False
     created_at: datetime
     updated_at: datetime
 
@@ -92,6 +94,7 @@ class SurveyDetail(BaseModel):
             notify_emails=getattr(s, "notify_emails", None),
             thankyou_message=getattr(s, "thankyou_message", None),
             redirect_url=getattr(s, "redirect_url", None),
+            require_captcha=bool(getattr(s, "require_captcha", False)),
             created_at=s.created_at, updated_at=s.updated_at,
         )
 
@@ -112,6 +115,8 @@ class PublicSurvey(BaseModel):
     # Post-submit customization (rendered by the public page after completion).
     thankyou_message: Optional[str] = None
     redirect_url: Optional[str] = None
+    # Anti-bot: when true the public page must solve a proof-of-work before submit.
+    require_captcha: bool = False
 
 
 class SubmitResponseRequest(BaseModel):
@@ -119,6 +124,8 @@ class SubmitResponseRequest(BaseModel):
     completed: bool = True
     meta: Optional[dict[str, Any]] = None
     access_token: Optional[str] = None
+    # Solved proof-of-work challenge (only required if the survey opts in).
+    captcha: Optional[dict[str, Any]] = None
 
 
 class SurveyAccessRequest(BaseModel):

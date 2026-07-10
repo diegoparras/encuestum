@@ -20,12 +20,14 @@ interface Props {
   resultsMode: ResultsMode;
   resultsReleased: boolean;
   notifyEmails: string;
+  requireCaptcha: boolean;
   onChange: (patch: {
     accessMode?: AccessMode;
     accessPin?: string | null;
     resultsMode?: ResultsMode;
     resultsReleased?: boolean;
     notifyEmails?: string;
+    requireCaptcha?: boolean;
   }) => void;
 }
 
@@ -52,12 +54,14 @@ export function AccessSettings({
   resultsMode,
   resultsReleased,
   notifyEmails,
+  requireCaptcha,
   onChange,
 }: Props) {
   const { t } = useI18n();
   const [pin, setPin] = useState(accessPin ?? "");
   const [emails, setEmails] = useState(notifyEmails ?? "");
   const [savingMode, setSavingMode] = useState(false);
+  const [savingCaptcha, setSavingCaptcha] = useState(false);
   const [savingResults, setSavingResults] = useState(false);
   const [savingPin, setSavingPin] = useState(false);
   const [savingEmails, setSavingEmails] = useState(false);
@@ -76,6 +80,19 @@ export function AccessSettings({
       onChange({ accessMode }); // revertir en pantalla
     } finally {
       setSavingMode(false);
+    }
+  }
+
+  async function changeCaptcha(next: boolean) {
+    onChange({ requireCaptcha: next });
+    setSavingCaptcha(true);
+    try {
+      await surveyApi.update(surveyId, { require_captcha: next });
+    } catch (e: any) {
+      toast.error(e?.message || t("builder.access.captchaError"));
+      onChange({ requireCaptcha: !next }); // revertir
+    } finally {
+      setSavingCaptcha(false);
     }
   }
 
@@ -178,6 +195,37 @@ export function AccessSettings({
           );
         })}
       </div>
+
+      {/* Protección anti-bot (captcha proof-of-work) — para encuestas públicas */}
+      {accessMode === "public" && (
+        <div className="mt-3 flex items-start gap-2.5 rounded-lg border border-neutral-200 px-3 py-2.5 dark:border-neutral-800">
+          <button
+            type="button"
+            role="switch"
+            aria-checked={requireCaptcha}
+            onClick={() => changeCaptcha(!requireCaptcha)}
+            disabled={savingCaptcha}
+            className={`mt-0.5 h-5 w-9 shrink-0 rounded-full transition-colors ${
+              requireCaptcha ? "bg-[#8faf0e]" : "bg-neutral-300 dark:bg-neutral-700"
+            }`}
+          >
+            <span
+              className={`block h-4 w-4 translate-x-0.5 rounded-full bg-white transition-transform ${
+                requireCaptcha ? "translate-x-[18px]" : ""
+              }`}
+            />
+          </button>
+          <span className="min-w-0">
+            <span className="block text-sm font-medium text-neutral-800 dark:text-neutral-200">
+              {t("builder.access.captcha")}
+              {savingCaptcha && <Loader2 className="ml-1.5 inline h-3 w-3 animate-spin" />}
+            </span>
+            <span className="block text-[11px] leading-snug text-neutral-400 dark:text-neutral-500">
+              {t("builder.access.captchaHint")}
+            </span>
+          </span>
+        </div>
+      )}
 
       {/* Clave (PIN) */}
       {accessMode === "pin" && (

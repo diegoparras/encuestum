@@ -85,6 +85,7 @@ export default function SurveyEditorPage() {
   const [resultsMode, setResultsMode] = useState<ResultsMode>("immediate");
   const [resultsReleased, setResultsReleased] = useState(false);
   const [notifyEmails, setNotifyEmails] = useState("");
+  const [requireCaptcha, setRequireCaptcha] = useState(false);
 
   const [saving, setSaving] = useState(false);
   const [publishing, setPublishing] = useState(false);
@@ -132,6 +133,7 @@ export default function SurveyEditorPage() {
     setResultsMode(s.results_mode ?? "immediate");
     setResultsReleased(s.results_released ?? false);
     setNotifyEmails(s.notify_emails ?? "");
+    setRequireCaptcha(s.require_captcha ?? false);
     setDirty(false);
   }, [loaded]);
 
@@ -571,6 +573,7 @@ export default function SurveyEditorPage() {
                 resultsMode={resultsMode}
                 resultsReleased={resultsReleased}
                 notifyEmails={notifyEmails}
+                requireCaptcha={requireCaptcha}
                 onChange={(patch) => {
                   if (patch.accessMode !== undefined) setAccessMode(patch.accessMode);
                   if (patch.accessPin !== undefined) setAccessPin(patch.accessPin);
@@ -579,6 +582,8 @@ export default function SurveyEditorPage() {
                     setResultsReleased(patch.resultsReleased);
                   if (patch.notifyEmails !== undefined)
                     setNotifyEmails(patch.notifyEmails);
+                  if (patch.requireCaptcha !== undefined)
+                    setRequireCaptcha(patch.requireCaptcha);
                 }}
               />
             </div>

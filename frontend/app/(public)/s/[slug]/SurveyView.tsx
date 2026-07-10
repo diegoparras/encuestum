@@ -32,6 +32,7 @@ import {
 import { Certificate } from "./Certificate";
 import { ChatSurveyView } from "./ChatSurveyView";
 import { ThankYouView } from "./ThankYouView";
+import { getCaptchaSolution } from "./captcha";
 
 // Register the custom "videoresponse" question (webcam recorder) before any
 // Survey model parses JSON that uses it.
@@ -64,6 +65,8 @@ interface PublicSurvey {
   // Distribución: pantalla de gracias personalizable y redirección al terminar.
   thankyou_message?: string | null;
   redirect_url?: string | null;
+  // Anti-bot: exige resolver un proof-of-work antes de enviar.
+  require_captcha?: boolean;
 }
 
 // Sólo permitimos redirigir a URLs http(s) absolutas; cualquier otra cosa se
@@ -430,6 +433,16 @@ export default function SurveyView({ slug }: { slug: string }) {
     survey.onComplete.add(async (sender) => {
       setSubmitting(true);
       try {
+        // Anti-bot: si la encuesta lo exige, resolvemos el proof-of-work antes de
+        // enviar (invisible para la persona, ~medio segundo).
+        let captchaSolution = null;
+        if (data.require_captcha) {
+          try {
+            captchaSolution = await getCaptchaSolution(apiBase(), slug);
+          } catch {
+            /* si falla, el backend rechazará y el usuario puede reintentar */
+          }
+        }
         const res = await fetch(
           `${apiBase()}/api/v1/survey/public/${encodeURIComponent(slug)}/submit`,
           {
@@ -440,6 +453,7 @@ export default function SurveyView({ slug }: { slug: string }) {
               completed: true,
               // Gated surveys require the access token obtained at the gate.
               ...(accessToken ? { access_token: accessToken } : {}),
+              ...(captchaSolution ? { captcha: captchaSolution } : {}),
               meta: {
                 locale: sender.locale || data.language || null,
                 referrer: typeof document !== "undefined" ? document.referrer : null,

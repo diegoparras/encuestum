@@ -62,6 +62,13 @@ class Settings:
         # Deliver responses to configured webhooks (Zapier/Sheets/…).
         self.webhooks_enabled = _bool("ENCUESTUM_WEBHOOKS_ENABLED", True)
 
+        # Anti-bot proof-of-work captcha (self-hosted, no third party). Only kicks
+        # in on surveys that opt in (require_captcha). Difficulty = size of the
+        # brute-force space; higher = costlier for bots but slower for real users.
+        self.captcha_enabled = _bool("ENCUESTUM_CAPTCHA_ENABLED", True)
+        self.captcha_max_number = int(os.getenv("ENCUESTUM_CAPTCHA_DIFFICULTY", "120000"))
+        self.captcha_ttl_seconds = int(os.getenv("ENCUESTUM_CAPTCHA_TTL_SECONDS", "600"))
+
         # Assets (uploaded images/audio for survey design).
         self.asset_dir = os.getenv(
             "ENCUESTUM_ASSET_DIR",

@@ -41,6 +41,8 @@ export interface SurveyDetail {
   // Distribución: mensaje de agradecimiento y redirección al terminar.
   thankyou_message?: string;
   redirect_url?: string;
+  // Anti-bot: exige un desafío proof-of-work antes de aceptar respuestas.
+  require_captcha?: boolean;
   created_at: string;
   updated_at: string;
 }
@@ -264,6 +266,7 @@ export const surveyApi = {
         | "notify_emails"
         | "thankyou_message"
         | "redirect_url"
+        | "require_captcha"
       >
     >
   ) =>
