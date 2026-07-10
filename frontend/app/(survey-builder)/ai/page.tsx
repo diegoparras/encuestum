@@ -188,16 +188,16 @@ function ProviderForm({
   return (
     <form
       onSubmit={onSubmit}
-      className="space-y-4 rounded-xl border border-neutral-200 bg-neutral-50 p-4"
+      className="space-y-4 rounded-xl border border-neutral-200 bg-neutral-50 p-4 dark:border-neutral-800 dark:bg-neutral-950"
     >
       <div className="flex items-center justify-between">
-        <h3 className="text-sm font-semibold text-neutral-900">
+        <h3 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">
           {editing ? "Editar proveedor" : "Nuevo proveedor"}
         </h3>
         <button
           type="button"
           onClick={onCancel}
-          className="text-neutral-400 hover:text-neutral-700"
+          className="text-neutral-400 hover:text-neutral-700 dark:text-neutral-500 dark:hover:text-neutral-300"
           aria-label="Cerrar formulario"
         >
           <X className="h-4 w-4" />
@@ -218,7 +218,7 @@ function ProviderForm({
             <option value="custom">Personalizado</option>
           </Select>
           {editing && (
-            <p className="text-[11px] text-neutral-400">
+            <p className="text-[11px] text-neutral-400 dark:text-neutral-500">
               El tipo de proveedor no se puede cambiar.
             </p>
           )}
@@ -245,7 +245,7 @@ function ProviderForm({
           placeholder="https://…/v1"
         />
         {kind !== "custom" && (
-          <p className="text-[11px] text-neutral-400">
+          <p className="text-[11px] text-neutral-400 dark:text-neutral-500">
             Se completa automáticamente según el proveedor.
           </p>
         )}
@@ -253,7 +253,7 @@ function ProviderForm({
 
       <div className="space-y-1.5">
         <Label htmlFor="prov-key">
-          API key {editing && <span className="text-neutral-400">(opcional)</span>}
+          API key {editing && <span className="text-neutral-400 dark:text-neutral-500">(opcional)</span>}
         </Label>
         <Input
           id="prov-key"
@@ -314,34 +314,34 @@ function ProviderForm({
       </div>
 
       <div className="flex flex-wrap items-center gap-6">
-        <label className="flex cursor-pointer items-center gap-2 text-sm text-neutral-700">
+        <label className="flex cursor-pointer items-center gap-2 text-sm text-neutral-700 dark:text-neutral-300">
           <input
             type="checkbox"
             checked={isDefault}
             onChange={(e) => setIsDefault(e.target.checked)}
-            className="h-4 w-4 rounded border-neutral-300 accent-[#8faf0e]"
+            className="h-4 w-4 rounded border-neutral-300 accent-[#8faf0e] dark:border-neutral-600"
           />
           Predeterminado
         </label>
 
         {editing && (
-          <label className="flex cursor-pointer items-center gap-2 text-sm text-neutral-700">
+          <label className="flex cursor-pointer items-center gap-2 text-sm text-neutral-700 dark:text-neutral-300">
             <Switch checked={enabled} onCheckedChange={setEnabled} />
             Habilitado
           </label>
         )}
 
         {!editing && isSuperadmin && (
-          <div className="flex items-center gap-2 text-sm text-neutral-700">
+          <div className="flex items-center gap-2 text-sm text-neutral-700 dark:text-neutral-300">
             <span>Alcance:</span>
-            <div className="inline-flex overflow-hidden rounded-lg border border-neutral-300">
+            <div className="inline-flex overflow-hidden rounded-lg border border-neutral-300 dark:border-neutral-700">
               <button
                 type="button"
                 onClick={() => setScope("org")}
                 className={`px-3 py-1.5 text-xs font-medium ${
                   scope === "org"
-                    ? "bg-neutral-900 text-white"
-                    : "bg-white text-neutral-600 hover:bg-neutral-50"
+                    ? "bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900"
+                    : "bg-white text-neutral-600 hover:bg-neutral-50 dark:bg-neutral-900 dark:text-neutral-300 dark:hover:bg-neutral-800"
                 }`}
               >
                 Mi organización
@@ -351,8 +351,8 @@ function ProviderForm({
                 onClick={() => setScope("global")}
                 className={`px-3 py-1.5 text-xs font-medium ${
                   scope === "global"
-                    ? "bg-neutral-900 text-white"
-                    : "bg-white text-neutral-600 hover:bg-neutral-50"
+                    ? "bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900"
+                    : "bg-white text-neutral-600 hover:bg-neutral-50 dark:bg-neutral-900 dark:text-neutral-300 dark:hover:bg-neutral-800"
                 }`}
               >
                 Global (plataforma)
@@ -413,12 +413,12 @@ function ProviderRow({
     <li className="flex flex-col gap-3 py-4 sm:flex-row sm:items-start sm:justify-between">
       <div className="min-w-0">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="font-medium text-neutral-900">{provider.name}</span>
+          <span className="font-medium text-neutral-900 dark:text-neutral-100">{provider.name}</span>
           <span
             className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium ${
               provider.scope === "global"
-                ? "bg-indigo-100 text-indigo-700"
-                : "bg-neutral-100 text-neutral-600"
+                ? "bg-indigo-100 text-indigo-700 dark:bg-indigo-950/40"
+                : "bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300"
             }`}
           >
             {provider.scope === "global" ? (
@@ -437,21 +437,21 @@ function ProviderRow({
             </span>
           )}
           {!provider.enabled && (
-            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-700">
+            <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-700 dark:bg-amber-950/40">
               Deshabilitado
             </span>
           )}
           {!provider.editable && (
-            <span className="rounded-full bg-neutral-100 px-2 py-0.5 text-[11px] font-medium text-neutral-500">
+            <span className="rounded-full bg-neutral-100 px-2 py-0.5 text-[11px] font-medium text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400">
               Solo lectura
             </span>
           )}
         </div>
-        <p className="mt-1 text-xs text-neutral-500">
+        <p className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">
           {KIND_LABEL[provider.kind]} · Modelo{" "}
-          <span className="font-mono text-neutral-700">{provider.model}</span>
+          <span className="font-mono text-neutral-700 dark:text-neutral-300">{provider.model}</span>
         </p>
-        <p className="mt-0.5 text-xs text-neutral-400">
+        <p className="mt-0.5 text-xs text-neutral-400 dark:text-neutral-500">
           {provider.base_url || "—"} · Key {provider.key_hint || "•••"}
         </p>
       </div>
@@ -466,7 +466,7 @@ function ProviderRow({
             size="sm"
             disabled={deleting}
             onClick={onDelete}
-            className="text-red-600 hover:bg-red-50 hover:text-red-700"
+            className="text-red-600 hover:bg-red-50 hover:text-red-700 dark:hover:bg-red-950/40"
           >
             {deleting ? (
               <Loader2 className="h-4 w-4 animate-spin" />
@@ -511,7 +511,7 @@ function ProvidersSection({ isSuperadmin }: { isSuperadmin: boolean }) {
     <Card>
       <CardHeader className="flex flex-row items-center justify-between gap-2">
         <div className="flex items-center gap-2">
-          <Sparkles className="h-5 w-5 text-neutral-400" />
+          <Sparkles className="h-5 w-5 text-neutral-400 dark:text-neutral-500" />
           <CardTitle>Proveedores de IA</CardTitle>
         </div>
         {!showForm && !editingId && (
@@ -534,7 +534,7 @@ function ProvidersSection({ isSuperadmin }: { isSuperadmin: boolean }) {
         ) : status === "error" ? (
           <LoadError message={error} onRetry={reload} compact />
         ) : providers && providers.length > 0 ? (
-          <ul className="divide-y divide-neutral-100">
+          <ul className="divide-y divide-neutral-100 dark:divide-neutral-800">
             {providers.map((p) =>
               editingId === p.id && editingProvider ? (
                 <li key={p.id} className="py-4">
@@ -565,8 +565,8 @@ function ProvidersSection({ isSuperadmin }: { isSuperadmin: boolean }) {
         ) : (
           providers && (
             <div className="py-8 text-center">
-              <Sparkles className="mx-auto h-8 w-8 text-neutral-300" />
-              <p className="mt-3 text-sm text-neutral-400">
+              <Sparkles className="mx-auto h-8 w-8 text-neutral-300 dark:text-neutral-600" />
+              <p className="mt-3 text-sm text-neutral-400 dark:text-neutral-500">
                 Todavía no hay proveedores de IA configurados. Agregá uno para
                 empezar a generar y corregir con IA.
               </p>
@@ -584,11 +584,11 @@ function ProvidersSection({ isSuperadmin }: { isSuperadmin: boolean }) {
 
 function StatBox({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-lg border border-neutral-200 p-4">
-      <div className="text-2xl font-bold tracking-tight text-neutral-900">
+    <div className="rounded-lg border border-neutral-200 p-4 dark:border-neutral-800">
+      <div className="text-2xl font-bold tracking-tight text-neutral-900 dark:text-neutral-100">
         {value}
       </div>
-      <div className="mt-1 text-xs text-neutral-500">{label}</div>
+      <div className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">{label}</div>
     </div>
   );
 }
@@ -621,18 +621,18 @@ function UsageSection({ isSuperadmin }: { isSuperadmin: boolean }) {
     <Card>
       <CardHeader className="flex flex-row items-center justify-between gap-2">
         <div className="flex items-center gap-2">
-          <Activity className="h-5 w-5 text-neutral-400" />
+          <Activity className="h-5 w-5 text-neutral-400 dark:text-neutral-500" />
           <CardTitle>Consumo</CardTitle>
         </div>
         {isSuperadmin && (
-          <div className="inline-flex overflow-hidden rounded-lg border border-neutral-300">
+          <div className="inline-flex overflow-hidden rounded-lg border border-neutral-300 dark:border-neutral-700">
             <button
               type="button"
               onClick={() => setScope("org")}
               className={`px-3 py-1.5 text-xs font-medium ${
                 scope === "org"
-                  ? "bg-neutral-900 text-white"
-                  : "bg-white text-neutral-600 hover:bg-neutral-50"
+                  ? "bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900"
+                  : "bg-white text-neutral-600 hover:bg-neutral-50 dark:bg-neutral-900 dark:text-neutral-300 dark:hover:bg-neutral-800"
               }`}
             >
               Mi organización
@@ -642,8 +642,8 @@ function UsageSection({ isSuperadmin }: { isSuperadmin: boolean }) {
               onClick={() => setScope("global")}
               className={`px-3 py-1.5 text-xs font-medium ${
                 scope === "global"
-                  ? "bg-neutral-900 text-white"
-                  : "bg-white text-neutral-600 hover:bg-neutral-50"
+                  ? "bg-neutral-900 text-white dark:bg-neutral-100 dark:text-neutral-900"
+                  : "bg-white text-neutral-600 hover:bg-neutral-50 dark:bg-neutral-900 dark:text-neutral-300 dark:hover:bg-neutral-800"
               }`}
             >
               Global (plataforma)
@@ -653,7 +653,7 @@ function UsageSection({ isSuperadmin }: { isSuperadmin: boolean }) {
       </CardHeader>
       <CardContent className="space-y-5">
         {loading ? (
-          <div className="flex items-center justify-center py-8 text-neutral-400">
+          <div className="flex items-center justify-center py-8 text-neutral-400 dark:text-neutral-500">
             <Loader2 className="h-5 w-5 animate-spin" />
           </div>
         ) : error ? (
@@ -693,7 +693,7 @@ function UsageSection({ isSuperadmin }: { isSuperadmin: boolean }) {
               <div className="overflow-x-auto">
                 <table className="w-full min-w-[640px] text-sm">
                   <thead>
-                    <tr className="border-b border-neutral-200 text-left text-xs uppercase tracking-wide text-neutral-400">
+                    <tr className="border-b border-neutral-200 text-left text-xs uppercase tracking-wide text-neutral-400 dark:border-neutral-800 dark:text-neutral-500">
                       <th className="pb-2 font-medium">Operación</th>
                       <th className="pb-2 font-medium">Modelo</th>
                       <th className="pb-2 font-medium">Tokens</th>
@@ -701,22 +701,22 @@ function UsageSection({ isSuperadmin }: { isSuperadmin: boolean }) {
                       <th className="pb-2 font-medium">Fecha</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-neutral-100">
+                  <tbody className="divide-y divide-neutral-100 dark:divide-neutral-800">
                     {report.recent.map((r) => (
                       <tr key={r.id}>
-                        <td className="py-3 pr-4 text-neutral-700">
+                        <td className="py-3 pr-4 text-neutral-700 dark:text-neutral-300">
                           {OPERATION_LABEL[r.operation] ?? r.operation}
                         </td>
-                        <td className="py-3 pr-4 font-mono text-xs text-neutral-600">
+                        <td className="py-3 pr-4 font-mono text-xs text-neutral-600 dark:text-neutral-300">
                           {r.model}
                         </td>
-                        <td className="py-3 pr-4 text-neutral-700">
+                        <td className="py-3 pr-4 text-neutral-700 dark:text-neutral-300">
                           {r.total_tokens.toLocaleString("es")}
                         </td>
-                        <td className="py-3 pr-4 text-neutral-700">
+                        <td className="py-3 pr-4 text-neutral-700 dark:text-neutral-300">
                           {formatCost(r.cost_usd)}
                         </td>
-                        <td className="py-3 text-neutral-500">
+                        <td className="py-3 text-neutral-500 dark:text-neutral-400">
                           {formatDateTime(r.created_at)}
                         </td>
                       </tr>
@@ -725,7 +725,7 @@ function UsageSection({ isSuperadmin }: { isSuperadmin: boolean }) {
                 </table>
               </div>
             ) : (
-              <p className="py-6 text-center text-sm text-neutral-400">
+              <p className="py-6 text-center text-sm text-neutral-400 dark:text-neutral-500">
                 Todavía no hay consumo registrado.
               </p>
             )}
@@ -844,7 +844,7 @@ function PricesSection() {
     <Card>
       <CardHeader className="flex flex-row items-center justify-between gap-2">
         <div className="flex items-center gap-2">
-          <DollarSign className="h-5 w-5 text-neutral-400" />
+          <DollarSign className="h-5 w-5 text-neutral-400 dark:text-neutral-500" />
           <CardTitle>Precios</CardTitle>
         </div>
         {editable && !draft && (
@@ -854,12 +854,12 @@ function PricesSection() {
         )}
       </CardHeader>
       <CardContent className="space-y-4">
-        <p className="text-xs text-neutral-400">
+        <p className="text-xs text-neutral-400 dark:text-neutral-500">
           Precios en dólares por cada 1&nbsp;millón de tokens.
         </p>
 
         {draft && (
-          <div className="grid grid-cols-1 gap-3 rounded-xl border border-neutral-200 bg-neutral-50 p-4 sm:grid-cols-5 sm:items-end">
+          <div className="grid grid-cols-1 gap-3 rounded-xl border border-neutral-200 bg-neutral-50 p-4 sm:grid-cols-5 sm:items-end dark:border-neutral-800 dark:bg-neutral-950">
             <div className="space-y-1.5">
               <Label htmlFor="price-kind">Tipo</Label>
               <Select
@@ -926,7 +926,7 @@ function PricesSection() {
         )}
 
         {loading ? (
-          <div className="flex items-center justify-center py-8 text-neutral-400">
+          <div className="flex items-center justify-center py-8 text-neutral-400 dark:text-neutral-500">
             <Loader2 className="h-5 w-5 animate-spin" />
           </div>
         ) : error ? (
@@ -945,7 +945,7 @@ function PricesSection() {
           <div className="overflow-x-auto">
             <table className="w-full min-w-[600px] text-sm">
               <thead>
-                <tr className="border-b border-neutral-200 text-left text-xs uppercase tracking-wide text-neutral-400">
+                <tr className="border-b border-neutral-200 text-left text-xs uppercase tracking-wide text-neutral-400 dark:border-neutral-800 dark:text-neutral-500">
                   <th className="pb-2 font-medium">Tipo</th>
                   <th className="pb-2 font-medium">Modelo</th>
                   <th className="pb-2 font-medium">Entrada / 1M</th>
@@ -954,27 +954,27 @@ function PricesSection() {
                   {editable && <th className="pb-2 font-medium text-right">Acciones</th>}
                 </tr>
               </thead>
-              <tbody className="divide-y divide-neutral-100">
+              <tbody className="divide-y divide-neutral-100 dark:divide-neutral-800">
                 {data.prices.map((row, i) => (
                   <tr key={row.id ?? `${row.kind}-${row.model}-${i}`}>
-                    <td className="py-3 pr-4 text-neutral-600">
+                    <td className="py-3 pr-4 text-neutral-600 dark:text-neutral-300">
                       {KIND_LABEL[row.kind]}
                     </td>
-                    <td className="py-3 pr-4 font-mono text-xs text-neutral-700">
+                    <td className="py-3 pr-4 font-mono text-xs text-neutral-700 dark:text-neutral-300">
                       {row.model}
                     </td>
-                    <td className="py-3 pr-4 text-neutral-700">
+                    <td className="py-3 pr-4 text-neutral-700 dark:text-neutral-300">
                       US$ {row.input_per_m}
                     </td>
-                    <td className="py-3 pr-4 text-neutral-700">
+                    <td className="py-3 pr-4 text-neutral-700 dark:text-neutral-300">
                       US$ {row.output_per_m}
                     </td>
                     <td className="py-3 pr-4">
                       <span
                         className={`rounded-full px-2 py-0.5 text-[11px] font-medium ${
                           row.source === "custom"
-                            ? "bg-emerald-100 text-emerald-700"
-                            : "bg-neutral-100 text-neutral-500"
+                            ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40"
+                            : "bg-neutral-100 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400"
                         }`}
                       >
                         {row.source === "custom" ? "Personalizado" : "Por defecto"}
@@ -996,7 +996,7 @@ function PricesSection() {
                               size="sm"
                               disabled={deletingId === row.id}
                               onClick={() => onDelete(row)}
-                              className="text-red-600 hover:bg-red-50 hover:text-red-700"
+                              className="text-red-600 hover:bg-red-50 hover:text-red-700 dark:hover:bg-red-950/40"
                             >
                               {deletingId === row.id ? (
                                 <Loader2 className="h-4 w-4 animate-spin" />
@@ -1015,7 +1015,7 @@ function PricesSection() {
           </div>
         ) : (
           data && (
-            <p className="py-6 text-center text-sm text-neutral-400">
+            <p className="py-6 text-center text-sm text-neutral-400 dark:text-neutral-500">
               No hay precios configurados.
             </p>
           )
@@ -1048,8 +1048,8 @@ export default function AiPage() {
   return (
     <div className="space-y-8">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight text-neutral-900">IA</h1>
-        <p className="mt-1 text-sm text-neutral-500">
+        <h1 className="text-2xl font-bold tracking-tight text-neutral-900 dark:text-neutral-100">IA</h1>
+        <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
           Configurá proveedores de inteligencia artificial, seguí el consumo y
           administrá los precios de los modelos.
         </p>

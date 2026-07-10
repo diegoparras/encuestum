@@ -36,15 +36,15 @@ export default function ForgotPage() {
   return (
     <Card>
       <CardContent className="py-6">
-        <h1 className="text-xl font-semibold text-neutral-900">
+        <h1 className="text-xl font-semibold text-neutral-900 dark:text-neutral-100">
           Recuperar contraseña
         </h1>
-        <p className="mt-1 text-sm text-neutral-500">
+        <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
           Ingresá tu correo y te enviaremos un enlace para restablecerla.
         </p>
 
         {message ? (
-          <p className="mt-6 rounded-lg bg-green-50 px-3 py-2 text-sm text-green-700">
+          <p className="mt-6 rounded-lg bg-green-50 px-3 py-2 text-sm text-green-700 dark:bg-green-950/40">
             {message}
           </p>
         ) : (
@@ -63,7 +63,7 @@ export default function ForgotPage() {
             </div>
 
             {error && (
-              <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+              <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950/40">
                 {error}
               </p>
             )}
@@ -75,7 +75,7 @@ export default function ForgotPage() {
           </form>
         )}
 
-        <p className="mt-6 text-center text-sm text-neutral-500">
+        <p className="mt-6 text-center text-sm text-neutral-500 dark:text-neutral-400">
           <Link href="/login" className="font-medium text-primary hover:underline">
             Volver a Ingresar
           </Link>

@@ -80,7 +80,7 @@ export function PropertiesPanel({
             onChange={(e) => onSurveyChange({ description: e.target.value })}
             rows={3}
             placeholder="Un subtítulo o contexto para quien responde"
-            className="w-full rounded-md border border-neutral-200 px-2.5 py-2 text-sm outline-none focus:border-neutral-400"
+            className="w-full rounded-md border border-neutral-200 px-2.5 py-2 text-sm outline-none focus:border-neutral-400 dark:bg-neutral-800 dark:border-neutral-700 dark:text-neutral-100 dark:placeholder:text-neutral-500"
           />
         </Field>
         <ToggleRow
@@ -98,7 +98,7 @@ export function PropertiesPanel({
           />
         )}
 
-        <div className="mt-5 border-t border-neutral-100 pt-4">
+        <div className="mt-5 border-t border-neutral-100 dark:border-neutral-800 pt-4">
           <SectionTitle>Cierre automático</SectionTitle>
           <Field label="Cerrar en una fecha (opcional)">
             <input
@@ -109,7 +109,7 @@ export function PropertiesPanel({
                   closesAt: e.target.value ? new Date(e.target.value).toISOString() : null,
                 })
               }
-              className="w-full rounded-md border border-neutral-200 px-2.5 py-2 text-sm outline-none focus:border-neutral-400"
+              className="w-full rounded-md border border-neutral-200 px-2.5 py-2 text-sm outline-none focus:border-neutral-400 dark:bg-neutral-800 dark:border-neutral-700 dark:text-neutral-100 dark:placeholder:text-neutral-500"
             />
           </Field>
           <Field label="Máximo de respuestas (opcional)">
@@ -123,15 +123,15 @@ export function PropertiesPanel({
                   maxResponses: e.target.value ? Math.max(1, parseInt(e.target.value, 10) || 1) : null,
                 })
               }
-              className="w-full rounded-md border border-neutral-200 px-2.5 py-2 text-sm outline-none focus:border-neutral-400"
+              className="w-full rounded-md border border-neutral-200 px-2.5 py-2 text-sm outline-none focus:border-neutral-400 dark:bg-neutral-800 dark:border-neutral-700 dark:text-neutral-100 dark:placeholder:text-neutral-500"
             />
           </Field>
-          <p className="text-xs text-neutral-400">
+          <p className="text-xs text-neutral-400 dark:text-neutral-500">
             La encuesta deja de aceptar respuestas al llegar la fecha o el cupo.
           </p>
         </div>
 
-        <div className="mt-5 border-t border-neutral-100 pt-4">
+        <div className="mt-5 border-t border-neutral-100 dark:border-neutral-800 pt-4">
           <SectionTitle>Al terminar</SectionTitle>
           <Field label="Mensaje de agradecimiento">
             <textarea
@@ -139,10 +139,10 @@ export function PropertiesPanel({
               onChange={(e) => onSurveyChange({ thankyouMessage: e.target.value })}
               rows={3}
               placeholder="¡Gracias por responder!"
-              className="w-full rounded-md border border-neutral-200 px-2.5 py-2 text-sm outline-none focus:border-neutral-400"
+              className="w-full rounded-md border border-neutral-200 px-2.5 py-2 text-sm outline-none focus:border-neutral-400 dark:bg-neutral-800 dark:border-neutral-700 dark:text-neutral-100 dark:placeholder:text-neutral-500"
             />
           </Field>
-          <p className="-mt-2 mb-4 text-xs text-neutral-400">
+          <p className="-mt-2 mb-4 text-xs text-neutral-400 dark:text-neutral-500">
             Se muestra al terminar. Si lo dejás vacío, se muestra el mensaje por
             defecto.
           </p>
@@ -152,10 +152,10 @@ export function PropertiesPanel({
               value={redirectUrl}
               onChange={(e) => onSurveyChange({ redirectUrl: e.target.value })}
               placeholder="https://tu-sitio.com/gracias"
-              className="w-full rounded-md border border-neutral-200 px-2.5 py-2 text-sm outline-none focus:border-neutral-400"
+              className="w-full rounded-md border border-neutral-200 px-2.5 py-2 text-sm outline-none focus:border-neutral-400 dark:bg-neutral-800 dark:border-neutral-700 dark:text-neutral-100 dark:placeholder:text-neutral-500"
             />
           </Field>
-          <p className="-mt-2 text-xs text-neutral-400">
+          <p className="-mt-2 text-xs text-neutral-400 dark:text-neutral-500">
             Al enviar, se redirige a esta URL (ej. tu sitio o un agradecimiento
             propio). Si está seteada, tiene prioridad sobre el mensaje.
           </p>
@@ -167,7 +167,7 @@ export function PropertiesPanel({
           accent={accent}
         />
 
-        <p className="mt-6 text-xs text-neutral-400 leading-relaxed">
+        <p className="mt-6 text-xs text-neutral-400 dark:text-neutral-500 leading-relaxed">
           Seleccioná una pregunta de la izquierda para editar su contenido, o
           agregá una nueva desde la paleta.
         </p>
@@ -187,7 +187,7 @@ export function PropertiesPanel({
           <input
             value={q.title}
             onChange={(e) => onQuestionChange({ title: e.target.value })}
-            className="w-full rounded-md border border-neutral-200 px-2.5 py-2 text-sm outline-none focus:border-neutral-400"
+            className="w-full rounded-md border border-neutral-200 px-2.5 py-2 text-sm outline-none focus:border-neutral-400 dark:bg-neutral-800 dark:border-neutral-700 dark:text-neutral-100 dark:placeholder:text-neutral-500"
           />
         </Field>
 
@@ -197,11 +197,11 @@ export function PropertiesPanel({
             onChange={(e) => onQuestionChange({ description: e.target.value })}
             rows={3}
             placeholder="Un texto introductorio para esta sección"
-            className="w-full rounded-md border border-neutral-200 px-2.5 py-2 text-sm outline-none focus:border-neutral-400"
+            className="w-full rounded-md border border-neutral-200 px-2.5 py-2 text-sm outline-none focus:border-neutral-400 dark:bg-neutral-800 dark:border-neutral-700 dark:text-neutral-100 dark:placeholder:text-neutral-500"
           />
         </Field>
 
-        <p className="rounded-lg border border-neutral-100 bg-neutral-50/60 p-3 text-xs leading-relaxed text-neutral-500">
+        <p className="rounded-lg border border-neutral-100 dark:border-neutral-800 bg-neutral-50/60 dark:bg-neutral-900/60 p-3 text-xs leading-relaxed text-neutral-500 dark:text-neutral-400">
           Las preguntas debajo de esta sección quedan agrupadas. En modo normal,
           cada sección es una página con botón Siguiente; en una-por-pantalla,
           la sección muestra una portada.
@@ -220,7 +220,7 @@ export function PropertiesPanel({
         <input
           value={q.title}
           onChange={(e) => onQuestionChange({ title: e.target.value })}
-          className="w-full rounded-md border border-neutral-200 px-2.5 py-2 text-sm outline-none focus:border-neutral-400"
+          className="w-full rounded-md border border-neutral-200 px-2.5 py-2 text-sm outline-none focus:border-neutral-400 dark:bg-neutral-800 dark:border-neutral-700 dark:text-neutral-100 dark:placeholder:text-neutral-500"
         />
       </Field>
 
@@ -230,7 +230,7 @@ export function PropertiesPanel({
           onChange={(e) => onQuestionChange({ description: e.target.value })}
           rows={2}
           placeholder="Texto de ayuda debajo de la pregunta"
-          className="w-full rounded-md border border-neutral-200 px-2.5 py-2 text-sm outline-none focus:border-neutral-400"
+          className="w-full rounded-md border border-neutral-200 px-2.5 py-2 text-sm outline-none focus:border-neutral-400 dark:bg-neutral-800 dark:border-neutral-700 dark:text-neutral-100 dark:placeholder:text-neutral-500"
         />
       </Field>
 
@@ -248,8 +248,8 @@ export function PropertiesPanel({
       />
 
       {/* Estilo SOLO de esta pregunta (pisa el diseño general) */}
-      <div className="mt-1 mb-4 rounded-lg border border-neutral-100 bg-neutral-50/60 p-3">
-        <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-neutral-400">
+      <div className="mt-1 mb-4 rounded-lg border border-neutral-100 dark:border-neutral-800 bg-neutral-50/60 dark:bg-neutral-900/60 p-3">
+        <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-neutral-400 dark:text-neutral-500">
           Estilo de esta pregunta
         </p>
 
@@ -270,8 +270,8 @@ export function PropertiesPanel({
                   onClick={() => onQuestionChange({ align: opt.value })}
                   className={`rounded-md border px-2 py-1.5 text-xs font-medium transition-colors ${
                     active
-                      ? "border-[#8faf0e] bg-[#8faf0e0a] text-neutral-800"
-                      : "border-neutral-200 text-neutral-500 hover:border-neutral-300"
+                      ? "border-[#8faf0e] bg-[#8faf0e0a] text-neutral-800 dark:text-neutral-200"
+                      : "border-neutral-200 dark:border-neutral-800 text-neutral-500 dark:text-neutral-400 hover:border-neutral-300 dark:hover:border-neutral-700"
                   }`}
                 >
                   {opt.label}
@@ -289,9 +289,9 @@ export function PropertiesPanel({
         />
         {q.boxOpacity != null && (
           <div className="mt-2">
-            <div className="mb-1 flex items-center justify-between text-xs text-neutral-600">
+            <div className="mb-1 flex items-center justify-between text-xs text-neutral-600 dark:text-neutral-300">
               <span>Opacidad del cuadro</span>
-              <span className="tabular-nums text-neutral-400">
+              <span className="tabular-nums text-neutral-400 dark:text-neutral-500">
                 {Math.round((q.boxOpacity ?? 0) * 100)}%
               </span>
             </div>
@@ -305,7 +305,7 @@ export function PropertiesPanel({
               }
               className="w-full accent-[#8faf0e]"
             />
-            <p className="mt-1 text-[11px] leading-relaxed text-neutral-400">
+            <p className="mt-1 text-[11px] leading-relaxed text-neutral-400 dark:text-neutral-500">
               0% = sin cuadro (ideal para escalas/NPS sobre una imagen de fondo).
             </p>
           </div>
@@ -317,7 +317,7 @@ export function PropertiesPanel({
           <input
             value={q.placeholder ?? ""}
             onChange={(e) => onQuestionChange({ placeholder: e.target.value })}
-            className="w-full rounded-md border border-neutral-200 px-2.5 py-2 text-sm outline-none focus:border-neutral-400"
+            className="w-full rounded-md border border-neutral-200 px-2.5 py-2 text-sm outline-none focus:border-neutral-400 dark:bg-neutral-800 dark:border-neutral-700 dark:text-neutral-100 dark:placeholder:text-neutral-500"
           />
         </Field>
       )}
@@ -336,9 +336,9 @@ export function PropertiesPanel({
                   : undefined,
               })
             }
-            className="w-full rounded-md border border-neutral-200 px-2.5 py-2 text-sm outline-none focus:border-neutral-400"
+            className="w-full rounded-md border border-neutral-200 px-2.5 py-2 text-sm outline-none focus:border-neutral-400 dark:bg-neutral-800 dark:border-neutral-700 dark:text-neutral-100 dark:placeholder:text-neutral-500"
           />
-          <p className="mt-1 text-xs text-neutral-400">
+          <p className="mt-1 text-xs text-neutral-400 dark:text-neutral-500">
             Quien responde ve un contador y no puede pasarse.
           </p>
         </Field>
@@ -383,8 +383,8 @@ export function PropertiesPanel({
                     onClick={() => onQuestionChange({ ratePresentation: p.id })}
                     className={`rounded-md border px-2.5 py-2 text-xs font-medium transition-colors ${
                       active
-                        ? "border-[#8faf0e] bg-[#8faf0e0a] text-neutral-800"
-                        : "border-neutral-200 text-neutral-500 hover:border-neutral-300"
+                        ? "border-[#8faf0e] bg-[#8faf0e0a] text-neutral-800 dark:text-neutral-200"
+                        : "border-neutral-200 dark:border-neutral-800 text-neutral-500 dark:text-neutral-400 hover:border-neutral-300 dark:hover:border-neutral-700"
                     }`}
                   >
                     {p.label}
@@ -401,7 +401,7 @@ export function PropertiesPanel({
                 onChange={(e) =>
                   onQuestionChange({ rateMin: Number(e.target.value) })
                 }
-                className="w-full rounded-md border border-neutral-200 px-2.5 py-2 text-sm outline-none focus:border-neutral-400"
+                className="w-full rounded-md border border-neutral-200 px-2.5 py-2 text-sm outline-none focus:border-neutral-400 dark:bg-neutral-800 dark:border-neutral-700 dark:text-neutral-100 dark:placeholder:text-neutral-500"
               />
             </Field>
             <Field label="Máximo">
@@ -411,7 +411,7 @@ export function PropertiesPanel({
                 onChange={(e) =>
                   onQuestionChange({ rateMax: Number(e.target.value) })
                 }
-                className="w-full rounded-md border border-neutral-200 px-2.5 py-2 text-sm outline-none focus:border-neutral-400"
+                className="w-full rounded-md border border-neutral-200 px-2.5 py-2 text-sm outline-none focus:border-neutral-400 dark:bg-neutral-800 dark:border-neutral-700 dark:text-neutral-100 dark:placeholder:text-neutral-500"
               />
             </Field>
           </div>
@@ -421,7 +421,7 @@ export function PropertiesPanel({
               onChange={(e) =>
                 onQuestionChange({ minRateDescription: e.target.value })
               }
-              className="w-full rounded-md border border-neutral-200 px-2.5 py-2 text-sm outline-none focus:border-neutral-400"
+              className="w-full rounded-md border border-neutral-200 px-2.5 py-2 text-sm outline-none focus:border-neutral-400 dark:bg-neutral-800 dark:border-neutral-700 dark:text-neutral-100 dark:placeholder:text-neutral-500"
             />
           </Field>
           <Field label="Etiqueta del máximo">
@@ -430,7 +430,7 @@ export function PropertiesPanel({
               onChange={(e) =>
                 onQuestionChange({ maxRateDescription: e.target.value })
               }
-              className="w-full rounded-md border border-neutral-200 px-2.5 py-2 text-sm outline-none focus:border-neutral-400"
+              className="w-full rounded-md border border-neutral-200 px-2.5 py-2 text-sm outline-none focus:border-neutral-400 dark:bg-neutral-800 dark:border-neutral-700 dark:text-neutral-100 dark:placeholder:text-neutral-500"
             />
           </Field>
         </>
@@ -442,14 +442,14 @@ export function PropertiesPanel({
             <input
               value={q.labelTrue ?? ""}
               onChange={(e) => onQuestionChange({ labelTrue: e.target.value })}
-              className="w-full rounded-md border border-neutral-200 px-2.5 py-2 text-sm outline-none focus:border-neutral-400"
+              className="w-full rounded-md border border-neutral-200 px-2.5 py-2 text-sm outline-none focus:border-neutral-400 dark:bg-neutral-800 dark:border-neutral-700 dark:text-neutral-100 dark:placeholder:text-neutral-500"
             />
           </Field>
           <Field label="Etiqueta “No”">
             <input
               value={q.labelFalse ?? ""}
               onChange={(e) => onQuestionChange({ labelFalse: e.target.value })}
-              className="w-full rounded-md border border-neutral-200 px-2.5 py-2 text-sm outline-none focus:border-neutral-400"
+              className="w-full rounded-md border border-neutral-200 px-2.5 py-2 text-sm outline-none focus:border-neutral-400 dark:bg-neutral-800 dark:border-neutral-700 dark:text-neutral-100 dark:placeholder:text-neutral-500"
             />
           </Field>
         </div>
@@ -479,7 +479,7 @@ export function PropertiesPanel({
               type="date"
               value={q.dateMin ?? ""}
               onChange={(e) => onQuestionChange({ dateMin: e.target.value || undefined })}
-              className="w-full rounded-md border border-neutral-200 px-2.5 py-2 text-sm outline-none focus:border-neutral-400"
+              className="w-full rounded-md border border-neutral-200 px-2.5 py-2 text-sm outline-none focus:border-neutral-400 dark:bg-neutral-800 dark:border-neutral-700 dark:text-neutral-100 dark:placeholder:text-neutral-500"
             />
           </Field>
           <Field label="Fecha máxima (opcional)">
@@ -487,7 +487,7 @@ export function PropertiesPanel({
               type="date"
               value={q.dateMax ?? ""}
               onChange={(e) => onQuestionChange({ dateMax: e.target.value || undefined })}
-              className="w-full rounded-md border border-neutral-200 px-2.5 py-2 text-sm outline-none focus:border-neutral-400"
+              className="w-full rounded-md border border-neutral-200 px-2.5 py-2 text-sm outline-none focus:border-neutral-400 dark:bg-neutral-800 dark:border-neutral-700 dark:text-neutral-100 dark:placeholder:text-neutral-500"
             />
           </Field>
         </div>
@@ -506,7 +506,7 @@ export function PropertiesPanel({
               value={q.fileAccept ?? ""}
               onChange={(e) => onQuestionChange({ fileAccept: e.target.value })}
               placeholder="Ej. .pdf,.docx,.jpg (vacío = cualquiera)"
-              className="w-full rounded-md border border-neutral-200 px-2.5 py-2 text-sm outline-none focus:border-neutral-400"
+              className="w-full rounded-md border border-neutral-200 px-2.5 py-2 text-sm outline-none focus:border-neutral-400 dark:bg-neutral-800 dark:border-neutral-700 dark:text-neutral-100 dark:placeholder:text-neutral-500"
             />
           </Field>
         </>
@@ -536,7 +536,7 @@ export function PropertiesPanel({
       />
 
       <details className="mt-4 group">
-        <summary className="cursor-pointer text-xs font-medium text-neutral-400 hover:text-neutral-600 select-none">
+        <summary className="cursor-pointer text-xs font-medium text-neutral-400 dark:text-neutral-500 hover:text-neutral-600 dark:hover:text-neutral-300 select-none">
           Avanzado
         </summary>
         <Field label="Clave / variable (para exportar datos)">
@@ -547,7 +547,7 @@ export function PropertiesPanel({
                 name: e.target.value.replace(/\s+/g, "_"),
               })
             }
-            className="w-full rounded-md border border-neutral-200 px-2.5 py-2 text-sm font-mono outline-none focus:border-neutral-400"
+            className="w-full rounded-md border border-neutral-200 px-2.5 py-2 text-sm font-mono outline-none focus:border-neutral-400 dark:bg-neutral-800 dark:border-neutral-700 dark:text-neutral-100 dark:placeholder:text-neutral-500"
           />
         </Field>
       </details>
@@ -605,7 +605,7 @@ function VisibilitySection({
     : false;
 
   return (
-    <div className="mt-4 rounded-xl border border-neutral-200 p-3">
+    <div className="mt-4 rounded-xl border border-neutral-200 dark:border-neutral-800 p-3">
       <ToggleRow
         label="Lógica de visibilidad"
         hint="Mostrar esta pregunta sólo si…"
@@ -614,7 +614,7 @@ function VisibilitySection({
       />
 
       {others.length === 0 && !enabled && (
-        <p className="mt-1 text-[11px] text-neutral-400">
+        <p className="mt-1 text-[11px] text-neutral-400 dark:text-neutral-500">
           Necesitás otra pregunta antes para condicionar esta.
         </p>
       )}
@@ -625,7 +625,7 @@ function VisibilitySection({
             <select
               value={rule.questionName}
               onChange={(e) => patchRule({ questionName: e.target.value })}
-              className="w-full rounded-md border border-neutral-200 px-2.5 py-1.5 text-sm outline-none focus:border-neutral-400 bg-white"
+              className="w-full rounded-md border border-neutral-200 px-2.5 py-1.5 text-sm outline-none focus:border-neutral-400 bg-white dark:bg-neutral-800 dark:border-neutral-700 dark:text-neutral-100 dark:placeholder:text-neutral-500"
             >
               {others.map((x) => (
                 <option key={x.id} value={x.name}>
@@ -641,7 +641,7 @@ function VisibilitySection({
               onChange={(e) =>
                 patchRule({ operator: e.target.value as LogicOperator })
               }
-              className="w-full rounded-md border border-neutral-200 px-2.5 py-1.5 text-sm outline-none focus:border-neutral-400 bg-white"
+              className="w-full rounded-md border border-neutral-200 px-2.5 py-1.5 text-sm outline-none focus:border-neutral-400 bg-white dark:bg-neutral-800 dark:border-neutral-700 dark:text-neutral-100 dark:placeholder:text-neutral-500"
             >
               {OPERATOR_OPTIONS.map((o) => (
                 <option key={o.value} value={o.value}>
@@ -657,7 +657,7 @@ function VisibilitySection({
                 <select
                   value={rule.value}
                   onChange={(e) => patchRule({ value: e.target.value })}
-                  className="w-full rounded-md border border-neutral-200 px-2.5 py-1.5 text-sm outline-none focus:border-neutral-400 bg-white"
+                  className="w-full rounded-md border border-neutral-200 px-2.5 py-1.5 text-sm outline-none focus:border-neutral-400 bg-white dark:bg-neutral-800 dark:border-neutral-700 dark:text-neutral-100 dark:placeholder:text-neutral-500"
                 >
                   <option value="">Elegí una opción…</option>
                   {referencedChoices.map((c) => (
@@ -671,7 +671,7 @@ function VisibilitySection({
                   value={rule.value}
                   onChange={(e) => patchRule({ value: e.target.value })}
                   placeholder="Valor a comparar"
-                  className="w-full rounded-md border border-neutral-200 px-2.5 py-2 text-sm outline-none focus:border-neutral-400"
+                  className="w-full rounded-md border border-neutral-200 px-2.5 py-2 text-sm outline-none focus:border-neutral-400 dark:bg-neutral-800 dark:border-neutral-700 dark:text-neutral-100 dark:placeholder:text-neutral-500"
                 />
               )}
             </Field>
@@ -747,11 +747,11 @@ function BranchingSection({
   }
 
   return (
-    <div className="mt-4 rounded-xl border border-neutral-200 p-3">
-      <div className="mb-1 inline-flex items-center gap-1.5 text-xs font-semibold text-neutral-600">
-        <GitBranch className="h-3.5 w-3.5 text-neutral-400" /> Bifurcación (saltos)
+    <div className="mt-4 rounded-xl border border-neutral-200 dark:border-neutral-800 p-3">
+      <div className="mb-1 inline-flex items-center gap-1.5 text-xs font-semibold text-neutral-600 dark:text-neutral-300">
+        <GitBranch className="h-3.5 w-3.5 text-neutral-400 dark:text-neutral-500" /> Bifurcación (saltos)
       </div>
-      <p className="mb-2 text-[11px] leading-relaxed text-neutral-400">
+      <p className="mb-2 text-[11px] leading-relaxed text-neutral-400 dark:text-neutral-500">
         Según la respuesta, salta a una pregunta posterior o termina la encuesta.
       </p>
 
@@ -760,12 +760,12 @@ function BranchingSection({
         return (
           <div
             key={rule.id}
-            className="mb-2 rounded-lg border border-neutral-100 bg-neutral-50/60 p-2.5"
+            className="mb-2 rounded-lg border border-neutral-100 dark:border-neutral-800 bg-neutral-50/60 dark:bg-neutral-900/60 p-2.5"
           >
             <div className="flex items-start gap-2">
               <div className="min-w-0 flex-1 space-y-2">
                 <div className="flex items-center gap-2">
-                  <span className="shrink-0 text-xs text-neutral-500">
+                  <span className="shrink-0 text-xs text-neutral-500 dark:text-neutral-400">
                     Si la respuesta
                   </span>
                   <select
@@ -775,7 +775,7 @@ function BranchingSection({
                         operator: e.target.value as LogicOperator,
                       })
                     }
-                    className="min-w-0 flex-1 rounded-md border border-neutral-200 bg-white px-2 py-1.5 text-sm outline-none focus:border-neutral-400"
+                    className="min-w-0 flex-1 rounded-md border border-neutral-200 bg-white px-2 py-1.5 text-sm outline-none focus:border-neutral-400 dark:bg-neutral-800 dark:border-neutral-700 dark:text-neutral-100 dark:placeholder:text-neutral-500"
                   >
                     {BRANCH_OPERATOR_OPTIONS.map((o) => (
                       <option key={o.value} value={o.value}>
@@ -790,7 +790,7 @@ function BranchingSection({
                     <select
                       value={rule.value}
                       onChange={(e) => patchRule(rule.id, { value: e.target.value })}
-                      className="w-full rounded-md border border-neutral-200 bg-white px-2 py-1.5 text-sm outline-none focus:border-neutral-400"
+                      className="w-full rounded-md border border-neutral-200 bg-white px-2 py-1.5 text-sm outline-none focus:border-neutral-400 dark:bg-neutral-800 dark:border-neutral-700 dark:text-neutral-100 dark:placeholder:text-neutral-500"
                     >
                       <option value="">Elegí una opción…</option>
                       {currentChoices.map((c) => (
@@ -804,16 +804,16 @@ function BranchingSection({
                       value={rule.value}
                       onChange={(e) => patchRule(rule.id, { value: e.target.value })}
                       placeholder="Valor a comparar"
-                      className="w-full rounded-md border border-neutral-200 px-2 py-1.5 text-sm outline-none focus:border-neutral-400"
+                      className="w-full rounded-md border border-neutral-200 px-2 py-1.5 text-sm outline-none focus:border-neutral-400 dark:bg-neutral-800 dark:border-neutral-700 dark:text-neutral-100 dark:placeholder:text-neutral-500"
                     />
                   ))}
 
                 <div className="flex items-center gap-2">
-                  <span className="shrink-0 text-xs text-neutral-500">→ Ir a</span>
+                  <span className="shrink-0 text-xs text-neutral-500 dark:text-neutral-400">→ Ir a</span>
                   <select
                     value={rule.target}
                     onChange={(e) => patchRule(rule.id, { target: e.target.value })}
-                    className="min-w-0 flex-1 rounded-md border border-neutral-200 bg-white px-2 py-1.5 text-sm outline-none focus:border-neutral-400"
+                    className="min-w-0 flex-1 rounded-md border border-neutral-200 bg-white px-2 py-1.5 text-sm outline-none focus:border-neutral-400 dark:bg-neutral-800 dark:border-neutral-700 dark:text-neutral-100 dark:placeholder:text-neutral-500"
                   >
                     {targets.map(({ q: x, i }) => (
                       <option key={x.id} value={x.name}>
@@ -828,7 +828,7 @@ function BranchingSection({
               <button
                 type="button"
                 onClick={() => removeRule(rule.id)}
-                className="shrink-0 p-1 text-neutral-400 hover:text-red-600"
+                className="shrink-0 p-1 text-neutral-400 dark:text-neutral-500 hover:text-red-600"
                 aria-label="Eliminar salto"
                 title="Eliminar salto"
               >
@@ -842,13 +842,13 @@ function BranchingSection({
       <button
         type="button"
         onClick={addRule}
-        className="mt-1 inline-flex items-center gap-1 rounded-md border border-dashed border-neutral-300 px-2.5 py-1.5 text-xs font-medium text-neutral-500 transition-colors hover:border-neutral-400 hover:text-neutral-700"
+        className="mt-1 inline-flex items-center gap-1 rounded-md border border-dashed border-neutral-300 dark:border-neutral-700 px-2.5 py-1.5 text-xs font-medium text-neutral-500 dark:text-neutral-400 transition-colors hover:border-neutral-400 dark:hover:border-neutral-600 hover:text-neutral-700 dark:hover:text-neutral-300"
       >
         <Plus className="h-3.5 w-3.5" /> Agregar salto
       </button>
 
       {rules.length > 0 && (
-        <p className="mt-2 text-[11px] leading-relaxed text-neutral-400">
+        <p className="mt-2 text-[11px] leading-relaxed text-neutral-400 dark:text-neutral-500">
           Los saltos se evalúan al responder. Tienen prioridad sobre el orden
           normal.
         </p>
@@ -868,7 +868,7 @@ function ExamSettings({
 }) {
   if (!evaluation.enabled) {
     return (
-      <div className="mt-6 rounded-xl border border-dashed border-neutral-200 p-3 text-xs text-neutral-400">
+      <div className="mt-6 rounded-xl border border-dashed border-neutral-200 dark:border-neutral-800 p-3 text-xs text-neutral-400 dark:text-neutral-500">
         Activá <span className="font-medium">Examen</span> en la barra superior
         para corregir respuestas con puntaje y feedback por IA.
       </div>
@@ -891,7 +891,7 @@ function ExamSettings({
         <select
           value={evaluation.feedbackTiming}
           onChange={(e) => set({ feedbackTiming: e.target.value as any })}
-          className="w-full rounded-md border border-neutral-200 px-2.5 py-1.5 text-sm outline-none focus:border-neutral-400 bg-white"
+          className="w-full rounded-md border border-neutral-200 px-2.5 py-1.5 text-sm outline-none focus:border-neutral-400 bg-white dark:bg-neutral-800 dark:border-neutral-700 dark:text-neutral-100 dark:placeholder:text-neutral-500"
         >
           <option value="onComplete">Al finalizar (nota + feedback)</option>
           <option value="immediate">Inmediato (pregunta a pregunta)</option>
@@ -907,7 +907,7 @@ function ExamSettings({
             max={100}
             value={evaluation.passingScore}
             onChange={(e) => set({ passingScore: Number(e.target.value) })}
-            className="w-full rounded-md border border-neutral-200 px-2.5 py-1.5 text-sm outline-none focus:border-neutral-400"
+            className="w-full rounded-md border border-neutral-200 px-2.5 py-1.5 text-sm outline-none focus:border-neutral-400 dark:bg-neutral-800 dark:border-neutral-700 dark:text-neutral-100 dark:placeholder:text-neutral-500"
           />
         </Field>
         <Field label="Intentos máx.">
@@ -916,7 +916,7 @@ function ExamSettings({
             min={1}
             value={evaluation.integrity.maxAttempts}
             onChange={(e) => setIntegrity({ maxAttempts: Number(e.target.value) })}
-            className="w-full rounded-md border border-neutral-200 px-2.5 py-1.5 text-sm outline-none focus:border-neutral-400"
+            className="w-full rounded-md border border-neutral-200 px-2.5 py-1.5 text-sm outline-none focus:border-neutral-400 dark:bg-neutral-800 dark:border-neutral-700 dark:text-neutral-100 dark:placeholder:text-neutral-500"
           />
         </Field>
       </div>
@@ -980,8 +980,8 @@ function AiGradingSection({
   }
 
   return (
-    <div className="mt-4 rounded-xl border border-neutral-200 bg-white p-3">
-      <div className="mb-1 inline-flex items-center gap-1.5 text-xs font-semibold text-neutral-700">
+    <div className="mt-4 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-3">
+      <div className="mb-1 inline-flex items-center gap-1.5 text-xs font-semibold text-neutral-700 dark:text-neutral-300">
         <Sparkles className="h-3.5 w-3.5" style={{ color: accent }} /> Corrección con IA
       </div>
 
@@ -997,7 +997,7 @@ function AiGradingSection({
             <select
               value={ai.strictness}
               onChange={(e) => setAi({ strictness: e.target.value as Strictness })}
-              className="w-full rounded-md border border-neutral-200 px-2.5 py-1.5 text-sm outline-none focus:border-neutral-400 bg-white"
+              className="w-full rounded-md border border-neutral-200 px-2.5 py-1.5 text-sm outline-none focus:border-neutral-400 bg-white dark:bg-neutral-800 dark:border-neutral-700 dark:text-neutral-100 dark:placeholder:text-neutral-500"
             >
               <option value="indulgente">Indulgente</option>
               <option value="equilibrado">Equilibrado</option>
@@ -1006,7 +1006,7 @@ function AiGradingSection({
           </Field>
 
           <div>
-            <span className="mb-1.5 block text-xs font-medium text-neutral-600">
+            <span className="mb-1.5 block text-xs font-medium text-neutral-600 dark:text-neutral-300">
               Qué priorizar
             </span>
             <div className="flex flex-wrap gap-2">
@@ -1020,7 +1020,7 @@ function AiGradingSection({
                     className={`rounded-full border px-3 py-1 text-xs font-medium capitalize transition-colors ${
                       active
                         ? "text-white border-transparent"
-                        : "border-neutral-200 text-neutral-600 hover:bg-neutral-50"
+                        : "border-neutral-200 dark:border-neutral-800 text-neutral-600 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800"
                     }`}
                     style={active ? { backgroundColor: accent } : undefined}
                   >
@@ -1035,7 +1035,7 @@ function AiGradingSection({
             <select
               value={ai.tone}
               onChange={(e) => setAi({ tone: e.target.value as FeedbackTone })}
-              className="w-full rounded-md border border-neutral-200 px-2.5 py-1.5 text-sm outline-none focus:border-neutral-400 bg-white"
+              className="w-full rounded-md border border-neutral-200 px-2.5 py-1.5 text-sm outline-none focus:border-neutral-400 bg-white dark:bg-neutral-800 dark:border-neutral-700 dark:text-neutral-100 dark:placeholder:text-neutral-500"
             >
               <option value="motivador">Motivador</option>
               <option value="neutral">Neutral</option>
@@ -1049,13 +1049,13 @@ function AiGradingSection({
               onChange={(e) => setAi({ instructions: e.target.value })}
               rows={3}
               placeholder="Ej. Penalizá respuestas sin ejemplos concretos"
-              className="w-full rounded-md border border-neutral-200 px-2.5 py-2 text-sm outline-none focus:border-neutral-400"
+              className="w-full rounded-md border border-neutral-200 px-2.5 py-2 text-sm outline-none focus:border-neutral-400 dark:bg-neutral-800 dark:border-neutral-700 dark:text-neutral-100 dark:placeholder:text-neutral-500"
             />
           </Field>
         </div>
       )}
 
-      <p className="mt-2 text-[11px] leading-relaxed text-neutral-400">
+      <p className="mt-2 text-[11px] leading-relaxed text-neutral-400 dark:text-neutral-500">
         Estos criterios guían a la IA que corrige las respuestas abiertas; no
         anulan las reglas de seguridad.
       </p>
@@ -1071,9 +1071,9 @@ function VideoSection({
   onChange: (url: string | undefined) => void;
 }) {
   return (
-    <div className="mb-4 rounded-xl border border-neutral-200 p-3">
-      <div className="mb-2.5 inline-flex items-center gap-1.5 text-xs font-semibold text-neutral-600">
-        <Film className="w-3.5 h-3.5 text-neutral-400" /> Video (opcional)
+    <div className="mb-4 rounded-xl border border-neutral-200 dark:border-neutral-800 p-3">
+      <div className="mb-2.5 inline-flex items-center gap-1.5 text-xs font-semibold text-neutral-600 dark:text-neutral-300">
+        <Film className="w-3.5 h-3.5 text-neutral-400 dark:text-neutral-500" /> Video (opcional)
       </div>
 
       <Field label="URL (YouTube, Vimeo o mp4)">
@@ -1081,11 +1081,11 @@ function VideoSection({
           value={videoUrl ?? ""}
           onChange={(e) => onChange(e.target.value.trim() || undefined)}
           placeholder="https://youtu.be/…"
-          className="w-full rounded-md border border-neutral-200 px-2.5 py-2 text-sm outline-none focus:border-neutral-400"
+          className="w-full rounded-md border border-neutral-200 px-2.5 py-2 text-sm outline-none focus:border-neutral-400 dark:bg-neutral-800 dark:border-neutral-700 dark:text-neutral-100 dark:placeholder:text-neutral-500"
         />
       </Field>
 
-      <div className="mb-1 text-xs font-medium text-neutral-600">
+      <div className="mb-1 text-xs font-medium text-neutral-600 dark:text-neutral-300">
         …o subí tu propio video
       </div>
       <AssetPicker
@@ -1099,7 +1099,7 @@ function VideoSection({
 
 function SectionTitle({ children }: { children: React.ReactNode }) {
   return (
-    <div className="text-[11px] font-semibold uppercase tracking-wide text-neutral-400 mb-4">
+    <div className="text-[11px] font-semibold uppercase tracking-wide text-neutral-400 dark:text-neutral-500 mb-4">
       {children}
     </div>
   );
@@ -1108,7 +1108,7 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <label className="block mb-4">
-      <span className="block text-xs font-medium text-neutral-600 mb-1.5">
+      <span className="block text-xs font-medium text-neutral-600 dark:text-neutral-300 mb-1.5">
         {label}
       </span>
       {children}
@@ -1130,8 +1130,8 @@ function ToggleRow({
   return (
     <div className="flex items-center justify-between gap-3 py-2 mt-1">
       <div>
-        <div className="text-sm font-medium text-neutral-700">{label}</div>
-        {hint && <div className="text-[11px] text-neutral-400">{hint}</div>}
+        <div className="text-sm font-medium text-neutral-700 dark:text-neutral-300">{label}</div>
+        {hint && <div className="text-[11px] text-neutral-400 dark:text-neutral-500">{hint}</div>}
       </div>
       <Switch checked={checked} onCheckedChange={onChange} />
     </div>

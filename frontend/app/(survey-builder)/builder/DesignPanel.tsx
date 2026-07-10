@@ -121,15 +121,15 @@ export function DesignPanel({
       />
 
       {/* Slide-over */}
-      <div className="relative flex h-full w-full max-w-md flex-col bg-white shadow-2xl">
-        <div className="flex items-center justify-between border-b border-neutral-200 px-5 py-4">
-          <h2 className="inline-flex items-center gap-2 text-sm font-semibold text-neutral-800">
+      <div className="relative flex h-full w-full max-w-md flex-col bg-white dark:bg-neutral-900 shadow-2xl">
+        <div className="flex items-center justify-between border-b border-neutral-200 dark:border-neutral-800 px-5 py-4">
+          <h2 className="inline-flex items-center gap-2 text-sm font-semibold text-neutral-800 dark:text-neutral-100">
             <Palette className="w-4 h-4" style={{ color: accent }} /> Diseño
           </h2>
           <button
             type="button"
             onClick={onClose}
-            className="rounded-md p-1 text-neutral-400 hover:bg-neutral-100 hover:text-neutral-700"
+            className="rounded-md p-1 text-neutral-400 hover:bg-neutral-100 hover:text-neutral-700 dark:text-neutral-500 dark:hover:bg-neutral-800 dark:hover:text-neutral-300"
           >
             <X className="w-4 h-4" />
           </button>
@@ -162,13 +162,13 @@ export function DesignPanel({
           <Section icon={<Type className="w-4 h-4" />} title="Tipografía">
             {/* Buscador de Google Fonts */}
             <div className="relative mb-3">
-              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400" />
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400 dark:text-neutral-500" />
               <input
                 type="text"
                 value={fontQuery}
                 onChange={(e) => setFontQuery(e.target.value)}
                 placeholder="Buscar en Google Fonts…"
-                className="w-full rounded-lg border border-neutral-200 py-2 pl-9 pr-3 text-sm text-neutral-800 placeholder:text-neutral-400 focus:border-[#8faf0e] focus:outline-none focus:ring-1 focus:ring-[#8faf0e]"
+                className="w-full rounded-lg border border-neutral-200 py-2 pl-9 pr-3 text-sm text-neutral-800 placeholder:text-neutral-400 focus:border-[#8faf0e] focus:outline-none focus:ring-1 focus:ring-[#8faf0e] dark:bg-neutral-800 dark:border-neutral-700 dark:text-neutral-100 dark:placeholder:text-neutral-500"
               />
             </div>
 
@@ -176,8 +176,8 @@ export function DesignPanel({
               <>
                 {/* Chip "Actual" cuando la fuente aplicada no está en los resultados */}
                 {!filteredFonts.some((f) => f.id === design.fontFamily) && (
-                  <div className="mb-2 inline-flex max-w-full items-center gap-1.5 rounded-full border border-[#8faf0e] bg-[#8faf0e0a] px-2.5 py-1 text-xs text-neutral-700">
-                    <span className="text-neutral-400">Actual:</span>
+                  <div className="mb-2 inline-flex max-w-full items-center gap-1.5 rounded-full border border-[#8faf0e] bg-[#8faf0e0a] px-2.5 py-1 text-xs text-neutral-700 dark:text-neutral-300">
+                    <span className="text-neutral-400 dark:text-neutral-500">Actual:</span>
                     <span
                       className="truncate"
                       style={{ fontFamily: fontCssFamily(design.fontFamily) }}
@@ -188,7 +188,7 @@ export function DesignPanel({
                 )}
 
                 {filteredFonts.length === 0 ? (
-                  <p className="py-6 text-center text-sm text-neutral-400">
+                  <p className="py-6 text-center text-sm text-neutral-400 dark:text-neutral-500">
                     Sin resultados para “{debouncedFontQuery}”.
                   </p>
                 ) : (
@@ -203,16 +203,16 @@ export function DesignPanel({
                             className={`flex w-full items-center gap-2 rounded-lg border px-3 py-2.5 text-left transition-colors ${
                               active
                                 ? "border-[#8faf0e] bg-[#8faf0e0a]"
-                                : "border-neutral-200 hover:border-neutral-300"
+                                : "border-neutral-200 hover:border-neutral-300 dark:border-neutral-700 dark:hover:border-neutral-600"
                             }`}
                           >
                             <span
-                              className="truncate text-base text-neutral-800"
+                              className="truncate text-base text-neutral-800 dark:text-neutral-100"
                               style={{ fontFamily: f.css }}
                             >
                               {f.label}
                             </span>
-                            <span className="ml-auto shrink-0 text-[10px] uppercase tracking-wide text-neutral-400">
+                            <span className="ml-auto shrink-0 text-[10px] uppercase tracking-wide text-neutral-400 dark:text-neutral-500">
                               {f.category}
                             </span>
                             {active && (
@@ -239,16 +239,16 @@ export function DesignPanel({
                       className={`relative rounded-lg border px-3 py-3 text-left transition-colors ${
                         active
                           ? "border-[#8faf0e] bg-[#8faf0e0a]"
-                          : "border-neutral-200 hover:border-neutral-300"
+                          : "border-neutral-200 hover:border-neutral-300 dark:border-neutral-700 dark:hover:border-neutral-600"
                       }`}
                     >
                       <div
-                        className="truncate text-base text-neutral-800"
+                        className="truncate text-base text-neutral-800 dark:text-neutral-100"
                         style={{ fontFamily: fontCssFamily(f.id) }}
                       >
                         {f.label}
                       </div>
-                      <div className="mt-0.5 text-[10px] uppercase tracking-wide text-neutral-400">
+                      <div className="mt-0.5 text-[10px] uppercase tracking-wide text-neutral-400 dark:text-neutral-500">
                         {f.category}
                       </div>
                       {active && (
@@ -274,7 +274,7 @@ export function DesignPanel({
                     type="button"
                     title={c.name}
                     onClick={() => onAccentChange(c.value)}
-                    className="relative aspect-square rounded-lg ring-1 ring-black/5 transition-transform hover:scale-105"
+                    className="relative aspect-square rounded-lg ring-1 ring-black/5 dark:ring-white/10 transition-transform hover:scale-105"
                     style={{ backgroundColor: c.value }}
                   >
                     {active && (
@@ -292,10 +292,10 @@ export function DesignPanel({
                 type="color"
                 value={/^#[0-9a-f]{6}$/i.test(accent) ? accent : "#8faf0e"}
                 onChange={(e) => onAccentChange(e.target.value)}
-                className="h-8 w-10 cursor-pointer rounded border border-neutral-200 bg-white p-0.5"
+                className="h-8 w-10 cursor-pointer rounded border border-neutral-200 bg-white p-0.5 dark:border-neutral-700 dark:bg-neutral-800"
                 title="Color personalizado"
               />
-              <span className="text-xs text-neutral-500">Personalizado</span>
+              <span className="text-xs text-neutral-500 dark:text-neutral-400">Personalizado</span>
             </div>
           </Section>
 
@@ -310,16 +310,16 @@ export function DesignPanel({
                     : "#f6f6f7"
                 }
                 onChange={(e) => patch({ backgroundColor: e.target.value })}
-                className="h-9 w-12 cursor-pointer rounded border border-neutral-200 bg-white p-0.5"
+                className="h-9 w-12 cursor-pointer rounded border border-neutral-200 bg-white p-0.5 dark:border-neutral-700 dark:bg-neutral-800"
               />
-              <span className="flex-1 text-xs text-neutral-500">
+              <span className="flex-1 text-xs text-neutral-500 dark:text-neutral-400">
                 {design.backgroundColor ?? "Sin color (predeterminado)"}
               </span>
               {design.backgroundColor && (
                 <button
                   type="button"
                   onClick={() => patch({ backgroundColor: undefined })}
-                  className="rounded-md border border-neutral-200 px-2 py-1 text-xs font-medium text-neutral-600 hover:bg-neutral-50"
+                  className="rounded-md border border-neutral-200 px-2 py-1 text-xs font-medium text-neutral-600 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
                 >
                   Sin color
                 </button>
@@ -340,8 +340,8 @@ export function DesignPanel({
                     onClick={() => patch({ mode: m })}
                     className={`flex items-center justify-center gap-2 rounded-lg border px-3 py-2.5 text-sm font-medium transition-colors ${
                       active
-                        ? "border-[#8faf0e] bg-[#8faf0e0a] text-neutral-800"
-                        : "border-neutral-200 text-neutral-500 hover:border-neutral-300"
+                        ? "border-[#8faf0e] bg-[#8faf0e0a] text-neutral-800 dark:text-neutral-100"
+                        : "border-neutral-200 text-neutral-500 hover:border-neutral-300 dark:border-neutral-700 dark:text-neutral-400 dark:hover:border-neutral-600"
                     }`}
                   >
                     {m === "light" ? (
@@ -357,7 +357,7 @@ export function DesignPanel({
 
             {/* Color del texto de las preguntas */}
             <div className="mt-4">
-              <div className="mb-1.5 text-xs text-neutral-600">
+              <div className="mb-1.5 text-xs text-neutral-600 dark:text-neutral-300">
                 Color del texto de las preguntas
               </div>
               <div className="flex items-center gap-3">
@@ -371,16 +371,16 @@ export function DesignPanel({
                         : "#1f2937"
                   }
                   onChange={(e) => patch({ textColor: e.target.value })}
-                  className="h-9 w-12 cursor-pointer rounded border border-neutral-200 bg-white p-0.5"
+                  className="h-9 w-12 cursor-pointer rounded border border-neutral-200 bg-white p-0.5 dark:border-neutral-700 dark:bg-neutral-800"
                 />
-                <span className="flex-1 text-xs text-neutral-500">
+                <span className="flex-1 text-xs text-neutral-500 dark:text-neutral-400">
                   {design.textColor ?? "Automático según el modo"}
                 </span>
                 {design.textColor && (
                   <button
                     type="button"
                     onClick={() => patch({ textColor: undefined })}
-                    className="rounded-md border border-neutral-200 px-2 py-1 text-xs font-medium text-neutral-600 hover:bg-neutral-50"
+                    className="rounded-md border border-neutral-200 px-2 py-1 text-xs font-medium text-neutral-600 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
                   >
                     Automático
                   </button>
@@ -394,7 +394,7 @@ export function DesignPanel({
           <Section icon={<Square className="w-4 h-4" />} title="Cuadros de las preguntas">
             {/* Color de los cuadros */}
             <div>
-              <div className="mb-1.5 text-xs text-neutral-600">
+              <div className="mb-1.5 text-xs text-neutral-600 dark:text-neutral-300">
                 Color de los cuadros
               </div>
               <div className="flex items-center gap-3">
@@ -408,16 +408,16 @@ export function DesignPanel({
                         : "#ffffff"
                   }
                   onChange={(e) => patch({ questionColor: e.target.value })}
-                  className="h-9 w-12 cursor-pointer rounded border border-neutral-200 bg-white p-0.5"
+                  className="h-9 w-12 cursor-pointer rounded border border-neutral-200 bg-white p-0.5 dark:border-neutral-700 dark:bg-neutral-800"
                 />
-                <span className="flex-1 text-xs text-neutral-500">
+                <span className="flex-1 text-xs text-neutral-500 dark:text-neutral-400">
                   {design.questionColor ?? "Automático según el modo"}
                 </span>
                 {design.questionColor && (
                   <button
                     type="button"
                     onClick={() => patch({ questionColor: undefined })}
-                    className="rounded-md border border-neutral-200 px-2 py-1 text-xs font-medium text-neutral-600 hover:bg-neutral-50"
+                    className="rounded-md border border-neutral-200 px-2 py-1 text-xs font-medium text-neutral-600 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
                   >
                     Automático
                   </button>
@@ -427,9 +427,9 @@ export function DesignPanel({
 
             {/* Opacidad de los cuadros */}
             <div className="mt-4">
-              <div className="mb-1 flex items-center justify-between text-xs text-neutral-600">
+              <div className="mb-1 flex items-center justify-between text-xs text-neutral-600 dark:text-neutral-300">
                 <span>Opacidad</span>
-                <span className="tabular-nums text-neutral-400">
+                <span className="tabular-nums text-neutral-400 dark:text-neutral-500">
                   {Math.round((design.questionOpacity ?? 1) * 100)}%
                 </span>
               </div>
@@ -443,14 +443,14 @@ export function DesignPanel({
                 }
                 className="w-full accent-[#8faf0e]"
               />
-              <p className="mt-1 text-[11px] leading-relaxed text-neutral-400">
+              <p className="mt-1 text-[11px] leading-relaxed text-neutral-400 dark:text-neutral-500">
                 Bajala para ver el fondo a través de los cuadros (efecto vidrio).
               </p>
             </div>
 
             {/* Color del texto de los cuadros (independiente del de las preguntas) */}
             <div className="mt-4">
-              <div className="mb-1.5 text-xs text-neutral-600">
+              <div className="mb-1.5 text-xs text-neutral-600 dark:text-neutral-300">
                 Color del texto de los cuadros
               </div>
               <div className="flex items-center gap-3">
@@ -465,22 +465,22 @@ export function DesignPanel({
                         )
                   }
                   onChange={(e) => patch({ inputTextColor: e.target.value })}
-                  className="h-9 w-12 cursor-pointer rounded border border-neutral-200 bg-white p-0.5"
+                  className="h-9 w-12 cursor-pointer rounded border border-neutral-200 bg-white p-0.5 dark:border-neutral-700 dark:bg-neutral-800"
                 />
-                <span className="flex-1 text-xs text-neutral-500">
+                <span className="flex-1 text-xs text-neutral-500 dark:text-neutral-400">
                   {design.inputTextColor ?? "Automático (legible sobre el cuadro)"}
                 </span>
                 {design.inputTextColor && (
                   <button
                     type="button"
                     onClick={() => patch({ inputTextColor: undefined })}
-                    className="rounded-md border border-neutral-200 px-2 py-1 text-xs font-medium text-neutral-600 hover:bg-neutral-50"
+                    className="rounded-md border border-neutral-200 px-2 py-1 text-xs font-medium text-neutral-600 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
                   >
                     Automático
                   </button>
                 )}
               </div>
-              <p className="mt-1 text-[11px] leading-relaxed text-neutral-400">
+              <p className="mt-1 text-[11px] leading-relaxed text-neutral-400 dark:text-neutral-500">
                 Lo que se escribe dentro de los campos. No hereda el color del
                 texto de las preguntas.
               </p>
@@ -493,7 +493,7 @@ export function DesignPanel({
                 checked={!!design.glass}
                 onChange={(v) => patch({ glass: v })}
               />
-              <p className="mt-1 text-[11px] leading-relaxed text-neutral-400">
+              <p className="mt-1 text-[11px] leading-relaxed text-neutral-400 dark:text-neutral-500">
                 Desenfoca lo que hay detrás de los cuadros. Combínalo con opacidad
                 &lt; 100% y una imagen de fondo.
               </p>
@@ -506,7 +506,7 @@ export function DesignPanel({
                 checked={!!design.transparentQuestions}
                 onChange={(v) => patch({ transparentQuestions: v })}
               />
-              <p className="mt-1 text-[11px] leading-relaxed text-neutral-400">
+              <p className="mt-1 text-[11px] leading-relaxed text-neutral-400 dark:text-neutral-500">
                 Atajo de opacidad 0: saca la franja detrás de las preguntas para que
                 se vea el fondo. Ideal cuando usás una imagen de fondo.
               </p>
@@ -519,7 +519,7 @@ export function DesignPanel({
                 checked={!!design.questionSeparator}
                 onChange={(v) => patch({ questionSeparator: v })}
               />
-              <p className="mt-1 text-[11px] leading-relaxed text-neutral-400">
+              <p className="mt-1 text-[11px] leading-relaxed text-neutral-400 dark:text-neutral-500">
                 Dibuja un marco sutil alrededor de cada pregunta, separándolas.
                 Queda genial con cuadros transparentes o glass.
               </p>
@@ -539,22 +539,22 @@ export function DesignPanel({
                       : "#8faf0e"
                 }
                 onChange={(e) => patch({ buttonColor: e.target.value })}
-                className="h-9 w-12 cursor-pointer rounded border border-neutral-200 bg-white p-0.5"
+                className="h-9 w-12 cursor-pointer rounded border border-neutral-200 bg-white p-0.5 dark:border-neutral-700 dark:bg-neutral-800"
               />
-              <span className="flex-1 text-xs text-neutral-500">
+              <span className="flex-1 text-xs text-neutral-500 dark:text-neutral-400">
                 {design.buttonColor ?? "Automático (color de acento)"}
               </span>
               {design.buttonColor && (
                 <button
                   type="button"
                   onClick={() => patch({ buttonColor: undefined })}
-                  className="rounded-md border border-neutral-200 px-2 py-1 text-xs font-medium text-neutral-600 hover:bg-neutral-50"
+                  className="rounded-md border border-neutral-200 px-2 py-1 text-xs font-medium text-neutral-600 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
                 >
                   Automático
                 </button>
               )}
             </div>
-            <p className="mt-1 text-[11px] leading-relaxed text-neutral-400">
+            <p className="mt-1 text-[11px] leading-relaxed text-neutral-400 dark:text-neutral-500">
               Color de los botones Siguiente / Anterior / Completar, independiente
               del acento.
             </p>
@@ -564,7 +564,7 @@ export function DesignPanel({
                 checked={!!design.buttonShadow}
                 onChange={(v) => patch({ buttonShadow: v })}
               />
-              <p className="mt-1 text-[11px] leading-relaxed text-neutral-400">
+              <p className="mt-1 text-[11px] leading-relaxed text-neutral-400 dark:text-neutral-500">
                 Les da profundidad — se nota más sobre fondos con imagen.
               </p>
             </div>
@@ -588,8 +588,8 @@ export function DesignPanel({
                     onClick={() => patch({ alignment: opt.value })}
                     className={`flex items-center justify-center gap-2 rounded-lg border px-3 py-2.5 text-sm font-medium transition-colors ${
                       active
-                        ? "border-[#8faf0e] bg-[#8faf0e0a] text-neutral-800"
-                        : "border-neutral-200 text-neutral-500 hover:border-neutral-300"
+                        ? "border-[#8faf0e] bg-[#8faf0e0a] text-neutral-800 dark:text-neutral-100"
+                        : "border-neutral-200 text-neutral-500 hover:border-neutral-300 dark:border-neutral-700 dark:text-neutral-400 dark:hover:border-neutral-600"
                     }`}
                   >
                     <Icon className="w-4 h-4" />
@@ -598,7 +598,7 @@ export function DesignPanel({
                 );
               })}
             </div>
-            <p className="mt-2 text-[11px] leading-relaxed text-neutral-400">
+            <p className="mt-2 text-[11px] leading-relaxed text-neutral-400 dark:text-neutral-500">
               Centra el título, las preguntas y los botones.
             </p>
           </Section>
@@ -615,8 +615,8 @@ export function DesignPanel({
                     onClick={() => patch({ pageTransition: opt.id })}
                     className={`flex items-center justify-center rounded-lg border px-3 py-2.5 text-sm font-medium transition-colors ${
                       active
-                        ? "border-[#8faf0e] bg-[#8faf0e0a] text-neutral-800"
-                        : "border-neutral-200 text-neutral-500 hover:border-neutral-300"
+                        ? "border-[#8faf0e] bg-[#8faf0e0a] text-neutral-800 dark:text-neutral-100"
+                        : "border-neutral-200 text-neutral-500 hover:border-neutral-300 dark:border-neutral-700 dark:text-neutral-400 dark:hover:border-neutral-600"
                     }`}
                   >
                     {opt.label}
@@ -624,7 +624,7 @@ export function DesignPanel({
                 );
               })}
             </div>
-            <p className="mt-2 text-[11px] leading-relaxed text-neutral-400">
+            <p className="mt-2 text-[11px] leading-relaxed text-neutral-400 dark:text-neutral-500">
               Se ven cuando usás una pregunta por pantalla.
             </p>
           </Section>
@@ -638,9 +638,9 @@ export function DesignPanel({
             />
             {design.backgroundImage && (
               <div className="mt-3">
-                <div className="mb-1 flex items-center justify-between text-xs text-neutral-600">
+                <div className="mb-1 flex items-center justify-between text-xs text-neutral-600 dark:text-neutral-300">
                   <span>Opacidad</span>
-                  <span className="tabular-nums text-neutral-400">
+                  <span className="tabular-nums text-neutral-400 dark:text-neutral-500">
                     {Math.round((design.backgroundOpacity ?? 1) * 100)}%
                   </span>
                 </div>
@@ -700,9 +700,9 @@ export function DesignPanel({
                   onChange={(v) => patchAudio({ autoplay: v })}
                 />
                 <div>
-                  <div className="mb-1 flex items-center justify-between text-xs text-neutral-600">
+                  <div className="mb-1 flex items-center justify-between text-xs text-neutral-600 dark:text-neutral-300">
                     <span>Volumen</span>
-                    <span className="tabular-nums text-neutral-400">
+                    <span className="tabular-nums text-neutral-400 dark:text-neutral-500">
                       {Math.round((audio.volume ?? 0.6) * 100)}%
                     </span>
                   </div>
@@ -717,7 +717,7 @@ export function DesignPanel({
                     className="w-full accent-[#8faf0e]"
                   />
                 </div>
-                <p className="text-[11px] leading-relaxed text-neutral-400">
+                <p className="text-[11px] leading-relaxed text-neutral-400 dark:text-neutral-500">
                   Los navegadores pueden requerir un toque para reproducir con
                   sonido.
                 </p>
@@ -746,7 +746,7 @@ function ThemeCard({
       className={`relative overflow-hidden rounded-lg border text-left transition-colors ${
         active
           ? "border-[#8faf0e] ring-1 ring-[#8faf0e]"
-          : "border-neutral-200 hover:border-neutral-300"
+          : "border-neutral-200 hover:border-neutral-300 dark:border-neutral-700 dark:hover:border-neutral-600"
       }`}
     >
       <div
@@ -787,8 +787,8 @@ function Section({
 }) {
   return (
     <section className="mb-7">
-      <h3 className="mb-3 inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-neutral-400">
-        <span className="text-neutral-400">{icon}</span>
+      <h3 className="mb-3 inline-flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-neutral-400 dark:text-neutral-500">
+        <span className="text-neutral-400 dark:text-neutral-500">{icon}</span>
         {title}
       </h3>
       {children}
@@ -807,7 +807,7 @@ function ToggleRow({
 }) {
   return (
     <div className="flex items-center justify-between gap-3">
-      <span className="text-sm text-neutral-700">{label}</span>
+      <span className="text-sm text-neutral-700 dark:text-neutral-300">{label}</span>
       <Switch checked={checked} onCheckedChange={onChange} />
     </div>
   );

@@ -45,12 +45,12 @@ export function SummaryPanel({
 
   if (data.total_responses === 0) {
     return (
-      <div className="rounded-xl border border-dashed border-neutral-300 py-14 text-center">
-        <BarChart3 className="mx-auto mb-3 h-8 w-8 text-neutral-300" />
-        <p className="text-sm font-medium text-neutral-600">
+      <div className="rounded-xl border border-dashed border-neutral-300 py-14 text-center dark:border-neutral-700">
+        <BarChart3 className="mx-auto mb-3 h-8 w-8 text-neutral-300 dark:text-neutral-600" />
+        <p className="text-sm font-medium text-neutral-600 dark:text-neutral-300">
           Todavía no hay respuestas
         </p>
-        <p className="mx-auto mt-1 max-w-xs text-sm text-neutral-400">
+        <p className="mx-auto mt-1 max-w-xs text-sm text-neutral-400 dark:text-neutral-500">
           Cuando alguien complete la encuesta, acá vas a ver los gráficos con el
           resumen de resultados.
         </p>
@@ -60,8 +60,8 @@ export function SummaryPanel({
 
   return (
     <div className="space-y-4">
-      <p className="text-sm text-neutral-500">
-        <span className="font-semibold text-neutral-800">
+      <p className="text-sm text-neutral-500 dark:text-neutral-400">
+        <span className="font-semibold text-neutral-800 dark:text-neutral-200">
           {data.total_responses}
         </span>{" "}
         {data.total_responses === 1 ? "respuesta" : "respuestas"} en total.
@@ -96,11 +96,11 @@ export function FunnelCard({
   if (!data) return null;
 
   return (
-    <div className="rounded-xl border border-neutral-200 bg-white p-5">
+    <div className="rounded-xl border border-neutral-200 bg-white p-5 dark:border-neutral-800 dark:bg-neutral-900">
       <div className="mb-4 flex items-start justify-between gap-3">
         <div>
-          <h3 className="font-medium text-neutral-900">Embudo</h3>
-          <p className="mt-0.5 text-xs text-neutral-400">
+          <h3 className="font-medium text-neutral-900 dark:text-neutral-100">Embudo</h3>
+          <p className="mt-0.5 text-xs text-neutral-400 dark:text-neutral-500">
             De la vista a la respuesta completa
           </p>
         </div>
@@ -112,12 +112,12 @@ export function FunnelCard({
         </span>
       </div>
       {data.views === 0 ? (
-        <div className="rounded-lg border border-dashed border-neutral-300 py-10 text-center">
-          <Eye className="mx-auto mb-2 h-6 w-6 text-neutral-300" />
-          <p className="text-sm font-medium text-neutral-600">
+        <div className="rounded-lg border border-dashed border-neutral-300 py-10 text-center dark:border-neutral-700">
+          <Eye className="mx-auto mb-2 h-6 w-6 text-neutral-300 dark:text-neutral-600" />
+          <p className="text-sm font-medium text-neutral-600 dark:text-neutral-300">
             Todavía no hay visitas registradas
           </p>
-          <p className="mx-auto mt-1 max-w-xs text-sm text-neutral-400">
+          <p className="mx-auto mt-1 max-w-xs text-sm text-neutral-400 dark:text-neutral-500">
             Las vistas se cuentan desde ahora: compartí el enlace y acá vas a
             ver cuánta gente entra, empieza y completa la encuesta.
           </p>
@@ -153,12 +153,12 @@ function FunnelSteps({ funnel, accent }: { funnel: Funnel; accent: string }) {
         return (
           <React.Fragment key={step.label}>
             {i > 0 && (
-              <div className="flex items-center gap-1.5 py-1.5 pl-1 text-xs text-neutral-400">
+              <div className="flex items-center gap-1.5 py-1.5 pl-1 text-xs text-neutral-400 dark:text-neutral-500">
                 <ChevronDown className="h-3.5 w-3.5" />
                 <span>
                   {rate !== null ? (
                     <>
-                      <span className="font-semibold text-neutral-600">
+                      <span className="font-semibold text-neutral-600 dark:text-neutral-300">
                         {rate}%
                       </span>{" "}
                       {i === 1 ? "comenzaron" : "completaron"}
@@ -171,12 +171,12 @@ function FunnelSteps({ funnel, accent }: { funnel: Funnel; accent: string }) {
             )}
             <div>
               <div className="mb-1 flex items-baseline justify-between gap-3">
-                <span className="text-sm text-neutral-600">{step.label}</span>
-                <span className="text-2xl font-semibold tabular-nums text-neutral-900">
+                <span className="text-sm text-neutral-600 dark:text-neutral-300">{step.label}</span>
+                <span className="text-2xl font-semibold tabular-nums text-neutral-900 dark:text-neutral-100">
                   {step.count.toLocaleString("es-AR")}
                 </span>
               </div>
-              <div className="h-3 w-full overflow-hidden rounded-full bg-neutral-100">
+              <div className="h-3 w-full overflow-hidden rounded-full bg-neutral-100 dark:bg-neutral-800">
                 <div
                   className="h-full rounded-full transition-all"
                   style={{
@@ -200,23 +200,23 @@ function DropoffList({ items }: { items: Funnel["dropoff"] }) {
   const top = [...items].sort((a, b) => b.count - a.count).slice(0, 5);
   const max = Math.max(1, ...top.map((d) => d.count));
   return (
-    <div className="mt-5 border-t border-neutral-100 pt-4">
-      <h4 className="mb-3 text-xs font-semibold uppercase tracking-wide text-neutral-500">
+    <div className="mt-5 border-t border-neutral-100 pt-4 dark:border-neutral-800">
+      <h4 className="mb-3 text-xs font-semibold uppercase tracking-wide text-neutral-500 dark:text-neutral-400">
         Dónde abandonan
       </h4>
       <div className="space-y-2">
         {top.map((d) => (
           <div key={d.question} className="flex items-center gap-3">
-            <span className="min-w-0 flex-1 truncate text-sm text-neutral-700">
+            <span className="min-w-0 flex-1 truncate text-sm text-neutral-700 dark:text-neutral-300">
               {d.title || d.question}
             </span>
-            <div className="hidden h-1.5 w-24 shrink-0 overflow-hidden rounded-full bg-neutral-100 sm:block">
+            <div className="hidden h-1.5 w-24 shrink-0 overflow-hidden rounded-full bg-neutral-100 sm:block dark:bg-neutral-800">
               <div
                 className="h-full rounded-full bg-neutral-400"
                 style={{ width: `${(d.count / max) * 100}%` }}
               />
             </div>
-            <span className="shrink-0 tabular-nums text-sm text-neutral-500">
+            <span className="shrink-0 tabular-nums text-sm text-neutral-500 dark:text-neutral-400">
               {d.count}
             </span>
           </div>
@@ -234,13 +234,13 @@ function QuestionCard({
   accent: string;
 }) {
   return (
-    <div className="rounded-xl border border-neutral-200 bg-white p-5">
+    <div className="rounded-xl border border-neutral-200 bg-white p-5 dark:border-neutral-800 dark:bg-neutral-900">
       <div className="mb-4 flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <h3 className="font-medium text-neutral-900">
+          <h3 className="font-medium text-neutral-900 dark:text-neutral-100">
             {q.title || q.name}
           </h3>
-          <p className="mt-0.5 text-xs text-neutral-400">
+          <p className="mt-0.5 text-xs text-neutral-400 dark:text-neutral-500">
             {q.answered} {q.answered === 1 ? "respondió" : "respondieron"}
             {q.kind === "choice" && q.multi ? " · opción múltiple" : ""}
           </p>
@@ -329,14 +329,14 @@ function ChoiceChart({
         return (
           <div key={i}>
             <div className="mb-1 flex items-baseline justify-between gap-3 text-sm">
-              <span className="min-w-0 truncate text-neutral-700">
+              <span className="min-w-0 truncate text-neutral-700 dark:text-neutral-300">
                 {o.label}
               </span>
-              <span className="shrink-0 tabular-nums text-neutral-500">
+              <span className="shrink-0 tabular-nums text-neutral-500 dark:text-neutral-400">
                 {o.count} · {pct}%
               </span>
             </div>
-            <div className="h-2.5 w-full overflow-hidden rounded-full bg-neutral-100">
+            <div className="h-2.5 w-full overflow-hidden rounded-full bg-neutral-100 dark:bg-neutral-800">
               <div
                 className="h-full rounded-full transition-all"
                 style={{
@@ -383,7 +383,7 @@ function RatingChart({
         >
           {average != null ? average.toFixed(1) : "—"}
         </span>
-        <span className="mb-0.5 text-sm text-neutral-400">
+        <span className="mb-0.5 text-sm text-neutral-400 dark:text-neutral-500">
           promedio (de {min} a {max})
         </span>
       </div>
@@ -395,7 +395,7 @@ function RatingChart({
               key={v.value}
               className="flex min-w-0 flex-1 flex-col items-center justify-end gap-1"
             >
-              <span className="text-[11px] tabular-nums text-neutral-400">
+              <span className="text-[11px] tabular-nums text-neutral-400 dark:text-neutral-500">
                 {v.count}
               </span>
               <div
@@ -407,7 +407,7 @@ function RatingChart({
                 }}
                 title={`${v.value}: ${v.count}`}
               />
-              <span className="text-xs font-medium text-neutral-500">
+              <span className="text-xs font-medium text-neutral-500 dark:text-neutral-400">
                 {v.value}
               </span>
             </div>
@@ -435,13 +435,13 @@ function TextList({ values }: { values: string[] }) {
         {visible.map((v, i) => (
           <div
             key={i}
-            className="rounded-lg border border-neutral-100 bg-neutral-50 px-3 py-2 text-sm text-neutral-700"
+            className="rounded-lg border border-neutral-100 bg-neutral-50 px-3 py-2 text-sm text-neutral-700 dark:border-neutral-800 dark:bg-neutral-950 dark:text-neutral-300"
           >
             {v}
           </div>
         ))}
       </div>
-      <div className="mt-2 flex items-center justify-between text-xs text-neutral-400">
+      <div className="mt-2 flex items-center justify-between text-xs text-neutral-400 dark:text-neutral-500">
         <span>
           {nonEmpty.length}{" "}
           {nonEmpty.length === 1 ? "respuesta" : "respuestas"}
@@ -450,7 +450,7 @@ function TextList({ values }: { values: string[] }) {
           <button
             type="button"
             onClick={() => setShowAll(true)}
-            className="font-medium text-neutral-600 underline hover:text-neutral-900"
+            className="font-medium text-neutral-600 underline hover:text-neutral-900 dark:text-neutral-300 dark:hover:text-neutral-100"
           >
             Ver todas ({hidden} más)
           </button>
@@ -487,13 +487,13 @@ function FilesList({
                 src={url}
                 controls
                 preload="metadata"
-                className="max-h-64 w-full rounded-lg border border-neutral-200 bg-black"
+                className="max-h-64 w-full rounded-lg border border-neutral-200 bg-black dark:border-neutral-800"
               />
               <a
                 href={url}
                 target="_blank"
                 rel="noreferrer"
-                className="inline-flex items-center gap-1 text-xs text-neutral-500 hover:text-neutral-900"
+                className="inline-flex items-center gap-1 text-xs text-neutral-500 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100"
               >
                 {name} <ExternalLink className="h-3 w-3" />
               </a>
@@ -506,11 +506,11 @@ function FilesList({
             href={url}
             target="_blank"
             rel="noreferrer"
-            className="flex items-center gap-2 rounded-lg border border-neutral-200 px-3 py-2 text-sm text-neutral-700 hover:bg-neutral-50"
+            className="flex items-center gap-2 rounded-lg border border-neutral-200 px-3 py-2 text-sm text-neutral-700 hover:bg-neutral-50 dark:border-neutral-800 dark:text-neutral-300 dark:hover:bg-neutral-800"
           >
             <FileText className="h-4 w-4 shrink-0" style={{ color: accent }} />
             <span className="min-w-0 flex-1 truncate">{name}</span>
-            <ExternalLink className="h-3.5 w-3.5 shrink-0 text-neutral-400" />
+            <ExternalLink className="h-3.5 w-3.5 shrink-0 text-neutral-400 dark:text-neutral-500" />
           </a>
         );
       })}
@@ -529,5 +529,5 @@ function fileName(url: string): string {
 }
 
 function EmptyHint({ text }: { text: string }) {
-  return <p className="text-sm text-neutral-400">{text}</p>;
+  return <p className="text-sm text-neutral-400 dark:text-neutral-500">{text}</p>;
 }

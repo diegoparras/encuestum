@@ -17,9 +17,9 @@ const VARIANTS: Record<Variant, string> = {
   secondary:
     "bg-neutral-900 text-white hover:bg-neutral-800 focus-visible:ring-neutral-500",
   outline:
-    "border border-neutral-300 bg-white text-neutral-800 hover:bg-neutral-50 focus-visible:ring-neutral-400",
+    "border border-neutral-300 bg-white text-neutral-800 hover:bg-neutral-50 focus-visible:ring-neutral-400 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100 dark:hover:bg-neutral-700",
   ghost:
-    "text-neutral-700 hover:bg-neutral-100 focus-visible:ring-neutral-300",
+    "text-neutral-700 hover:bg-neutral-100 focus-visible:ring-neutral-300 dark:text-neutral-300 dark:hover:bg-neutral-800",
   danger:
     "bg-red-600 text-white hover:bg-red-700 focus-visible:ring-red-500",
 };

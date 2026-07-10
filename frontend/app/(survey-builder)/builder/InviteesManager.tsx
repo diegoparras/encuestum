@@ -182,18 +182,18 @@ export function InviteesManager({ open, surveyId, accent, onClose }: Props) {
 
   return (
     <div className="fixed inset-0 z-[60] grid place-items-center bg-black/40 p-4">
-      <div className="flex max-h-[86vh] w-full max-w-2xl flex-col rounded-2xl bg-white shadow-2xl">
-        <div className="flex items-center justify-between border-b border-neutral-100 px-5 py-4">
+      <div className="flex max-h-[86vh] w-full max-w-2xl flex-col rounded-2xl bg-white dark:bg-neutral-900 shadow-2xl">
+        <div className="flex items-center justify-between border-b border-neutral-100 dark:border-neutral-800 px-5 py-4">
           <div className="flex items-center gap-2">
             <Users className="h-5 w-5" style={{ color: accent }} />
-            <h2 className="text-sm font-semibold">Invitados</h2>
-            <span className="text-xs text-neutral-400">
+            <h2 className="text-sm font-semibold dark:text-neutral-100">Invitados</h2>
+            <span className="text-xs text-neutral-400 dark:text-neutral-500">
               {invitees.length} en total · {sentCount} enviados · {usedCount} usados
             </span>
           </div>
           <button
             onClick={onClose}
-            className="text-neutral-400 hover:text-neutral-700"
+            className="text-neutral-400 hover:text-neutral-700 dark:text-neutral-500 dark:hover:text-neutral-300"
             aria-label="Cerrar"
           >
             <X className="h-5 w-5" />
@@ -202,8 +202,8 @@ export function InviteesManager({ open, surveyId, accent, onClose }: Props) {
 
         <div className="space-y-5 overflow-y-auto p-5">
           {/* Alta de invitados */}
-          <div className="rounded-xl border border-neutral-200 p-3">
-            <div className="mb-2 text-xs font-semibold text-neutral-600">
+          <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-3">
+            <div className="mb-2 text-xs font-semibold text-neutral-600 dark:text-neutral-300">
               Agregar invitados
             </div>
             <textarea
@@ -211,7 +211,7 @@ export function InviteesManager({ open, surveyId, accent, onClose }: Props) {
               onChange={(e) => setRaw(e.target.value)}
               rows={3}
               placeholder="Pegá los emails, uno por línea o separados por coma…"
-              className="w-full rounded-md border border-neutral-200 px-2.5 py-2 text-sm outline-none focus:border-neutral-400"
+              className="w-full rounded-md border border-neutral-200 px-2.5 py-2 text-sm outline-none focus:border-neutral-400 dark:bg-neutral-800 dark:border-neutral-700 dark:text-neutral-100 dark:placeholder:text-neutral-500"
             />
             <div className="mt-2 flex flex-wrap items-center gap-2">
               <button
@@ -230,7 +230,7 @@ export function InviteesManager({ open, surveyId, accent, onClose }: Props) {
               <button
                 onClick={() => fileInputRef.current?.click()}
                 disabled={adding}
-                className="inline-flex items-center gap-1.5 rounded-lg border border-neutral-200 px-3 py-1.5 text-xs font-medium text-neutral-600 hover:bg-neutral-50 disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 rounded-lg border border-neutral-200 px-3 py-1.5 text-xs font-medium text-neutral-600 hover:bg-neutral-50 disabled:opacity-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
               >
                 <Upload className="h-4 w-4" /> Subir CSV
               </button>
@@ -241,7 +241,7 @@ export function InviteesManager({ open, surveyId, accent, onClose }: Props) {
                 onChange={onFilePick}
                 className="hidden"
               />
-              <span className="text-[11px] text-neutral-400">
+              <span className="text-[11px] text-neutral-400 dark:text-neutral-500">
                 CSV: 1ª columna email, 2ª nombre (opcional).
               </span>
             </div>
@@ -252,7 +252,7 @@ export function InviteesManager({ open, surveyId, accent, onClose }: Props) {
             <button
               onClick={sendLinks}
               disabled={sending || invitees.length === 0}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-neutral-200 px-3 py-1.5 text-xs font-medium text-neutral-700 hover:bg-neutral-50 disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-neutral-200 px-3 py-1.5 text-xs font-medium text-neutral-700 hover:bg-neutral-50 disabled:opacity-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
             >
               {sending ? (
                 <Loader2 className="h-4 w-4 animate-spin" />
@@ -264,29 +264,29 @@ export function InviteesManager({ open, surveyId, accent, onClose }: Props) {
             <button
               onClick={downloadCsv}
               disabled={invitees.length === 0}
-              className="inline-flex items-center gap-1.5 rounded-lg border border-neutral-200 px-3 py-1.5 text-xs font-medium text-neutral-700 hover:bg-neutral-50 disabled:opacity-50"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-neutral-200 px-3 py-1.5 text-xs font-medium text-neutral-700 hover:bg-neutral-50 disabled:opacity-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
             >
               <Download className="h-4 w-4" /> Descargar CSV
             </button>
           </div>
 
           {/* Tabla de invitados */}
-          <div className="rounded-xl border border-neutral-200">
+          <div className="rounded-xl border border-neutral-200 dark:border-neutral-800">
             {loading ? (
-              <div className="grid place-items-center py-10 text-sm text-neutral-400">
+              <div className="grid place-items-center py-10 text-sm text-neutral-400 dark:text-neutral-500">
                 <span className="inline-flex items-center gap-2">
                   <Loader2 className="h-4 w-4 animate-spin" /> Cargando…
                 </span>
               </div>
             ) : invitees.length === 0 ? (
-              <div className="grid place-items-center py-10 text-sm text-neutral-400">
+              <div className="grid place-items-center py-10 text-sm text-neutral-400 dark:text-neutral-500">
                 Todavía no agregaste invitados.
               </div>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-sm">
                   <thead>
-                    <tr className="border-b border-neutral-100 text-[11px] uppercase tracking-wide text-neutral-400">
+                    <tr className="border-b border-neutral-100 dark:border-neutral-800 text-[11px] uppercase tracking-wide text-neutral-400 dark:text-neutral-500">
                       <th className="px-3 py-2 font-semibold">Email</th>
                       <th className="px-3 py-2 font-semibold">Nombre</th>
                       <th className="px-3 py-2 font-semibold">Código</th>
@@ -296,23 +296,23 @@ export function InviteesManager({ open, surveyId, accent, onClose }: Props) {
                   </thead>
                   <tbody>
                     {invitees.map((i) => (
-                      <tr key={i.id} className="border-b border-neutral-50 last:border-0">
-                        <td className="px-3 py-2 text-neutral-700">{i.email}</td>
-                        <td className="px-3 py-2 text-neutral-500">{i.name || "—"}</td>
-                        <td className="px-3 py-2 font-mono text-xs text-neutral-500">
+                      <tr key={i.id} className="border-b border-neutral-50 dark:border-neutral-800 last:border-0">
+                        <td className="px-3 py-2 text-neutral-700 dark:text-neutral-300">{i.email}</td>
+                        <td className="px-3 py-2 text-neutral-500 dark:text-neutral-400">{i.name || "—"}</td>
+                        <td className="px-3 py-2 font-mono text-xs text-neutral-500 dark:text-neutral-400">
                           {i.code}
                         </td>
                         <td className="px-3 py-2">
                           {i.used_at ? (
-                            <span className="inline-flex items-center gap-1 rounded-full bg-green-100 px-2 py-0.5 text-[11px] font-medium text-green-700">
+                            <span className="inline-flex items-center gap-1 rounded-full bg-green-100 dark:bg-green-950/40 px-2 py-0.5 text-[11px] font-medium text-green-700 dark:text-green-300">
                               <CheckCircle2 className="h-3 w-3" /> Usado
                             </span>
                           ) : i.sent_at ? (
-                            <span className="inline-flex items-center rounded-full bg-blue-100 px-2 py-0.5 text-[11px] font-medium text-blue-700">
+                            <span className="inline-flex items-center rounded-full bg-blue-100 dark:bg-blue-950/40 px-2 py-0.5 text-[11px] font-medium text-blue-700 dark:text-blue-300">
                               Enviado
                             </span>
                           ) : (
-                            <span className="inline-flex items-center rounded-full bg-neutral-100 px-2 py-0.5 text-[11px] font-medium text-neutral-500">
+                            <span className="inline-flex items-center rounded-full bg-neutral-100 dark:bg-neutral-800 px-2 py-0.5 text-[11px] font-medium text-neutral-500 dark:text-neutral-400">
                               Pendiente
                             </span>
                           )}
@@ -321,7 +321,7 @@ export function InviteesManager({ open, surveyId, accent, onClose }: Props) {
                           <button
                             onClick={() => remove(i.id)}
                             disabled={deletingId === i.id}
-                            className="text-neutral-300 hover:text-red-600 disabled:opacity-50"
+                            className="text-neutral-300 hover:text-red-600 disabled:opacity-50 dark:text-neutral-600 dark:hover:text-red-400"
                             aria-label="Eliminar invitado"
                             title="Eliminar"
                           >

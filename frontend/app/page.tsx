@@ -40,9 +40,9 @@ const FEATURES = [
 
 export default function LandingPage() {
   return (
-    <div className="min-h-screen bg-white text-neutral-900">
+    <div className="min-h-screen bg-white text-neutral-900 dark:bg-neutral-950 dark:text-neutral-100">
       {/* Header */}
-      <header className="border-b border-neutral-100">
+      <header className="border-b border-neutral-100 dark:border-neutral-800">
         <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4 sm:px-6">
           <span className="flex items-center gap-2 text-lg font-bold tracking-tight">
             <EncuestumLogo size={22} />
@@ -51,7 +51,7 @@ export default function LandingPage() {
           <div className="flex items-center gap-2">
             <Link
               href="/login"
-              className="rounded-lg px-4 py-2 text-sm font-medium text-neutral-700 hover:bg-neutral-100"
+              className="rounded-lg px-4 py-2 text-sm font-medium text-neutral-700 hover:bg-neutral-100 dark:text-neutral-300 dark:hover:bg-neutral-800"
             >
               Ingresar
             </Link>
@@ -75,13 +75,13 @@ export default function LandingPage() {
           >
             Encuestas · Evaluaciones · IA
           </span>
-          <h1 className="mt-6 text-4xl font-extrabold tracking-tight text-neutral-900 sm:text-6xl">
+          <h1 className="mt-6 text-4xl font-extrabold tracking-tight text-neutral-900 dark:text-neutral-100 sm:text-6xl">
             Encuestas y evaluaciones
             <br />
             con{" "}
             <span style={{ color: ACCENT }}>corrección por IA</span>
           </h1>
-          <p className="mx-auto mt-6 max-w-2xl text-lg text-neutral-500">
+          <p className="mx-auto mt-6 max-w-2xl text-lg text-neutral-500 dark:text-neutral-400">
             Diseñá encuestas y exámenes con un editor visual, recibí respuestas y
             corregí en minutos con una IA anclada a tu rúbrica. Todo con analítica
             e insights para tu equipo.
@@ -96,7 +96,7 @@ export default function LandingPage() {
             </Link>
             <Link
               href="/login"
-              className="w-full rounded-lg border border-neutral-300 px-6 py-3 text-center text-base font-semibold text-neutral-800 hover:bg-neutral-50 sm:w-auto"
+              className="w-full rounded-lg border border-neutral-300 px-6 py-3 text-center text-base font-semibold text-neutral-800 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-100 dark:hover:bg-neutral-800 sm:w-auto"
             >
               Ingresar
             </Link>
@@ -105,13 +105,13 @@ export default function LandingPage() {
       </section>
 
       {/* Features */}
-      <section className="border-t border-neutral-100 bg-neutral-50">
+      <section className="border-t border-neutral-100 bg-neutral-50 dark:border-neutral-800 dark:bg-neutral-950">
         <div className="mx-auto max-w-6xl px-4 py-20 sm:px-6">
           <div className="mx-auto max-w-2xl text-center">
-            <h2 className="text-3xl font-bold tracking-tight text-neutral-900">
+            <h2 className="text-3xl font-bold tracking-tight text-neutral-900 dark:text-neutral-100">
               Todo lo que necesitás para evaluar mejor
             </h2>
-            <p className="mt-3 text-neutral-500">
+            <p className="mt-3 text-neutral-500 dark:text-neutral-400">
               Desde el diseño de la encuesta hasta el análisis de resultados.
             </p>
           </div>
@@ -119,7 +119,7 @@ export default function LandingPage() {
             {FEATURES.map((f) => (
               <div
                 key={f.title}
-                className="rounded-xl border border-neutral-200 bg-white p-6 shadow-sm"
+                className="rounded-xl border border-neutral-200 bg-white p-6 shadow-sm dark:border-neutral-800 dark:bg-neutral-900"
               >
                 <span
                   className="inline-flex h-11 w-11 items-center justify-center rounded-lg"
@@ -127,10 +127,10 @@ export default function LandingPage() {
                 >
                   <f.icon className="h-5 w-5" />
                 </span>
-                <h3 className="mt-4 text-base font-semibold text-neutral-900">
+                <h3 className="mt-4 text-base font-semibold text-neutral-900 dark:text-neutral-100">
                   {f.title}
                 </h3>
-                <p className="mt-2 text-sm text-neutral-500">{f.body}</p>
+                <p className="mt-2 text-sm text-neutral-500 dark:text-neutral-400">{f.body}</p>
               </div>
             ))}
           </div>
@@ -161,8 +161,8 @@ export default function LandingPage() {
       </section>
 
       {/* Footer */}
-      <footer className="border-t border-neutral-100">
-        <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-2 px-4 py-8 text-sm text-neutral-400 sm:flex-row sm:px-6">
+      <footer className="border-t border-neutral-100 dark:border-neutral-800">
+        <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-2 px-4 py-8 text-sm text-neutral-400 dark:text-neutral-500 sm:flex-row sm:px-6">
           <span className="flex items-center gap-2">
             <EncuestumLogo size={18} />
             Encuestum

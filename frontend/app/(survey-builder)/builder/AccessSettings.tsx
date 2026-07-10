@@ -167,8 +167,8 @@ export function AccessSettings({
   }
 
   return (
-    <div className="mt-5 border-t border-neutral-100 pt-4">
-      <div className="mb-4 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-neutral-400">
+    <div className="mt-5 border-t border-neutral-100 dark:border-neutral-800 pt-4">
+      <div className="mb-4 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-neutral-400 dark:text-neutral-500">
         Acceso
         {savingMode && <Loader2 className="h-3 w-3 animate-spin" />}
       </div>
@@ -186,7 +186,7 @@ export function AccessSettings({
               className={`flex w-full items-start gap-2.5 rounded-lg border px-3 py-2.5 text-left transition-colors ${
                 active
                   ? "border-[#8faf0e] bg-[#8faf0e0a]"
-                  : "border-neutral-200 hover:border-neutral-300"
+                  : "border-neutral-200 dark:border-neutral-800 hover:border-neutral-300 dark:hover:border-neutral-700"
               }`}
             >
               <Icon
@@ -194,10 +194,10 @@ export function AccessSettings({
                 style={{ color: active ? accent : "#a3a3a3" }}
               />
               <span className="min-w-0">
-                <span className="block text-sm font-medium text-neutral-800">
+                <span className="block text-sm font-medium text-neutral-800 dark:text-neutral-200">
                   {opt.label}
                 </span>
-                <span className="block text-[11px] leading-snug text-neutral-400">
+                <span className="block text-[11px] leading-snug text-neutral-400 dark:text-neutral-500">
                   {opt.hint}
                 </span>
               </span>
@@ -209,7 +209,7 @@ export function AccessSettings({
       {/* Clave (PIN) */}
       {accessMode === "pin" && (
         <label className="mt-3 block">
-          <span className="mb-1.5 block text-xs font-medium text-neutral-600">
+          <span className="mb-1.5 block text-xs font-medium text-neutral-600 dark:text-neutral-300">
             Clave de acceso
           </span>
           <div className="flex items-center gap-2">
@@ -218,13 +218,13 @@ export function AccessSettings({
               onChange={(e) => setPin(e.target.value)}
               onBlur={savePin}
               placeholder="Ej. otoño2026"
-              className="w-full rounded-md border border-neutral-200 px-2.5 py-2 text-sm outline-none focus:border-neutral-400"
+              className="w-full rounded-md border border-neutral-200 px-2.5 py-2 text-sm outline-none focus:border-neutral-400 dark:bg-neutral-800 dark:border-neutral-700 dark:text-neutral-100 dark:placeholder:text-neutral-500"
             />
             {savingPin && (
-              <Loader2 className="h-4 w-4 shrink-0 animate-spin text-neutral-400" />
+              <Loader2 className="h-4 w-4 shrink-0 animate-spin text-neutral-400 dark:text-neutral-500" />
             )}
           </div>
-          <span className="mt-1 block text-[11px] text-neutral-400">
+          <span className="mt-1 block text-[11px] text-neutral-400 dark:text-neutral-500">
             Compartila con quienes puedan responder.
           </span>
         </label>
@@ -243,20 +243,20 @@ export function AccessSettings({
       )}
 
       {/* Visibilidad de resultados */}
-      <div className="mt-5 border-t border-neutral-100 pt-4">
-        <div className="mb-3 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-neutral-400">
+      <div className="mt-5 border-t border-neutral-100 dark:border-neutral-800 pt-4">
+        <div className="mb-3 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-neutral-400 dark:text-neutral-500">
           Resultados
           {savingResults && <Loader2 className="h-3 w-3 animate-spin" />}
         </div>
 
         <label className="block">
-          <span className="mb-1.5 block text-xs font-medium text-neutral-600">
+          <span className="mb-1.5 block text-xs font-medium text-neutral-600 dark:text-neutral-300">
             Cuándo se ven los resultados
           </span>
           <select
             value={resultsMode}
             onChange={(e) => changeResultsMode(e.target.value as ResultsMode)}
-            className="w-full rounded-md border border-neutral-200 bg-white px-2.5 py-2 text-sm outline-none focus:border-neutral-400"
+            className="w-full rounded-md border border-neutral-200 bg-white px-2.5 py-2 text-sm outline-none focus:border-neutral-400 dark:bg-neutral-800 dark:border-neutral-700 dark:text-neutral-100 dark:placeholder:text-neutral-500"
           >
             {RESULTS_OPTIONS.map((o) => (
               <option key={o.value} value={o.value}>
@@ -264,7 +264,7 @@ export function AccessSettings({
               </option>
             ))}
           </select>
-          <span className="mt-1 block text-[11px] leading-snug text-neutral-400">
+          <span className="mt-1 block text-[11px] leading-snug text-neutral-400 dark:text-neutral-500">
             {RESULTS_OPTIONS.find((o) => o.value === resultsMode)?.hint}
           </span>
         </label>
@@ -276,7 +276,7 @@ export function AccessSettings({
             disabled={releasing}
             className={`mt-3 inline-flex w-full items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-semibold transition-colors disabled:opacity-60 ${
               resultsReleased
-                ? "border-neutral-200 text-neutral-700 hover:bg-neutral-50"
+                ? "border-neutral-200 dark:border-neutral-800 text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800"
                 : "border-transparent text-white"
             }`}
             style={
@@ -294,7 +294,7 @@ export function AccessSettings({
           </button>
         )}
         {resultsMode === "on_release" && (
-          <span className="mt-1.5 block text-[11px] text-neutral-400">
+          <span className="mt-1.5 block text-[11px] text-neutral-400 dark:text-neutral-500">
             {resultsReleased
               ? "Los resultados están publicados y visibles."
               : "Los resultados aún no son visibles para quienes respondieron."}
@@ -303,13 +303,13 @@ export function AccessSettings({
       </div>
 
       {/* Notificaciones por email */}
-      <div className="mt-5 border-t border-neutral-100 pt-4">
-        <div className="mb-3 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-neutral-400">
+      <div className="mt-5 border-t border-neutral-100 dark:border-neutral-800 pt-4">
+        <div className="mb-3 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-neutral-400 dark:text-neutral-500">
           <Bell className="h-3 w-3" /> Notificaciones
           {savingEmails && <Loader2 className="h-3 w-3 animate-spin" />}
         </div>
         <label className="block">
-          <span className="mb-1.5 block text-xs font-medium text-neutral-600">
+          <span className="mb-1.5 block text-xs font-medium text-neutral-600 dark:text-neutral-300">
             Avisarme por email cuando alguien responde
           </span>
           <input
@@ -317,9 +317,9 @@ export function AccessSettings({
             onChange={(e) => setEmails(e.target.value)}
             onBlur={saveEmails}
             placeholder="vos@ejemplo.com, equipo@ejemplo.com"
-            className="w-full rounded-md border border-neutral-200 px-2.5 py-2 text-sm outline-none focus:border-neutral-400"
+            className="w-full rounded-md border border-neutral-200 px-2.5 py-2 text-sm outline-none focus:border-neutral-400 dark:bg-neutral-800 dark:border-neutral-700 dark:text-neutral-100 dark:placeholder:text-neutral-500"
           />
-          <span className="mt-1 block text-[11px] leading-snug text-neutral-400">
+          <span className="mt-1 block text-[11px] leading-snug text-neutral-400 dark:text-neutral-500">
             Emails separados por coma. Necesita SMTP configurado; si no, queda
             registrado igual.
           </span>

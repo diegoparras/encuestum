@@ -68,7 +68,7 @@ export function AssetPicker({ kind, value, onChange, label }: Props) {
   return (
     <div>
       {label && (
-        <span className="block text-xs font-medium text-neutral-600 mb-1.5">
+        <span className="block text-xs font-medium text-neutral-600 dark:text-neutral-300 mb-1.5">
           {label}
         </span>
       )}
@@ -87,7 +87,7 @@ export function AssetPicker({ kind, value, onChange, label }: Props) {
             type="button"
             onClick={() => inputRef.current?.click()}
             disabled={uploading}
-            className="flex-1 inline-flex items-center justify-center gap-1.5 rounded-lg border border-dashed border-neutral-300 px-3 py-2.5 text-xs font-medium text-neutral-600 hover:border-neutral-400 hover:bg-neutral-50 transition-colors disabled:opacity-60"
+            className="flex-1 inline-flex items-center justify-center gap-1.5 rounded-lg border border-dashed border-neutral-300 px-3 py-2.5 text-xs font-medium text-neutral-600 hover:border-neutral-400 hover:bg-neutral-50 transition-colors disabled:opacity-60 dark:border-neutral-700 dark:text-neutral-300 dark:hover:border-neutral-600 dark:hover:bg-neutral-800"
           >
             {uploading ? (
               <Loader2 className="w-4 h-4 animate-spin" />
@@ -104,7 +104,7 @@ export function AssetPicker({ kind, value, onChange, label }: Props) {
             type="button"
             onClick={() => setLibraryOpen(true)}
             disabled={uploading}
-            className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-neutral-200 px-3 py-2.5 text-xs font-medium text-neutral-600 hover:bg-neutral-50 transition-colors disabled:opacity-60"
+            className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-neutral-200 px-3 py-2.5 text-xs font-medium text-neutral-600 hover:bg-neutral-50 transition-colors disabled:opacity-60 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
             title="Elegir de la biblioteca"
           >
             <Library className="w-4 h-4" /> Biblioteca
@@ -150,9 +150,9 @@ function Preview({
 }) {
   const src = resolveAssetUrl(value);
   return (
-    <div className="rounded-lg border border-neutral-200 p-2">
+    <div className="rounded-lg border border-neutral-200 dark:border-neutral-800 p-2">
       {kind === "image" ? (
-        <div className="relative w-full h-32 rounded-md overflow-hidden bg-neutral-100">
+        <div className="relative w-full h-32 rounded-md overflow-hidden bg-neutral-100 dark:bg-neutral-800">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={src}
@@ -179,7 +179,7 @@ function Preview({
           type="button"
           onClick={onReplace}
           disabled={uploading}
-          className="flex-1 inline-flex items-center justify-center gap-1.5 rounded-md border border-neutral-200 px-2.5 py-1.5 text-xs font-medium text-neutral-600 hover:bg-neutral-50 disabled:opacity-60"
+          className="flex-1 inline-flex items-center justify-center gap-1.5 rounded-md border border-neutral-200 px-2.5 py-1.5 text-xs font-medium text-neutral-600 hover:bg-neutral-50 disabled:opacity-60 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
         >
           {uploading ? (
             <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -191,7 +191,7 @@ function Preview({
         <button
           type="button"
           onClick={onRemove}
-          className="inline-flex items-center justify-center gap-1.5 rounded-md border border-neutral-200 px-2.5 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50"
+          className="inline-flex items-center justify-center gap-1.5 rounded-md border border-neutral-200 px-2.5 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 dark:border-neutral-700 dark:text-red-400 dark:hover:bg-red-950/40"
         >
           <X className="w-3.5 h-3.5" /> Quitar
         </button>
@@ -265,17 +265,17 @@ function LibraryDialog({
       onClick={onClose}
     >
       <div
-        className="w-full max-w-2xl max-h-[80vh] flex flex-col rounded-2xl bg-white shadow-2xl"
+        className="w-full max-w-2xl max-h-[80vh] flex flex-col rounded-2xl bg-white dark:bg-neutral-900 shadow-2xl"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-center justify-between border-b border-neutral-200 px-5 py-3.5">
-          <h3 className="text-sm font-semibold text-neutral-800">
+        <div className="flex items-center justify-between border-b border-neutral-200 dark:border-neutral-800 px-5 py-3.5">
+          <h3 className="text-sm font-semibold text-neutral-800 dark:text-neutral-100">
             {libraryTitle}
           </h3>
           <button
             type="button"
             onClick={onClose}
-            className="rounded-md p-1 text-neutral-400 hover:bg-neutral-100 hover:text-neutral-700"
+            className="rounded-md p-1 text-neutral-400 hover:bg-neutral-100 hover:text-neutral-700 dark:text-neutral-500 dark:hover:bg-neutral-800 dark:hover:text-neutral-300"
           >
             <X className="w-4 h-4" />
           </button>
@@ -283,7 +283,7 @@ function LibraryDialog({
 
         <div className="flex-1 overflow-y-auto p-5">
           {assets === null && (
-            <div className="grid place-items-center py-12 text-sm text-neutral-400">
+            <div className="grid place-items-center py-12 text-sm text-neutral-400 dark:text-neutral-500">
               <span className="inline-flex items-center gap-2">
                 <Loader2 className="w-4 h-4 animate-spin" /> Cargando…
               </span>
@@ -291,13 +291,13 @@ function LibraryDialog({
           )}
 
           {error && (
-            <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+            <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/40 dark:text-red-300">
               {error}
             </div>
           )}
 
           {assets !== null && !error && assets.length === 0 && (
-            <div className="grid place-items-center py-12 text-center text-sm text-neutral-400">
+            <div className="grid place-items-center py-12 text-center text-sm text-neutral-400 dark:text-neutral-500">
               Todavía no subiste {emptyLabel}. Usá “Subir” para agregar el
               primero.
             </div>
@@ -323,7 +323,7 @@ function LibraryDialog({
                       <img
                         src={resolveAssetUrl(a.url)}
                         alt={a.original_name ?? ""}
-                        className="w-full h-full object-cover bg-neutral-100"
+                        className="w-full h-full object-cover bg-neutral-100 dark:bg-neutral-800"
                       />
                       {active && (
                         <span className="absolute right-1 top-1 grid h-5 w-5 place-items-center rounded-full bg-[#8faf0e] text-[#1e2a06]">
@@ -334,7 +334,7 @@ function LibraryDialog({
                     <button
                       type="button"
                       onClick={() => remove(a.id)}
-                      className="absolute left-1 top-1 hidden rounded-md bg-white/90 p-1 text-red-600 shadow-sm hover:bg-white group-hover:block"
+                      className="absolute left-1 top-1 hidden rounded-md bg-white/90 p-1 text-red-600 shadow-sm hover:bg-white group-hover:block dark:bg-neutral-900/90 dark:text-red-400 dark:hover:bg-neutral-900"
                       title="Eliminar de la biblioteca"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
@@ -353,16 +353,16 @@ function LibraryDialog({
                   <li
                     key={a.id}
                     className={`flex items-center gap-3 rounded-lg border px-3 py-2 ${
-                      active ? "border-[#8faf0e] bg-[#8faf0e0a]" : "border-neutral-200"
+                      active ? "border-[#8faf0e] bg-[#8faf0e0a]" : "border-neutral-200 dark:border-neutral-800"
                     }`}
                   >
                     {kind === "video" ? (
-                      <Film className="w-4 h-4 shrink-0 text-neutral-400" />
+                      <Film className="w-4 h-4 shrink-0 text-neutral-400 dark:text-neutral-500" />
                     ) : (
-                      <Music className="w-4 h-4 shrink-0 text-neutral-400" />
+                      <Music className="w-4 h-4 shrink-0 text-neutral-400 dark:text-neutral-500" />
                     )}
                     <div className="min-w-0 flex-1">
-                      <div className="truncate text-sm text-neutral-700">
+                      <div className="truncate text-sm text-neutral-700 dark:text-neutral-300">
                         {a.original_name ?? (kind === "video" ? "Video" : "Audio")}
                       </div>
                       {kind === "video" ? (
@@ -383,14 +383,14 @@ function LibraryDialog({
                     <button
                       type="button"
                       onClick={() => onPick(a.url)}
-                      className="shrink-0 rounded-md border border-neutral-200 px-2.5 py-1.5 text-xs font-medium text-neutral-600 hover:bg-neutral-50"
+                      className="shrink-0 rounded-md border border-neutral-200 px-2.5 py-1.5 text-xs font-medium text-neutral-600 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
                     >
                       {active ? "Elegido" : "Elegir"}
                     </button>
                     <button
                       type="button"
                       onClick={() => remove(a.id)}
-                      className="shrink-0 rounded-md p-1.5 text-red-600 hover:bg-red-50"
+                      className="shrink-0 rounded-md p-1.5 text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/40"
                       title="Eliminar de la biblioteca"
                     >
                       <Trash2 className="w-4 h-4" />

@@ -56,7 +56,7 @@ const LivePreview = dynamic(
   {
     ssr: false,
     loading: () => (
-      <div className="flex h-full items-center justify-center text-sm text-neutral-400">
+      <div className="flex h-full items-center justify-center text-sm text-neutral-400 dark:text-neutral-500">
         <Loader2 className="w-4 h-4 animate-spin mr-2" /> Cargando vista previa…
       </div>
     ),
@@ -351,7 +351,7 @@ export default function SurveyEditorPage() {
       <div className="max-w-3xl mx-auto px-6 py-10">
         <Link
           href="/surveys"
-          className="inline-flex items-center gap-1 text-sm text-neutral-500 hover:text-neutral-900"
+          className="inline-flex items-center gap-1 text-sm text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100"
         >
           <ArrowLeft className="w-4 h-4" /> Encuestas
         </Link>
@@ -364,7 +364,7 @@ export default function SurveyEditorPage() {
 
   if (!state) {
     return (
-      <div className="h-screen grid place-items-center text-neutral-400 text-sm">
+      <div className="h-screen grid place-items-center text-neutral-400 dark:text-neutral-500 text-sm">
         <span className="inline-flex items-center gap-2">
           <Loader2 className="w-4 h-4 animate-spin" /> Cargando editor…
         </span>
@@ -376,12 +376,12 @@ export default function SurveyEditorPage() {
   const accentFg = readableForeground(state.accent);
 
   return (
-    <div className="flex h-screen flex-col bg-neutral-50">
+    <div className="flex h-screen flex-col bg-neutral-50 dark:bg-neutral-950">
       {/* Top bar */}
-      <header className="flex items-center gap-3 px-4 h-14 border-b border-neutral-200 bg-white shrink-0">
+      <header className="flex items-center gap-3 px-4 h-14 border-b border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 shrink-0">
         <Link
           href="/surveys"
-          className="inline-flex items-center gap-1 text-sm text-neutral-500 hover:text-neutral-900"
+          className="inline-flex items-center gap-1 text-sm text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100"
         >
           <ArrowLeft className="w-4 h-4" />
         </Link>
@@ -389,7 +389,7 @@ export default function SurveyEditorPage() {
           value={state.title}
           onChange={(e) => mutate((prev) => ({ ...prev, title: e.target.value }))}
           placeholder="Título de la encuesta"
-          className="min-w-0 flex-1 text-sm font-semibold bg-transparent outline-none border-b border-transparent focus:border-neutral-300 py-1"
+          className="min-w-0 flex-1 text-sm font-semibold bg-transparent outline-none border-b border-transparent focus:border-neutral-300 dark:focus:border-neutral-600 py-1"
         />
 
         <StatusBadge status={status} />
@@ -397,7 +397,7 @@ export default function SurveyEditorPage() {
         <div className="flex items-center gap-2 shrink-0">
           <Link
             href={`/surveys/${id}`}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-neutral-200 px-2.5 py-1.5 text-xs font-medium text-neutral-600 hover:bg-neutral-50"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-neutral-200 dark:border-neutral-800 px-2.5 py-1.5 text-xs font-medium text-neutral-600 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800"
             title="Respuestas y JSON avanzado"
           >
             <ListChecks className="w-4 h-4" /> Respuestas
@@ -408,7 +408,7 @@ export default function SurveyEditorPage() {
             className={`inline-flex items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-xs font-medium transition-colors ${
               state.evaluation.enabled
                 ? "border-transparent text-white"
-                : "border-neutral-200 text-neutral-600 hover:bg-neutral-50"
+                : "border-neutral-200 dark:border-neutral-800 text-neutral-600 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800"
             }`}
             style={
               state.evaluation.enabled
@@ -422,7 +422,7 @@ export default function SurveyEditorPage() {
 
           <button
             onClick={() => setGenOpen(true)}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-neutral-200 px-2.5 py-1.5 text-xs font-medium text-neutral-600 hover:bg-neutral-50"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-neutral-200 dark:border-neutral-800 px-2.5 py-1.5 text-xs font-medium text-neutral-600 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800"
             title="Generar preguntas con IA"
           >
             <Sparkles className="w-4 h-4" /> IA
@@ -430,7 +430,7 @@ export default function SurveyEditorPage() {
 
           <button
             onClick={() => setDesignOpen(true)}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-neutral-200 px-2.5 py-1.5 text-xs font-medium text-neutral-600 hover:bg-neutral-50"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-neutral-200 dark:border-neutral-800 px-2.5 py-1.5 text-xs font-medium text-neutral-600 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800"
             title="Tipografía, imágenes y música"
           >
             <Palette className="w-4 h-4" /> Diseño
@@ -446,7 +446,7 @@ export default function SurveyEditorPage() {
               href={`/s/${slug}`}
               target="_blank"
               rel="noreferrer"
-              className="inline-flex items-center gap-1.5 rounded-lg border border-neutral-200 px-2.5 py-1.5 text-xs font-medium text-neutral-600 hover:bg-neutral-50"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-neutral-200 dark:border-neutral-800 px-2.5 py-1.5 text-xs font-medium text-neutral-600 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800"
             >
               Ver <ExternalLink className="w-3.5 h-3.5" />
             </a>
@@ -454,11 +454,11 @@ export default function SurveyEditorPage() {
 
           {/* Indicador de autosave: guardando / guardado / sin guardar */}
           {autoStatus === "saving" ? (
-            <span className="inline-flex items-center gap-1 text-[11px] text-neutral-400">
+            <span className="inline-flex items-center gap-1 text-[11px] text-neutral-400 dark:text-neutral-500">
               <Loader2 className="w-3 h-3 animate-spin" /> Guardando…
             </span>
           ) : autoStatus === "saved" ? (
-            <span className="inline-flex items-center gap-1 text-[11px] text-neutral-400">
+            <span className="inline-flex items-center gap-1 text-[11px] text-neutral-400 dark:text-neutral-500">
               <Check className="w-3 h-3" /> Guardado
             </span>
           ) : autoStatus === "error" ? (
@@ -473,7 +473,7 @@ export default function SurveyEditorPage() {
           <button
             onClick={() => save()}
             disabled={saving || !dirty}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-neutral-200 px-3 py-1.5 text-xs font-medium text-neutral-700 hover:bg-neutral-50 disabled:opacity-50"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-neutral-200 dark:border-neutral-800 px-3 py-1.5 text-xs font-medium text-neutral-700 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 disabled:opacity-50"
           >
             {saving ? (
               <Loader2 className="w-4 h-4 animate-spin" />
@@ -504,7 +504,7 @@ export default function SurveyEditorPage() {
       </header>
 
       {state.passthrough.length > 0 && (
-        <div className="shrink-0 bg-amber-50 border-b border-amber-200 px-4 py-2 text-xs text-amber-800">
+        <div className="shrink-0 bg-amber-50 dark:bg-amber-950/40 border-b border-amber-200 dark:border-amber-900 px-4 py-2 text-xs text-amber-800 dark:text-amber-300">
           Esta encuesta tiene {state.passthrough.length} elemento(s) avanzado(s)
           que no se editan visualmente. Se conservan intactos; ajustalos desde{" "}
           <Link href={`/surveys/${id}`} className="underline font-medium">
@@ -516,7 +516,7 @@ export default function SurveyEditorPage() {
 
       {/* Three-pane editor */}
       <div className="flex flex-1 min-h-0">
-        <aside className="w-[300px] shrink-0 border-r border-neutral-200 bg-neutral-50">
+        <aside className="w-[300px] shrink-0 border-r border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-950">
           <QuestionListPanel
             questions={state.questions}
             selectedId={selectedId}
@@ -538,7 +538,7 @@ export default function SurveyEditorPage() {
           />
         </main>
 
-        <aside className="w-[340px] shrink-0 border-l border-neutral-200 bg-white overflow-y-auto">
+        <aside className="w-[340px] shrink-0 border-l border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 overflow-y-auto">
           <PropertiesPanel
             question={selectedQuestion}
             questions={state.questions}
@@ -610,9 +610,9 @@ export default function SurveyEditorPage() {
 
 function StatusBadge({ status }: { status: "draft" | "published" | "closed" }) {
   const map = {
-    draft: { label: "Borrador", cls: "bg-neutral-100 text-neutral-600" },
-    published: { label: "Publicada", cls: "bg-green-100 text-green-700" },
-    closed: { label: "Cerrada", cls: "bg-amber-100 text-amber-700" },
+    draft: { label: "Borrador", cls: "bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300" },
+    published: { label: "Publicada", cls: "bg-green-100 text-green-700 dark:bg-green-950/40" },
+    closed: { label: "Cerrada", cls: "bg-amber-100 text-amber-700 dark:bg-amber-950/40" },
   } as const;
   const { label, cls } = map[status];
   return (

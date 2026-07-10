@@ -17,6 +17,15 @@ export default function RootLayout({
     // warning de hidratación inofensivo que acá silenciamos.
   return (
     <html lang="es" suppressHydrationWarning>
+      <head>
+        {/* Estándar Escriba: aplicar el tema antes de pintar, para evitar flash. */}
+        <script
+          dangerouslySetInnerHTML={{
+            __html:
+              'try{if(localStorage.getItem("encuestum.theme")==="dark")document.documentElement.dataset.theme="dark"}catch(e){}',
+          }}
+        />
+      </head>
       <body suppressHydrationWarning>
         {children}
         <Toaster richColors position="top-center" />

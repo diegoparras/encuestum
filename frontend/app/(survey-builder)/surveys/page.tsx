@@ -26,9 +26,9 @@ const STATUS_LABEL: Record<SurveySummary["status"], string> = {
 };
 
 const STATUS_STYLE: Record<SurveySummary["status"], string> = {
-  draft: "bg-neutral-100 text-neutral-600",
-  published: "bg-green-100 text-green-700",
-  closed: "bg-amber-100 text-amber-700",
+  draft: "bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300",
+  published: "bg-green-100 text-green-700 dark:bg-green-950/40",
+  closed: "bg-amber-100 text-amber-700 dark:bg-amber-950/40",
 };
 
 export default function SurveysListPage() {
@@ -89,14 +89,14 @@ export default function SurveysListPage() {
       <div className="flex items-center justify-between mb-8">
         <div>
           <h1 className="text-2xl font-semibold">Encuestas</h1>
-          <p className="text-sm text-neutral-500 mt-1">
+          <p className="text-sm text-neutral-500 dark:text-neutral-400 mt-1">
             Creá formularios tipo Typeform, publicalos y recolectá respuestas.
           </p>
         </div>
         <div className="flex items-center gap-2">
           <button
             onClick={() => setGalleryOpen(true)}
-            className="inline-flex items-center gap-2 rounded-lg border border-neutral-300 px-4 py-2 text-sm font-medium hover:bg-neutral-50"
+            className="inline-flex items-center gap-2 rounded-lg border border-neutral-300 dark:border-neutral-700 px-4 py-2 text-sm font-medium hover:bg-neutral-50 dark:hover:bg-neutral-800"
           >
             <LayoutTemplate className="w-4 h-4" />
             Desde plantilla
@@ -118,7 +118,7 @@ export default function SurveysListPage() {
       </div>
 
       {status === "loading" && (
-        <div className="flex items-center gap-2 text-neutral-500 text-sm">
+        <div className="flex items-center gap-2 text-neutral-500 dark:text-neutral-400 text-sm">
           <Loader2 className="w-4 h-4 animate-spin" /> Cargando…
         </div>
       )}
@@ -128,11 +128,11 @@ export default function SurveysListPage() {
       )}
 
       {surveys && surveys.length === 0 && (
-        <div className="rounded-xl border border-dashed border-neutral-300 py-16 text-center text-neutral-500">
+        <div className="rounded-xl border border-dashed border-neutral-300 dark:border-neutral-700 py-16 text-center text-neutral-500 dark:text-neutral-400">
           Todavía no hay encuestas. Creá la primera{" "}
           <button
             onClick={() => setGalleryOpen(true)}
-            className="font-medium underline hover:text-neutral-700"
+            className="font-medium underline hover:text-neutral-700 dark:hover:text-neutral-300"
           >
             desde una plantilla
           </button>
@@ -141,11 +141,11 @@ export default function SurveysListPage() {
       )}
 
       {surveys && surveys.length > 0 && (
-        <div className="divide-y divide-neutral-200 rounded-xl border border-neutral-200 bg-white">
+        <div className="divide-y divide-neutral-200 dark:divide-neutral-800 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900">
           {surveys.map((s) => (
             <div
               key={s.id}
-              className="flex items-center justify-between px-5 py-4 hover:bg-neutral-50"
+              className="flex items-center justify-between px-5 py-4 hover:bg-neutral-50 dark:hover:bg-neutral-800"
             >
               <div className="min-w-0">
                 <Link
@@ -154,7 +154,7 @@ export default function SurveysListPage() {
                 >
                   {s.title || "(sin título)"}
                 </Link>
-                <div className="mt-1 flex items-center gap-3 text-xs text-neutral-500">
+                <div className="mt-1 flex items-center gap-3 text-xs text-neutral-500 dark:text-neutral-400">
                   <span
                     className={`rounded-full px-2 py-0.5 font-medium ${STATUS_STYLE[s.status]}`}
                   >
@@ -162,7 +162,7 @@ export default function SurveysListPage() {
                   </span>
                   <span>{s.response_count} respuestas</span>
                   {s.is_evaluation && (
-                    <span className="rounded-full bg-neutral-900/5 px-2 py-0.5 font-medium text-neutral-500">
+                    <span className="rounded-full bg-neutral-900/5 dark:bg-white/10 px-2 py-0.5 font-medium text-neutral-500 dark:text-neutral-400">
                       Examen
                     </span>
                   )}
@@ -175,7 +175,7 @@ export default function SurveysListPage() {
                     href={`/s/${s.slug}`}
                     target="_blank"
                     rel="noreferrer"
-                    className="inline-flex items-center gap-1 text-sm text-neutral-500 hover:text-neutral-900"
+                    className="inline-flex items-center gap-1 text-sm text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100"
                   >
                     Ver <ExternalLink className="w-3.5 h-3.5" />
                   </a>
@@ -184,7 +184,7 @@ export default function SurveysListPage() {
                   onClick={() => duplicate(s.id)}
                   disabled={!!duplicatingId}
                   title="Duplicar encuesta"
-                  className="inline-flex items-center gap-1 text-sm text-neutral-500 hover:text-neutral-900 disabled:opacity-50"
+                  className="inline-flex items-center gap-1 text-sm text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100 disabled:opacity-50"
                 >
                   {duplicatingId === s.id ? (
                     <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -227,20 +227,20 @@ function TemplateGallery({
       onClick={onClose}
     >
       <div
-        className="w-full max-w-3xl rounded-2xl bg-white shadow-xl"
+        className="w-full max-w-3xl rounded-2xl bg-white dark:bg-neutral-900 shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="flex items-start justify-between border-b border-neutral-200 px-6 py-4">
+        <div className="flex items-start justify-between border-b border-neutral-200 dark:border-neutral-800 px-6 py-4">
           <div>
             <h2 className="text-lg font-semibold">Elegí una plantilla</h2>
-            <p className="text-sm text-neutral-500 mt-0.5">
+            <p className="text-sm text-neutral-500 dark:text-neutral-400 mt-0.5">
               Empezá con una estructura lista y ajustala en el editor.
             </p>
           </div>
           <button
             onClick={onClose}
             disabled={!!creatingId}
-            className="rounded-md p-1 text-neutral-400 hover:bg-neutral-100 hover:text-neutral-700 disabled:opacity-40"
+            className="rounded-md p-1 text-neutral-400 dark:text-neutral-500 hover:bg-neutral-100 dark:hover:bg-neutral-800 hover:text-neutral-700 dark:hover:text-neutral-300 disabled:opacity-40"
             aria-label="Cerrar"
           >
             <X className="w-5 h-5" />
@@ -256,7 +256,7 @@ function TemplateGallery({
                 key={t.id}
                 onClick={() => onPick(t)}
                 disabled={!!creatingId}
-                className={`group relative flex flex-col items-start rounded-xl border border-neutral-200 bg-white p-4 text-left transition hover:border-neutral-300 hover:shadow-sm ${
+                className={`group relative flex flex-col items-start rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-4 text-left transition hover:border-neutral-300 dark:hover:border-neutral-700 hover:shadow-sm ${
                   disabled ? "opacity-50" : ""
                 }`}
               >
@@ -265,16 +265,16 @@ function TemplateGallery({
                     className="inline-block h-2.5 w-2.5 shrink-0 rounded-full"
                     style={{ backgroundColor: t.accent }}
                   />
-                  <span className="ml-auto rounded-full bg-neutral-100 px-2 py-0.5 text-[11px] font-medium text-neutral-500">
+                  <span className="ml-auto rounded-full bg-neutral-100 dark:bg-neutral-800 px-2 py-0.5 text-[11px] font-medium text-neutral-500 dark:text-neutral-400">
                     {t.category}
                   </span>
                 </div>
-                <div className="font-medium text-neutral-900">{t.name}</div>
-                <p className="mt-1 text-sm text-neutral-500 leading-snug">
+                <div className="font-medium text-neutral-900 dark:text-neutral-100">{t.name}</div>
+                <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400 leading-snug">
                   {t.description}
                 </p>
                 {isLoading && (
-                  <span className="mt-3 inline-flex items-center gap-1.5 text-xs font-medium text-neutral-500">
+                  <span className="mt-3 inline-flex items-center gap-1.5 text-xs font-medium text-neutral-500 dark:text-neutral-400">
                     <Loader2 className="w-3.5 h-3.5 animate-spin" /> Creando…
                   </span>
                 )}

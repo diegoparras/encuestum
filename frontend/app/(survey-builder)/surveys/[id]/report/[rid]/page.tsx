@@ -39,7 +39,7 @@ export default function ReportPage() {
     );
   if (!survey || !response)
     return (
-      <div className="min-h-screen grid place-items-center text-neutral-400 text-sm">
+      <div className="min-h-screen grid place-items-center text-neutral-400 text-sm dark:text-neutral-500">
         <span className="inline-flex items-center gap-2">
           <Loader2 className="w-4 h-4 animate-spin" /> Cargando reporte…
         </span>
@@ -53,7 +53,7 @@ export default function ReportPage() {
   const questions = grade?.questions ?? [];
 
   return (
-    <div className="min-h-screen bg-neutral-100 print:bg-white">
+    <div className="min-h-screen bg-neutral-100 print:bg-white dark:bg-neutral-950">
       <style>{`
         @media print {
           .no-print { display: none !important; }
@@ -64,11 +64,11 @@ export default function ReportPage() {
       `}</style>
 
       {/* Toolbar (screen only) */}
-      <div className="no-print sticky top-0 z-10 bg-white/80 backdrop-blur border-b border-neutral-200">
+      <div className="no-print sticky top-0 z-10 bg-white/80 backdrop-blur border-b border-neutral-200 dark:bg-neutral-900/80 dark:border-neutral-800">
         <div className="max-w-3xl mx-auto px-6 h-14 flex items-center justify-between">
           <Link
             href={`/surveys/${id}`}
-            className="inline-flex items-center gap-1 text-sm text-neutral-500 hover:text-neutral-900"
+            className="inline-flex items-center gap-1 text-sm text-neutral-500 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100"
           >
             <ArrowLeft className="w-4 h-4" /> Volver
           </Link>
@@ -84,7 +84,7 @@ export default function ReportPage() {
 
       {/* Sheet */}
       <div className="max-w-3xl mx-auto px-6 py-8 print:p-0">
-        <div className="report-sheet bg-white rounded-2xl shadow-sm ring-1 ring-black/5 overflow-hidden">
+        <div className="report-sheet bg-white rounded-2xl shadow-sm ring-1 ring-black/5 overflow-hidden dark:bg-neutral-900 dark:ring-white/10">
           {/* Accent header */}
           <div className="h-2" style={{ backgroundColor: pal.accent }} />
           <div className="px-10 pt-8 pb-6">
@@ -96,10 +96,10 @@ export default function ReportPage() {
                 >
                   <GraduationCap className="w-3.5 h-3.5" /> Reporte de evaluación
                 </div>
-                <h1 className="text-2xl font-bold text-neutral-900 leading-tight">
+                <h1 className="text-2xl font-bold text-neutral-900 leading-tight dark:text-neutral-100">
                   {survey.title || "Encuesta"}
                 </h1>
-                <p className="mt-1 text-sm text-neutral-400">
+                <p className="mt-1 text-sm text-neutral-400 dark:text-neutral-500">
                   {new Date(response.submitted_at).toLocaleString()} · Participante{" "}
                   <span className="font-mono">{String(rid).slice(0, 8)}</span>
                 </p>
@@ -124,7 +124,7 @@ export default function ReportPage() {
                   </span>
                 )}
                 {response.needs_review && (
-                  <span className="rounded-full px-3 py-1 text-xs font-semibold bg-amber-100 text-amber-700">
+                  <span className="rounded-full px-3 py-1 text-xs font-semibold bg-amber-100 text-amber-700 dark:bg-amber-950/40">
                     En revisión
                   </span>
                 )}
@@ -135,7 +135,7 @@ export default function ReportPage() {
           {/* Questions */}
           <div className="px-10 pb-10 space-y-4">
             {questions.length === 0 && (
-              <p className="text-sm text-neutral-400">
+              <p className="text-sm text-neutral-400 dark:text-neutral-500">
                 Esta respuesta todavía no fue corregida.
               </p>
             )}
@@ -152,7 +152,7 @@ export default function ReportPage() {
           </div>
 
           <div
-            className="px-10 py-4 text-center text-[11px] text-neutral-400 border-t"
+            className="px-10 py-4 text-center text-[11px] text-neutral-400 border-t dark:text-neutral-500"
             style={{ borderColor: pal.soft }}
           >
             Generado con Presentia · Suite Escriba
@@ -179,7 +179,7 @@ function ScoreRing({
         background: `conic-gradient(${pal.accent} ${pct * 3.6}deg, ${pal.light} 0deg)`,
       }}
     >
-      <div className="grid place-items-center rounded-full bg-white" style={{ width: 76, height: 76 }}>
+      <div className="grid place-items-center rounded-full bg-white dark:bg-neutral-900" style={{ width: 76, height: 76 }}>
         <span className="text-xl font-bold" style={{ color: pal.strong }}>
           {pct}%
         </span>
@@ -245,7 +245,7 @@ function QuestionBlock({
       style={{ borderColor: pal.soft }}
     >
       <div className="flex items-start justify-between gap-3">
-        <h3 className="text-sm font-semibold text-neutral-900">
+        <h3 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">
           <span style={{ color: pal.accent }}>{index}.</span> {title}
         </h3>
         <div className="flex items-center gap-2 shrink-0">
@@ -262,10 +262,10 @@ function QuestionBlock({
       </div>
 
       <div className="mt-3">
-        <div className="text-[10px] uppercase tracking-wide text-neutral-400 mb-1">
+        <div className="text-[10px] uppercase tracking-wide text-neutral-400 mb-1 dark:text-neutral-500">
           Respuesta
         </div>
-        <div className="text-sm text-neutral-700 whitespace-pre-wrap">{answerText}</div>
+        <div className="text-sm text-neutral-700 whitespace-pre-wrap dark:text-neutral-300">{answerText}</div>
       </div>
 
       {q.feedback && (
@@ -283,9 +283,9 @@ function QuestionBlock({
       {Array.isArray(q.criteria) && q.criteria.length > 0 && (
         <div className="mt-3 space-y-1">
           {q.criteria.map((c: any, i: number) => (
-            <div key={i} className="flex items-center justify-between text-xs text-neutral-500">
+            <div key={i} className="flex items-center justify-between text-xs text-neutral-500 dark:text-neutral-400">
               <span>{c.label}</span>
-              <span className="font-medium text-neutral-700">
+              <span className="font-medium text-neutral-700 dark:text-neutral-300">
                 {c.awarded}/{c.max}
               </span>
             </div>

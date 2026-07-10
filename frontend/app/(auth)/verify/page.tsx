@@ -80,12 +80,12 @@ function VerifyView() {
   return (
     <Card>
       <CardContent className="py-6">
-        <h1 className="text-xl font-semibold text-neutral-900">
+        <h1 className="text-xl font-semibold text-neutral-900 dark:text-neutral-100">
           Verificación de correo
         </h1>
 
         {status === "verifying" && (
-          <div className="mt-6 flex items-center gap-2 text-sm text-neutral-500">
+          <div className="mt-6 flex items-center gap-2 text-sm text-neutral-500 dark:text-neutral-400">
             <Loader2 className="h-5 w-5 animate-spin" />
             Verificando tu correo…
           </div>
@@ -93,7 +93,7 @@ function VerifyView() {
 
         {status === "success" && (
           <>
-            <div className="mt-6 flex items-start gap-2 rounded-lg bg-green-50 px-3 py-2 text-sm text-green-700">
+            <div className="mt-6 flex items-start gap-2 rounded-lg bg-green-50 px-3 py-2 text-sm text-green-700 dark:bg-green-950/40">
               <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0" />
               <span>{detail}</span>
             </div>
@@ -106,7 +106,7 @@ function VerifyView() {
               </Link>
               <Link
                 href="/login"
-                className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-lg border border-neutral-300 bg-white px-4 text-sm font-medium text-neutral-800 transition-colors hover:bg-neutral-50"
+                className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-lg border border-neutral-300 bg-white px-4 text-sm font-medium text-neutral-800 transition-colors hover:bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100 dark:hover:bg-neutral-700"
               >
                 Ir a Ingresar
               </Link>
@@ -116,20 +116,20 @@ function VerifyView() {
 
         {status === "error" && (
           <>
-            <div className="mt-6 flex items-start gap-2 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+            <div className="mt-6 flex items-start gap-2 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950/40">
               <XCircle className="mt-0.5 h-5 w-5 shrink-0" />
               <span>{detail}</span>
             </div>
 
-            <div className="mt-6 border-t border-neutral-100 pt-6">
-              <h2 className="text-sm font-medium text-neutral-700">
+            <div className="mt-6 border-t border-neutral-100 pt-6 dark:border-neutral-800">
+              <h2 className="text-sm font-medium text-neutral-700 dark:text-neutral-300">
                 Reenviar verificación
               </h2>
-              <p className="mt-1 text-xs text-neutral-500">
+              <p className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">
                 Ingresá tu correo y te enviaremos un nuevo enlace.
               </p>
               {resendMessage ? (
-                <p className="mt-4 rounded-lg bg-green-50 px-3 py-2 text-sm text-green-700">
+                <p className="mt-4 rounded-lg bg-green-50 px-3 py-2 text-sm text-green-700 dark:bg-green-950/40">
                   {resendMessage}
                 </p>
               ) : (
@@ -147,7 +147,7 @@ function VerifyView() {
                     />
                   </div>
                   {resendError && (
-                    <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+                    <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950/40">
                       {resendError}
                     </p>
                   )}
@@ -161,7 +161,7 @@ function VerifyView() {
           </>
         )}
 
-        <p className="mt-6 text-center text-sm text-neutral-500">
+        <p className="mt-6 text-center text-sm text-neutral-500 dark:text-neutral-400">
           <Link href="/login" className="font-medium text-primary hover:underline">
             Volver a Ingresar
           </Link>
@@ -175,7 +175,7 @@ export default function VerifyPage() {
   return (
     <Suspense
       fallback={
-        <div className="flex min-h-[40vh] items-center justify-center text-neutral-400">
+        <div className="flex min-h-[40vh] items-center justify-center text-neutral-400 dark:text-neutral-500">
           <Loader2 className="h-6 w-6 animate-spin" />
         </div>
       }

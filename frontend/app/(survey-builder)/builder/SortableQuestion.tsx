@@ -97,11 +97,11 @@ export function SortableQuestion({
       className={`group relative flex items-center gap-2 rounded-lg border px-2 py-2 cursor-pointer transition-colors ${
         isSection
           ? selected
-            ? "shadow-sm border-neutral-200"
-            : "border-neutral-200 hover:shadow-sm"
+            ? "shadow-sm border-neutral-200 dark:border-neutral-800"
+            : "border-neutral-200 dark:border-neutral-800 hover:shadow-sm"
           : selected
-            ? "bg-white shadow-sm border-neutral-200"
-            : "bg-white/60 hover:bg-white border-neutral-200"
+            ? "bg-white dark:bg-neutral-900 shadow-sm border-neutral-200 dark:border-neutral-800"
+            : "bg-white/60 dark:bg-neutral-900/60 hover:bg-white dark:hover:bg-neutral-900 border-neutral-200 dark:border-neutral-800"
       }`}
     >
       <span
@@ -111,7 +111,7 @@ export function SortableQuestion({
       />
       <button
         type="button"
-        className="shrink-0 text-neutral-300 hover:text-neutral-500 cursor-grab active:cursor-grabbing touch-none"
+        className="shrink-0 text-neutral-300 dark:text-neutral-600 hover:text-neutral-500 dark:hover:text-neutral-400 cursor-grab active:cursor-grabbing touch-none"
         {...attributes}
         {...listeners}
         onClick={(e) => e.stopPropagation()}
@@ -132,14 +132,14 @@ export function SortableQuestion({
 
       {isSection ? (
         <div className="min-w-0 flex-1">
-          <div className="text-[11px] font-semibold uppercase tracking-wide text-neutral-700 truncate">
+          <div className="text-[11px] font-semibold uppercase tracking-wide text-neutral-700 dark:text-neutral-300 truncate">
             {question.title || "Sección"}
           </div>
         </div>
       ) : (
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5 min-w-0">
-            <div className="text-sm font-medium text-neutral-800 truncate">
+            <div className="text-sm font-medium text-neutral-800 dark:text-neutral-200 truncate">
               {index + 1}. {question.title || "(sin título)"}
             </div>
             {branchCount > 0 && (
@@ -153,7 +153,7 @@ export function SortableQuestion({
               </span>
             )}
           </div>
-          <div className="text-[11px] text-neutral-400">
+          <div className="text-[11px] text-neutral-400 dark:text-neutral-500">
             {QUESTION_TYPE_LABEL[question.type]}
             {question.isRequired ? " · obligatoria" : ""}
           </div>
@@ -167,7 +167,7 @@ export function SortableQuestion({
             e.stopPropagation();
             onDuplicate();
           }}
-          className="p-1.5 text-neutral-400 hover:text-neutral-700"
+          className="p-1.5 text-neutral-400 dark:text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300"
           aria-label="Duplicar"
           title="Duplicar"
         >
@@ -179,7 +179,7 @@ export function SortableQuestion({
             e.stopPropagation();
             onDelete();
           }}
-          className="p-1.5 text-neutral-400 hover:text-red-600"
+          className="p-1.5 text-neutral-400 dark:text-neutral-500 hover:text-red-600"
           aria-label="Eliminar"
           title="Eliminar"
         >

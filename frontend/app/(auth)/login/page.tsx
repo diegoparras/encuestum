@@ -33,8 +33,8 @@ export default function LoginPage() {
   return (
     <Card>
       <CardContent className="py-6">
-        <h1 className="text-xl font-semibold text-neutral-900">Ingresar</h1>
-        <p className="mt-1 text-sm text-neutral-500">
+        <h1 className="text-xl font-semibold text-neutral-900 dark:text-neutral-100">Ingresar</h1>
+        <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
           Accedé a tu cuenta de Encuestum.
         </p>
 
@@ -74,7 +74,7 @@ export default function LoginPage() {
           </div>
 
           {error && (
-            <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+            <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950/40">
               {error}
             </p>
           )}
@@ -85,7 +85,7 @@ export default function LoginPage() {
           </Button>
         </form>
 
-        <p className="mt-6 text-center text-sm text-neutral-500">
+        <p className="mt-6 text-center text-sm text-neutral-500 dark:text-neutral-400">
           ¿No tenés cuenta?{" "}
           <Link href="/register" className="font-medium text-primary hover:underline">
             Crear cuenta

@@ -166,20 +166,20 @@ export default function IntegrationsPage() {
   return (
     <div className="space-y-8">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight text-neutral-900">
+        <h1 className="text-2xl font-bold tracking-tight text-neutral-900 dark:text-neutral-100">
           Integraciones
         </h1>
-        <p className="mt-1 text-sm text-neutral-500">
+        <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
           Mandá cada respuesta en tiempo real a Zapier, Make, Google Sheets o tu
           propia URL desde{" "}
-          <span className="font-medium text-neutral-700">{activeOrg?.name}</span>.
+          <span className="font-medium text-neutral-700 dark:text-neutral-300">{activeOrg?.name}</span>.
         </p>
       </div>
 
       {/* Add webhook */}
       <Card>
         <CardHeader className="flex flex-row items-center gap-2">
-          <Plus className="h-5 w-5 text-neutral-400" />
+          <Plus className="h-5 w-5 text-neutral-400 dark:text-neutral-500" />
           <CardTitle>Agregar webhook</CardTitle>
         </CardHeader>
         <CardContent>
@@ -219,7 +219,7 @@ export default function IntegrationsPage() {
               Agregar webhook
             </Button>
           </form>
-          <p className="mt-2 text-xs text-neutral-400">
+          <p className="mt-2 text-xs text-neutral-400 dark:text-neutral-500">
             Elegí una encuesta específica o dejá &quot;Todas las encuestas&quot; para
             enviar las respuestas de toda la organización.
           </p>
@@ -229,12 +229,12 @@ export default function IntegrationsPage() {
       {/* Webhooks list */}
       <Card>
         <CardHeader className="flex flex-row items-center gap-2">
-          <WebhookIcon className="h-5 w-5 text-neutral-400" />
+          <WebhookIcon className="h-5 w-5 text-neutral-400 dark:text-neutral-500" />
           <CardTitle>Webhooks configurados</CardTitle>
         </CardHeader>
         <CardContent>
           {webhooks && webhooks.length > 0 ? (
-            <ul className="divide-y divide-neutral-100">
+            <ul className="divide-y divide-neutral-100 dark:divide-neutral-800">
               {webhooks.map((w) => {
                 const isTesting = testing === w.id;
                 const isDeleting = deleting === w.id;
@@ -243,8 +243,8 @@ export default function IntegrationsPage() {
                   <li key={w.id} className="flex flex-col gap-3 py-4">
                     <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
                       <div className="min-w-0">
-                        <p className="truncate font-medium text-neutral-900">{w.url}</p>
-                        <p className="mt-0.5 text-xs text-neutral-400">
+                        <p className="truncate font-medium text-neutral-900 dark:text-neutral-100">{w.url}</p>
+                        <p className="mt-0.5 text-xs text-neutral-400 dark:text-neutral-500">
                           {w.survey_id ? (
                             <>Encuesta: {surveyTitle(w.survey_id)}</>
                           ) : (
@@ -287,7 +287,7 @@ export default function IntegrationsPage() {
                           size="sm"
                           disabled={isDeleting}
                           onClick={() => onDelete(w)}
-                          className="text-red-600 hover:bg-red-50 hover:text-red-700"
+                          className="text-red-600 hover:bg-red-50 hover:text-red-700 dark:hover:bg-red-950/40"
                         >
                           {isDeleting ? (
                             <Loader2 className="h-4 w-4 animate-spin" />
@@ -300,8 +300,8 @@ export default function IntegrationsPage() {
                     </div>
 
                     {show && (
-                      <div className="flex items-center gap-2 rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2">
-                        <code className="min-w-0 flex-1 truncate font-mono text-xs text-neutral-700">
+                      <div className="flex items-center gap-2 rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2 dark:border-neutral-800 dark:bg-neutral-950">
+                        <code className="min-w-0 flex-1 truncate font-mono text-xs text-neutral-700 dark:text-neutral-300">
                           {w.secret}
                         </code>
                         <Button
@@ -320,8 +320,8 @@ export default function IntegrationsPage() {
             </ul>
           ) : (
             <div className="py-10 text-center">
-              <WebhookIcon className="mx-auto h-8 w-8 text-neutral-300" />
-              <p className="mt-3 text-sm text-neutral-400">
+              <WebhookIcon className="mx-auto h-8 w-8 text-neutral-300 dark:text-neutral-600" />
+              <p className="mt-3 text-sm text-neutral-400 dark:text-neutral-500">
                 Todavía no configuraste ningún webhook. Agregá uno arriba para
                 empezar a recibir las respuestas.
               </p>
@@ -333,22 +333,22 @@ export default function IntegrationsPage() {
       {/* Help block */}
       <Card>
         <CardContent className="flex items-start gap-3 py-5">
-          <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-neutral-400" />
-          <div className="space-y-1 text-sm text-neutral-600">
+          <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-neutral-400 dark:text-neutral-500" />
+          <div className="space-y-1 text-sm text-neutral-600 dark:text-neutral-300">
             <p>
               Cada respuesta se envía con los headers{" "}
-              <code className="rounded bg-neutral-100 px-1 py-0.5 font-mono text-xs">
+              <code className="rounded bg-neutral-100 px-1 py-0.5 font-mono text-xs dark:bg-neutral-800 dark:text-neutral-200">
                 X-Encuestum-Event
               </code>{" "}
               y{" "}
-              <code className="rounded bg-neutral-100 px-1 py-0.5 font-mono text-xs">
+              <code className="rounded bg-neutral-100 px-1 py-0.5 font-mono text-xs dark:bg-neutral-800 dark:text-neutral-200">
                 X-Encuestum-Signature
               </code>
               .
             </p>
-            <p className="text-neutral-500">
+            <p className="text-neutral-500 dark:text-neutral-400">
               Verificá la autenticidad con el header{" "}
-              <code className="rounded bg-neutral-100 px-1 py-0.5 font-mono text-xs">
+              <code className="rounded bg-neutral-100 px-1 py-0.5 font-mono text-xs dark:bg-neutral-800 dark:text-neutral-200">
                 X-Encuestum-Signature
               </code>{" "}
               (HMAC-SHA256 del cuerpo con tu secreto).

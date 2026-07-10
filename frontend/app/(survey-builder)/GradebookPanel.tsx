@@ -18,13 +18,13 @@ function rowState(r: GradebookRow): { label: string; className: string } {
   if (!r.graded)
     return {
       label: "Sin corregir",
-      className: "bg-neutral-100 text-neutral-600",
+      className: "bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300",
     };
   if (r.needs_review)
-    return { label: "A revisar", className: "bg-amber-100 text-amber-700" };
+    return { label: "A revisar", className: "bg-amber-100 text-amber-700 dark:bg-amber-950/40" };
   if (r.passed)
-    return { label: "Aprobado", className: "bg-green-100 text-green-700" };
-  return { label: "Desaprobado", className: "bg-red-100 text-red-700" };
+    return { label: "Aprobado", className: "bg-green-100 text-green-700 dark:bg-green-950/40" };
+  return { label: "Desaprobado", className: "bg-red-100 text-red-700 dark:bg-red-950/40" };
 }
 
 /**
@@ -111,7 +111,7 @@ export function GradebookPanel({ surveyId, accent = SURVEY_ACCENT }: Props) {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="text-xs text-neutral-500">
+        <p className="text-xs text-neutral-500 dark:text-neutral-400">
           Aprueba con{" "}
           <span className="font-semibold" style={{ color: accent }}>
             ≥ {data.passing_score}%
@@ -121,30 +121,30 @@ export function GradebookPanel({ surveyId, accent = SURVEY_ACCENT }: Props) {
         <button
           onClick={exportCsv}
           disabled={rows.length === 0}
-          className="inline-flex items-center gap-1.5 rounded-lg border border-neutral-200 px-3 py-1.5 text-xs font-medium text-neutral-700 hover:bg-neutral-50 disabled:opacity-50 disabled:cursor-not-allowed"
+          className="inline-flex items-center gap-1.5 rounded-lg border border-neutral-200 px-3 py-1.5 text-xs font-medium text-neutral-700 hover:bg-neutral-50 disabled:opacity-50 disabled:cursor-not-allowed dark:border-neutral-800 dark:text-neutral-300 dark:hover:bg-neutral-800"
         >
           <Download className="w-4 h-4" /> Descargar CSV
         </button>
       </div>
 
       {rows.length === 0 ? (
-        <div className="rounded-lg border border-dashed border-neutral-300 py-10 text-center text-neutral-400 text-sm">
+        <div className="rounded-lg border border-dashed border-neutral-300 py-10 text-center text-neutral-400 text-sm dark:border-neutral-700 dark:text-neutral-500">
           Todavía no hay respondientes con nota.
         </div>
       ) : (
-        <div className="overflow-x-auto rounded-lg border border-neutral-200 bg-white">
+        <div className="overflow-x-auto rounded-lg border border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-900">
           <table className="min-w-full text-sm">
-            <thead className="bg-neutral-50 text-neutral-500">
+            <thead className="bg-neutral-50 text-neutral-500 dark:bg-neutral-950 dark:text-neutral-400">
               <tr>
                 <th className="px-3 py-2 text-left font-medium">
                   <button
                     onClick={() => toggleSort("name")}
-                    className="inline-flex items-center gap-1 hover:text-neutral-800"
+                    className="inline-flex items-center gap-1 hover:text-neutral-800 dark:hover:text-neutral-200"
                   >
                     Nombre
                     <ArrowUpDown
                       className={`w-3 h-3 ${
-                        sortKey === "name" ? "text-neutral-700" : "text-neutral-300"
+                        sortKey === "name" ? "text-neutral-700 dark:text-neutral-300" : "text-neutral-300 dark:text-neutral-600"
                       }`}
                     />
                   </button>
@@ -156,14 +156,14 @@ export function GradebookPanel({ surveyId, accent = SURVEY_ACCENT }: Props) {
                 <th className="px-3 py-2 text-left font-medium">
                   <button
                     onClick={() => toggleSort("percent")}
-                    className="inline-flex items-center gap-1 hover:text-neutral-800"
+                    className="inline-flex items-center gap-1 hover:text-neutral-800 dark:hover:text-neutral-200"
                   >
                     %
                     <ArrowUpDown
                       className={`w-3 h-3 ${
                         sortKey === "percent"
-                          ? "text-neutral-700"
-                          : "text-neutral-300"
+                          ? "text-neutral-700 dark:text-neutral-300"
+                          : "text-neutral-300 dark:text-neutral-600"
                       }`}
                     />
                   </button>
@@ -171,18 +171,18 @@ export function GradebookPanel({ surveyId, accent = SURVEY_ACCENT }: Props) {
                 <th className="px-3 py-2 text-left font-medium">Estado</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-neutral-100">
+            <tbody className="divide-y divide-neutral-100 dark:divide-neutral-800">
               {rows.map((r) => {
                 const st = rowState(r);
                 return (
-                  <tr key={r.response_id} className="hover:bg-neutral-50/60">
-                    <td className="px-3 py-2 font-medium text-neutral-800">
+                  <tr key={r.response_id} className="hover:bg-neutral-50/60 dark:hover:bg-neutral-900/60">
+                    <td className="px-3 py-2 font-medium text-neutral-800 dark:text-neutral-200">
                       {r.name || "—"}
                     </td>
-                    <td className="px-3 py-2 text-neutral-500">
+                    <td className="px-3 py-2 text-neutral-500 dark:text-neutral-400">
                       {r.email || "—"}
                     </td>
-                    <td className="px-3 py-2 whitespace-nowrap text-neutral-700">
+                    <td className="px-3 py-2 whitespace-nowrap text-neutral-700 dark:text-neutral-300">
                       {r.score != null && r.max_score != null
                         ? `${r.score} / ${r.max_score}`
                         : "—"}

@@ -52,20 +52,20 @@ function ResetForm() {
   return (
     <Card>
       <CardContent className="py-6">
-        <h1 className="text-xl font-semibold text-neutral-900">
+        <h1 className="text-xl font-semibold text-neutral-900 dark:text-neutral-100">
           Restablecer contraseña
         </h1>
-        <p className="mt-1 text-sm text-neutral-500">
+        <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
           Elegí una nueva contraseña para tu cuenta.
         </p>
 
         {done ? (
           <>
-            <p className="mt-6 rounded-lg bg-green-50 px-3 py-2 text-sm text-green-700">
+            <p className="mt-6 rounded-lg bg-green-50 px-3 py-2 text-sm text-green-700 dark:bg-green-950/40">
               Tu contraseña se actualizó correctamente. Ya podés ingresar con la
               nueva.
             </p>
-            <p className="mt-6 text-center text-sm text-neutral-500">
+            <p className="mt-6 text-center text-sm text-neutral-500 dark:text-neutral-400">
               <Link
                 href="/login"
                 className="font-medium text-primary hover:underline"
@@ -77,7 +77,7 @@ function ResetForm() {
         ) : (
           <>
             {!token && (
-              <p className="mt-6 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-700">
+              <p className="mt-6 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-700 dark:bg-amber-950/40">
                 Falta el token de recuperación. Abrí el enlace del correo o
                 solicitá uno nuevo.
               </p>
@@ -99,7 +99,7 @@ function ResetForm() {
                   className={
                     passwordTooShort
                       ? "text-xs text-red-600"
-                      : "text-xs text-neutral-400"
+                      : "text-xs text-neutral-400 dark:text-neutral-500"
                   }
                 >
                   Al menos 8 caracteres.
@@ -120,7 +120,7 @@ function ResetForm() {
               </div>
 
               {error && (
-                <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+                <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950/40">
                   {error}
                 </p>
               )}
@@ -131,7 +131,7 @@ function ResetForm() {
               </Button>
             </form>
 
-            <p className="mt-6 text-center text-sm text-neutral-500">
+            <p className="mt-6 text-center text-sm text-neutral-500 dark:text-neutral-400">
               <Link
                 href="/login"
                 className="font-medium text-primary hover:underline"
@@ -150,7 +150,7 @@ export default function ResetPage() {
   return (
     <Suspense
       fallback={
-        <div className="flex min-h-[40vh] items-center justify-center text-neutral-400">
+        <div className="flex min-h-[40vh] items-center justify-center text-neutral-400 dark:text-neutral-500">
           <Loader2 className="h-6 w-6 animate-spin" />
         </div>
       }

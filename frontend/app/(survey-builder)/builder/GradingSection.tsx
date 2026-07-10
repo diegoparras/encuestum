@@ -39,23 +39,23 @@ export function GradingSection({ question: q, accent, onChange }: Props) {
       {q.gradable && (
         <div className="mt-3 space-y-3">
           <div className="flex items-center gap-3">
-            <label className="text-xs font-medium text-neutral-600">Puntos</label>
+            <label className="text-xs font-medium text-neutral-600 dark:text-neutral-300">Puntos</label>
             <input
               type="number"
               min={0}
               step={0.5}
               value={q.points ?? 1}
               onChange={(e) => onChange({ points: Number(e.target.value) })}
-              className="w-20 rounded-md border border-neutral-200 px-2 py-1.5 text-sm outline-none focus:border-neutral-400"
+              className="w-20 rounded-md border border-neutral-200 px-2 py-1.5 text-sm outline-none focus:border-neutral-400 dark:bg-neutral-800 dark:border-neutral-700 dark:text-neutral-100 dark:placeholder:text-neutral-500"
             />
           </div>
 
           {isOpen && (
             <div>
-              <div className="text-xs font-medium text-neutral-600 mb-1.5">
+              <div className="text-xs font-medium text-neutral-600 dark:text-neutral-300 mb-1.5">
                 Cómo se corrige
               </div>
-              <div className="flex gap-1 rounded-lg bg-neutral-100 p-0.5 text-xs">
+              <div className="flex gap-1 rounded-lg bg-neutral-100 dark:bg-neutral-800 p-0.5 text-xs">
                 <GraderTab
                   active={grader === "llm"}
                   onClick={() => onChange({ grader: "llm" })}
@@ -143,7 +143,7 @@ export function GradingSection({ question: q, accent, onChange }: Props) {
                         e.target.value === "" ? undefined : Number(e.target.value),
                     })
                   }
-                  className="w-full rounded-md border border-neutral-200 px-2.5 py-1.5 text-sm outline-none focus:border-neutral-400"
+                  className="w-full rounded-md border border-neutral-200 px-2.5 py-1.5 text-sm outline-none focus:border-neutral-400 dark:bg-neutral-800 dark:border-neutral-700 dark:text-neutral-100 dark:placeholder:text-neutral-500"
                 />
               </Field>
               <Field label="Tolerancia (±)">
@@ -153,7 +153,7 @@ export function GradingSection({ question: q, accent, onChange }: Props) {
                   step={0.5}
                   value={q.tolerance ?? 0}
                   onChange={(e) => onChange({ tolerance: Number(e.target.value) })}
-                  className="w-full rounded-md border border-neutral-200 px-2.5 py-1.5 text-sm outline-none focus:border-neutral-400"
+                  className="w-full rounded-md border border-neutral-200 px-2.5 py-1.5 text-sm outline-none focus:border-neutral-400 dark:bg-neutral-800 dark:border-neutral-700 dark:text-neutral-100 dark:placeholder:text-neutral-500"
                 />
               </Field>
             </div>
@@ -173,7 +173,7 @@ export function GradingSection({ question: q, accent, onChange }: Props) {
                     })
                   }
                   rows={3}
-                  className="w-full rounded-md border border-neutral-200 px-2.5 py-2 text-sm outline-none focus:border-neutral-400"
+                  className="w-full rounded-md border border-neutral-200 px-2.5 py-2 text-sm outline-none focus:border-neutral-400 dark:bg-neutral-800 dark:border-neutral-700 dark:text-neutral-100 dark:placeholder:text-neutral-500"
                 />
               </Field>
               <ToggleRow
@@ -192,7 +192,7 @@ export function GradingSection({ question: q, accent, onChange }: Props) {
                   onChange={(e) => onChange({ modelAnswer: e.target.value })}
                   rows={3}
                   placeholder="La respuesta ideal contra la que se corrige"
-                  className="w-full rounded-md border border-neutral-200 px-2.5 py-2 text-sm outline-none focus:border-neutral-400"
+                  className="w-full rounded-md border border-neutral-200 px-2.5 py-2 text-sm outline-none focus:border-neutral-400 dark:bg-neutral-800 dark:border-neutral-700 dark:text-neutral-100 dark:placeholder:text-neutral-500"
                 />
               </Field>
               <Field label="Conceptos clave (separados por coma)">
@@ -206,7 +206,7 @@ export function GradingSection({ question: q, accent, onChange }: Props) {
                         .filter(Boolean),
                     })
                   }
-                  className="w-full rounded-md border border-neutral-200 px-2.5 py-1.5 text-sm outline-none focus:border-neutral-400"
+                  className="w-full rounded-md border border-neutral-200 px-2.5 py-1.5 text-sm outline-none focus:border-neutral-400 dark:bg-neutral-800 dark:border-neutral-700 dark:text-neutral-100 dark:placeholder:text-neutral-500"
                 />
               </Field>
               <Field label="Rúbrica">
@@ -304,7 +304,7 @@ function choiceKey(c: Choice, i: number): string {
 function ImageChoiceThumb({ choice }: { choice: Choice }) {
   if (!choice.imageUrl)
     return (
-      <span className="grid h-9 w-9 shrink-0 place-items-center rounded bg-neutral-100 text-[10px] text-neutral-400">
+      <span className="grid h-9 w-9 shrink-0 place-items-center rounded bg-neutral-100 dark:bg-neutral-800 text-[10px] text-neutral-400 dark:text-neutral-500">
         —
       </span>
     );
@@ -313,7 +313,7 @@ function ImageChoiceThumb({ choice }: { choice: Choice }) {
     <img
       src={resolveAssetUrl(choice.imageUrl)}
       alt=""
-      className="h-9 w-9 shrink-0 rounded object-cover bg-neutral-100"
+      className="h-9 w-9 shrink-0 rounded object-cover bg-neutral-100 dark:bg-neutral-800"
     />
   );
 }
@@ -416,7 +416,7 @@ function GraderTab({
       type="button"
       onClick={onClick}
       className={`flex-1 rounded-md px-2 py-1 font-medium transition-colors ${
-        active ? "bg-white shadow-sm" : "text-neutral-500"
+        active ? "bg-white dark:bg-neutral-900 shadow-sm" : "text-neutral-500 dark:text-neutral-400"
       }`}
       style={active ? { color: accent } : undefined}
     >
@@ -441,7 +441,7 @@ function PillButton({
       type="button"
       onClick={onClick}
       className={`rounded-lg border px-3 py-1.5 text-sm font-medium transition-colors ${
-        active ? "text-white border-transparent" : "border-neutral-200 text-neutral-600"
+        active ? "text-white border-transparent" : "border-neutral-200 dark:border-neutral-800 text-neutral-600 dark:text-neutral-300"
       }`}
       style={active ? { backgroundColor: accent } : undefined}
     >
@@ -453,14 +453,14 @@ function PillButton({
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <label className="block">
-      <span className="block text-xs font-medium text-neutral-600 mb-1.5">{label}</span>
+      <span className="block text-xs font-medium text-neutral-600 dark:text-neutral-300 mb-1.5">{label}</span>
       {children}
     </label>
   );
 }
 
 function Hint({ children }: { children: React.ReactNode }) {
-  return <p className="text-xs text-neutral-400">{children}</p>;
+  return <p className="text-xs text-neutral-400 dark:text-neutral-500">{children}</p>;
 }
 
 function ToggleRow({
@@ -474,7 +474,7 @@ function ToggleRow({
 }) {
   return (
     <div className="flex items-center justify-between gap-3">
-      <span className="text-sm text-neutral-700">{label}</span>
+      <span className="text-sm text-neutral-700 dark:text-neutral-300">{label}</span>
       <Switch checked={checked} onCheckedChange={onChange} />
     </div>
   );

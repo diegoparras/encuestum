@@ -67,12 +67,12 @@ function AcceptInviteView() {
   return (
     <Card>
       <CardContent className="py-6">
-        <h1 className="text-xl font-semibold text-neutral-900">
+        <h1 className="text-xl font-semibold text-neutral-900 dark:text-neutral-100">
           Aceptar invitación
         </h1>
 
         {(status === "loading" || status === "accepting") && (
-          <div className="mt-6 flex items-center gap-2 text-sm text-neutral-500">
+          <div className="mt-6 flex items-center gap-2 text-sm text-neutral-500 dark:text-neutral-400">
             <Loader2 className="h-5 w-5 animate-spin" />
             {status === "loading"
               ? "Comprobando tu sesión…"
@@ -81,7 +81,7 @@ function AcceptInviteView() {
         )}
 
         {status === "success" && (
-          <div className="mt-6 flex items-start gap-2 rounded-lg bg-green-50 px-3 py-2 text-sm text-green-700">
+          <div className="mt-6 flex items-start gap-2 rounded-lg bg-green-50 px-3 py-2 text-sm text-green-700 dark:bg-green-950/40">
             <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0" />
             <span>{detail} Redirigiendo al panel…</span>
           </div>
@@ -89,7 +89,7 @@ function AcceptInviteView() {
 
         {status === "unauthenticated" && (
           <>
-            <p className="mt-6 text-sm text-neutral-600">
+            <p className="mt-6 text-sm text-neutral-600 dark:text-neutral-300">
               Ingresá o creá una cuenta con el correo al que enviamos la
               invitación para poder aceptarla.
             </p>
@@ -102,7 +102,7 @@ function AcceptInviteView() {
               </Link>
               <Link
                 href={registerHref}
-                className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-lg border border-neutral-300 bg-white px-4 text-sm font-medium text-neutral-800 transition-colors hover:bg-neutral-50"
+                className="inline-flex h-10 w-full items-center justify-center gap-2 rounded-lg border border-neutral-300 bg-white px-4 text-sm font-medium text-neutral-800 transition-colors hover:bg-neutral-50 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100 dark:hover:bg-neutral-700"
               >
                 Crear cuenta
               </Link>
@@ -112,11 +112,11 @@ function AcceptInviteView() {
 
         {status === "error" && (
           <>
-            <div className="mt-6 flex items-start gap-2 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+            <div className="mt-6 flex items-start gap-2 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950/40">
               <XCircle className="mt-0.5 h-5 w-5 shrink-0" />
               <span>{detail}</span>
             </div>
-            <p className="mt-6 text-center text-sm text-neutral-500">
+            <p className="mt-6 text-center text-sm text-neutral-500 dark:text-neutral-400">
               <Link
                 href="/surveys"
                 className="font-medium text-primary hover:underline"
@@ -135,7 +135,7 @@ export default function AcceptInvitePage() {
   return (
     <Suspense
       fallback={
-        <div className="flex min-h-[40vh] items-center justify-center text-neutral-400">
+        <div className="flex min-h-[40vh] items-center justify-center text-neutral-400 dark:text-neutral-500">
           <Loader2 className="h-6 w-6 animate-spin" />
         </div>
       }

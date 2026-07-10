@@ -39,7 +39,8 @@ async def lifespan(app: FastAPI):
     yield
 
 
-app = FastAPI(title="Encuestum", version="1.0.0", lifespan=lifespan)
+APP_VERSION = "0.1.0"
+app = FastAPI(title="Encuestum", version=APP_VERSION, lifespan=lifespan)
 
 settings = get_settings()
 
@@ -136,7 +137,7 @@ app.include_router(evaluation.router, prefix=SURVEY)
 
 @app.get("/api/health", tags=["ops"])
 async def health():
-    return {"status": "ok", "service": "encuestum"}
+    return {"status": "ok", "service": "encuestum", "version": APP_VERSION}
 
 
 @app.get("/api/ready", tags=["ops"])

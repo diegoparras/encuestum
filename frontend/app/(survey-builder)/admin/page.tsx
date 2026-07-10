@@ -45,14 +45,14 @@ function MetricCard({
   return (
     <Card>
       <CardContent className="flex items-center gap-3 py-5">
-        <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-neutral-100 text-neutral-500">
+        <span className="flex h-10 w-10 items-center justify-center rounded-lg bg-neutral-100 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400">
           <Icon className="h-5 w-5" />
         </span>
         <div>
-          <div className="text-2xl font-bold tracking-tight text-neutral-900">
+          <div className="text-2xl font-bold tracking-tight text-neutral-900 dark:text-neutral-100">
             {value.toLocaleString("es")}
           </div>
-          <div className="text-xs text-neutral-500">{label}</div>
+          <div className="text-xs text-neutral-500 dark:text-neutral-400">{label}</div>
         </div>
       </CardContent>
     </Card>
@@ -114,9 +114,9 @@ export default function AdminPage() {
     return (
       <Card>
         <CardContent className="flex flex-col items-center gap-3 py-12 text-center">
-          <ShieldAlert className="h-8 w-8 text-neutral-300" />
-          <p className="text-sm font-medium text-neutral-700">No tenés acceso</p>
-          <p className="max-w-sm text-sm text-neutral-400">
+          <ShieldAlert className="h-8 w-8 text-neutral-300 dark:text-neutral-600" />
+          <p className="text-sm font-medium text-neutral-700 dark:text-neutral-300">No tenés acceso</p>
+          <p className="max-w-sm text-sm text-neutral-400 dark:text-neutral-500">
             Esta sección es exclusiva para administradores de la plataforma.
           </p>
         </CardContent>
@@ -134,10 +134,10 @@ export default function AdminPage() {
     <div className="space-y-8">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-neutral-900">
+          <h1 className="text-2xl font-bold tracking-tight text-neutral-900 dark:text-neutral-100">
             Administración
           </h1>
-          <p className="mt-1 text-sm text-neutral-500">
+          <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
             Resumen global de la plataforma
             {me?.user.email ? ` · ${me.user.email}` : ""}.
           </p>
@@ -161,7 +161,7 @@ export default function AdminPage() {
 
       <Card>
         <CardHeader className="flex flex-row items-center gap-2">
-          <Building2 className="h-5 w-5 text-neutral-400" />
+          <Building2 className="h-5 w-5 text-neutral-400 dark:text-neutral-500" />
           <CardTitle>Organizaciones</CardTitle>
         </CardHeader>
         <CardContent>
@@ -169,7 +169,7 @@ export default function AdminPage() {
             <div className="overflow-x-auto">
               <table className="w-full min-w-[640px] text-sm">
                 <thead>
-                  <tr className="border-b border-neutral-200 text-left text-xs uppercase tracking-wide text-neutral-400">
+                  <tr className="border-b border-neutral-200 text-left text-xs uppercase tracking-wide text-neutral-400 dark:border-neutral-800 dark:text-neutral-500">
                     <th className="pb-2 font-medium">Organización</th>
                     <th className="pb-2 font-medium">Encuestas</th>
                     <th className="pb-2 font-medium">Respuestas</th>
@@ -177,23 +177,23 @@ export default function AdminPage() {
                     <th className="pb-2 font-medium">Creada</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-neutral-100">
+                <tbody className="divide-y divide-neutral-100 dark:divide-neutral-800">
                   {data.organizations.map((org) => (
                     <tr key={org.id}>
                       <td className="py-3 pr-4">
-                        <div className="font-medium text-neutral-900">{org.name}</div>
-                        <div className="text-xs text-neutral-400">{org.slug}</div>
+                        <div className="font-medium text-neutral-900 dark:text-neutral-100">{org.name}</div>
+                        <div className="text-xs text-neutral-400 dark:text-neutral-500">{org.slug}</div>
                       </td>
-                      <td className="py-3 pr-4 text-neutral-700">
+                      <td className="py-3 pr-4 text-neutral-700 dark:text-neutral-300">
                         {org.surveys.toLocaleString("es")}
                       </td>
-                      <td className="py-3 pr-4 text-neutral-700">
+                      <td className="py-3 pr-4 text-neutral-700 dark:text-neutral-300">
                         {org.responses.toLocaleString("es")}
                       </td>
-                      <td className="py-3 pr-4 text-neutral-700">
+                      <td className="py-3 pr-4 text-neutral-700 dark:text-neutral-300">
                         {org.members.toLocaleString("es")}
                       </td>
-                      <td className="py-3 text-neutral-500">
+                      <td className="py-3 text-neutral-500 dark:text-neutral-400">
                         {formatDate(org.created_at)}
                       </td>
                     </tr>
@@ -202,7 +202,7 @@ export default function AdminPage() {
               </table>
             </div>
           ) : (
-            <p className="py-6 text-center text-sm text-neutral-400">
+            <p className="py-6 text-center text-sm text-neutral-400 dark:text-neutral-500">
               No hay organizaciones registradas.
             </p>
           )}

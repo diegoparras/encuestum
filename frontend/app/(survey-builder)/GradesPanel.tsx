@@ -104,13 +104,13 @@ export function GradesPanel({ surveyId, accent = SURVEY_ACCENT }: Props) {
 
   if (error)
     return (
-      <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+      <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/40">
         {error}
       </div>
     );
   if (!analytics || !responses)
     return (
-      <div className="flex items-center gap-2 text-neutral-500 text-sm">
+      <div className="flex items-center gap-2 text-neutral-500 text-sm dark:text-neutral-400">
         <Loader2 className="w-4 h-4 animate-spin" /> Cargando notas…
       </div>
     );
@@ -143,7 +143,7 @@ export function GradesPanel({ surveyId, accent = SURVEY_ACCENT }: Props) {
           <button
             onClick={gradeAll}
             disabled={grading}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-neutral-200 px-3 py-1.5 text-xs font-medium text-neutral-700 hover:bg-neutral-50 disabled:opacity-60"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-neutral-200 px-3 py-1.5 text-xs font-medium text-neutral-700 hover:bg-neutral-50 disabled:opacity-60 dark:border-neutral-800 dark:text-neutral-300 dark:hover:bg-neutral-800"
           >
             {grading ? (
               <Loader2 className="w-4 h-4 animate-spin" />
@@ -154,7 +154,7 @@ export function GradesPanel({ surveyId, accent = SURVEY_ACCENT }: Props) {
           </button>
           <button
             onClick={exportCsv}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-neutral-200 px-3 py-1.5 text-xs font-medium text-neutral-700 hover:bg-neutral-50"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-neutral-200 px-3 py-1.5 text-xs font-medium text-neutral-700 hover:bg-neutral-50 dark:border-neutral-800 dark:text-neutral-300 dark:hover:bg-neutral-800"
           >
             <Download className="w-4 h-4" /> CSV
           </button>
@@ -163,9 +163,9 @@ export function GradesPanel({ surveyId, accent = SURVEY_ACCENT }: Props) {
 
       {/* Per-question analytics */}
       {analytics.per_question.length > 0 && (
-        <div className="overflow-x-auto rounded-lg border border-neutral-200 bg-white">
+        <div className="overflow-x-auto rounded-lg border border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-900">
           <table className="min-w-full text-sm">
-            <thead className="bg-neutral-50 text-neutral-500">
+            <thead className="bg-neutral-50 text-neutral-500 dark:bg-neutral-950 dark:text-neutral-400">
               <tr>
                 <th className="text-left font-medium px-3 py-2">Pregunta</th>
                 <th className="text-left font-medium px-3 py-2">Respuestas</th>
@@ -173,7 +173,7 @@ export function GradesPanel({ surveyId, accent = SURVEY_ACCENT }: Props) {
                 <th className="text-left font-medium px-3 py-2">Puntaje medio</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-neutral-100">
+            <tbody className="divide-y divide-neutral-100 dark:divide-neutral-800">
               {analytics.per_question.map((q) => (
                 <tr key={q.name}>
                   <td className="px-3 py-2 font-mono text-xs">{q.name}</td>
@@ -192,10 +192,10 @@ export function GradesPanel({ surveyId, accent = SURVEY_ACCENT }: Props) {
       {/* Responses / scorecard */}
       <div>
         <div className="flex items-center justify-between mb-2">
-          <h3 className="text-sm font-semibold text-neutral-700">
+          <h3 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">
             Respuestas ({shown.length})
           </h3>
-          <label className="flex items-center gap-1.5 text-xs text-neutral-500 cursor-pointer">
+          <label className="flex items-center gap-1.5 text-xs text-neutral-500 cursor-pointer dark:text-neutral-400">
             <input
               type="checkbox"
               checked={onlyReview}
@@ -215,7 +215,7 @@ export function GradesPanel({ surveyId, accent = SURVEY_ACCENT }: Props) {
             />
           ))}
           {shown.length === 0 && (
-            <div className="rounded-lg border border-dashed border-neutral-300 py-8 text-center text-neutral-400 text-sm">
+            <div className="rounded-lg border border-dashed border-neutral-300 py-8 text-center text-neutral-400 text-sm dark:border-neutral-700 dark:text-neutral-500">
               No hay respuestas {onlyReview ? "para revisar" : "todavía"}.
             </div>
           )}
@@ -258,27 +258,27 @@ function ResponseRow({
   }
 
   return (
-    <div className="rounded-lg border border-neutral-200 bg-white">
+    <div className="rounded-lg border border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-900">
       <button
         onClick={() => setOpen((o) => !o)}
         className="w-full flex items-center gap-3 px-4 py-3 text-left"
       >
         {open ? (
-          <ChevronDown className="w-4 h-4 text-neutral-400" />
+          <ChevronDown className="w-4 h-4 text-neutral-400 dark:text-neutral-500" />
         ) : (
-          <ChevronRight className="w-4 h-4 text-neutral-400" />
+          <ChevronRight className="w-4 h-4 text-neutral-400 dark:text-neutral-500" />
         )}
-        <span className="text-xs text-neutral-400 shrink-0">
+        <span className="text-xs text-neutral-400 shrink-0 dark:text-neutral-500">
           {new Date(response.submitted_at).toLocaleString()}
         </span>
         <span className="flex-1" />
         {response.needs_review && (
-          <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 text-amber-700 px-2 py-0.5 text-[11px] font-medium">
+          <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 text-amber-700 px-2 py-0.5 text-[11px] font-medium dark:bg-amber-950/40">
             <AlertTriangle className="w-3 h-3" /> revisar
           </span>
         )}
         {grade?.overridden && (
-          <span className="rounded-full bg-blue-100 text-blue-700 px-2 py-0.5 text-[11px] font-medium">
+          <span className="rounded-full bg-blue-100 text-blue-700 px-2 py-0.5 text-[11px] font-medium dark:bg-blue-950/40">
             ajustada
           </span>
         )}
@@ -289,23 +289,23 @@ function ResponseRow({
       </button>
 
       {open && (
-        <div className="px-4 pb-4 border-t border-neutral-100 pt-3 space-y-2">
+        <div className="px-4 pb-4 border-t border-neutral-100 pt-3 space-y-2 dark:border-neutral-800">
           {questions.length === 0 && (
-            <p className="text-xs text-neutral-400">Sin corrección todavía.</p>
+            <p className="text-xs text-neutral-400 dark:text-neutral-500">Sin corrección todavía.</p>
           )}
           {questions.map((q: any) => (
             <div key={q.name} className="flex items-start gap-3">
               <VerdictDot verdict={q.verdict} />
               <div className="min-w-0 flex-1">
-                <div className="text-sm text-neutral-800">
+                <div className="text-sm text-neutral-800 dark:text-neutral-200">
                   {q.name}{" "}
-                  <span className="text-[11px] text-neutral-400">({q.grader})</span>
+                  <span className="text-[11px] text-neutral-400 dark:text-neutral-500">({q.grader})</span>
                 </div>
                 {q.feedback && (
-                  <div className="text-xs text-neutral-500">{q.feedback}</div>
+                  <div className="text-xs text-neutral-500 dark:text-neutral-400">{q.feedback}</div>
                 )}
                 {Array.isArray(q.evidence) && q.evidence.length > 0 && (
-                  <div className="text-[11px] text-neutral-400 italic mt-0.5">
+                  <div className="text-[11px] text-neutral-400 italic mt-0.5 dark:text-neutral-500">
                     “{q.evidence.join("… ")}”
                   </div>
                 )}
@@ -320,9 +320,9 @@ function ResponseRow({
                   onChange={(e) =>
                     setAwards((a) => ({ ...a, [q.name]: Number(e.target.value) }))
                   }
-                  className="w-14 rounded-md border border-neutral-200 px-2 py-1 text-sm outline-none focus:border-neutral-400"
+                  className="w-14 rounded-md border border-neutral-200 px-2 py-1 text-sm outline-none focus:border-neutral-400 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
                 />
-                <span className="text-xs text-neutral-400">/{q.points}</span>
+                <span className="text-xs text-neutral-400 dark:text-neutral-500">/{q.points}</span>
               </div>
             </div>
           ))}
@@ -330,7 +330,7 @@ function ResponseRow({
           <div className="flex items-center justify-between pt-1">
             <Link
               href={`/surveys/${surveyId}/report/${response.id}`}
-              className="inline-flex items-center gap-1.5 text-xs font-medium text-neutral-500 hover:text-neutral-900"
+              className="inline-flex items-center gap-1.5 text-xs font-medium text-neutral-500 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100"
             >
               <FileText className="w-3.5 h-3.5" /> Ver reporte
             </Link>
@@ -368,8 +368,8 @@ function Tile({
   warn?: boolean;
 }) {
   return (
-    <div className="rounded-xl border border-neutral-200 bg-white p-4">
-      <div className="text-[11px] font-medium uppercase tracking-wide text-neutral-400">
+    <div className="rounded-xl border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900">
+      <div className="text-[11px] font-medium uppercase tracking-wide text-neutral-400 dark:text-neutral-500">
         {label}
       </div>
       <div
@@ -386,7 +386,7 @@ function Distribution({ buckets, accent }: { buckets: number[]; accent: string }
   const max = Math.max(1, ...buckets);
   return (
     <div>
-      <div className="text-[11px] font-medium uppercase tracking-wide text-neutral-400 mb-1.5">
+      <div className="text-[11px] font-medium uppercase tracking-wide text-neutral-400 mb-1.5 dark:text-neutral-500">
         Distribución de notas
       </div>
       <div className="flex items-end gap-1 h-20">
@@ -401,7 +401,7 @@ function Distribution({ buckets, accent }: { buckets: number[]; accent: string }
               }}
               title={`${i * 10}-${i * 10 + 10}%: ${b}`}
             />
-            <span className="text-[9px] text-neutral-400">{i * 10}</span>
+            <span className="text-[9px] text-neutral-400 dark:text-neutral-500">{i * 10}</span>
           </div>
         ))}
       </div>

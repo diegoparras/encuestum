@@ -65,11 +65,11 @@ export function LivePreview({ schema, accent, design, language }: Props) {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="flex items-center justify-between px-4 py-2.5 border-b border-neutral-200">
-        <span className="text-[11px] font-semibold uppercase tracking-wide text-neutral-400">
+      <div className="flex items-center justify-between px-4 py-2.5 border-b border-neutral-200 dark:border-neutral-800">
+        <span className="text-[11px] font-semibold uppercase tracking-wide text-neutral-400 dark:text-neutral-500">
           Vista previa
         </span>
-        <div className="flex items-center gap-1 rounded-lg bg-neutral-100 p-0.5">
+        <div className="flex items-center gap-1 rounded-lg bg-neutral-100 dark:bg-neutral-800 p-0.5">
           <DeviceButton
             active={device === "desktop"}
             onClick={() => setDevice("desktop")}
@@ -87,9 +87,9 @@ export function LivePreview({ schema, accent, design, language }: Props) {
         </div>
       </div>
 
-      <div className="flex-1 overflow-y-auto bg-neutral-100/70 p-6">
+      <div className="flex-1 overflow-y-auto bg-neutral-100/70 dark:bg-neutral-900/70 p-6">
         {isEmpty ? (
-          <div className="h-full grid place-items-center text-center text-sm text-neutral-400">
+          <div className="h-full grid place-items-center text-center text-sm text-neutral-400 dark:text-neutral-500">
             <div>
               <p>Tu encuesta está vacía.</p>
               <p className="text-xs mt-1">
@@ -145,7 +145,7 @@ function DeviceButton({
       title={label}
       aria-label={label}
       className={`grid place-items-center w-7 h-7 rounded-md transition-colors ${
-        active ? "bg-white text-neutral-800 shadow-sm" : "text-neutral-400 hover:text-neutral-600"
+        active ? "bg-white text-neutral-800 shadow-sm dark:bg-neutral-700 dark:text-neutral-100" : "text-neutral-400 hover:text-neutral-600 dark:text-neutral-500 dark:hover:text-neutral-300"
       }`}
     >
       {children}

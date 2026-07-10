@@ -46,8 +46,8 @@ export default function RegisterPage() {
   return (
     <Card>
       <CardContent className="py-6">
-        <h1 className="text-xl font-semibold text-neutral-900">Crear cuenta</h1>
-        <p className="mt-1 text-sm text-neutral-500">
+        <h1 className="text-xl font-semibold text-neutral-900 dark:text-neutral-100">Crear cuenta</h1>
+        <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
           Empezá a crear encuestas y evaluaciones en minutos.
         </p>
 
@@ -81,7 +81,7 @@ export default function RegisterPage() {
               className={
                 passwordTooShort
                   ? "text-xs text-red-600"
-                  : "text-xs text-neutral-400"
+                  : "text-xs text-neutral-400 dark:text-neutral-500"
               }
             >
               Al menos 8 caracteres.
@@ -90,7 +90,7 @@ export default function RegisterPage() {
 
           <div className="space-y-1.5">
             <Label htmlFor="name">
-              Nombre <span className="text-neutral-400">(opcional)</span>
+              Nombre <span className="text-neutral-400 dark:text-neutral-500">(opcional)</span>
             </Label>
             <Input
               id="name"
@@ -105,7 +105,7 @@ export default function RegisterPage() {
           <div className="space-y-1.5">
             <Label htmlFor="orgName">
               Nombre de la organización{" "}
-              <span className="text-neutral-400">(opcional)</span>
+              <span className="text-neutral-400 dark:text-neutral-500">(opcional)</span>
             </Label>
             <Input
               id="orgName"
@@ -117,7 +117,7 @@ export default function RegisterPage() {
           </div>
 
           {error && (
-            <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+            <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950/40">
               {error}
             </p>
           )}
@@ -128,7 +128,7 @@ export default function RegisterPage() {
           </Button>
         </form>
 
-        <p className="mt-6 text-center text-sm text-neutral-500">
+        <p className="mt-6 text-center text-sm text-neutral-500 dark:text-neutral-400">
           ¿Ya tenés cuenta?{" "}
           <Link href="/login" className="font-medium text-primary hover:underline">
             Ingresar

@@ -65,8 +65,8 @@ export function InsightsPanel({ surveyId, accent }: Props) {
             <Sparkles className="w-4 h-4" />
           </span>
           <div>
-            <h3 className="text-sm font-semibold text-neutral-800">Insights de IA</h3>
-            <p className="text-[11px] text-neutral-400">
+            <h3 className="text-sm font-semibold text-neutral-800 dark:text-neutral-200">Insights de IA</h3>
+            <p className="text-[11px] text-neutral-400 dark:text-neutral-500">
               Temas de las respuestas abiertas, citando texto real.
             </p>
           </div>
@@ -89,13 +89,13 @@ export function InsightsPanel({ surveyId, accent }: Props) {
       </div>
 
       {error && (
-        <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+        <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/40">
           {error}
         </div>
       )}
 
       {loading ? (
-        <div className="flex items-center gap-2 text-neutral-400 text-sm">
+        <div className="flex items-center gap-2 text-neutral-400 text-sm dark:text-neutral-500">
           <Loader2 className="w-4 h-4 animate-spin" /> Cargando…
         </div>
       ) : !has && !error ? (
@@ -104,10 +104,10 @@ export function InsightsPanel({ surveyId, accent }: Props) {
           style={{ borderColor: pal.soft }}
         >
           <MessageSquareText className="w-7 h-7 mx-auto mb-2" style={{ color: pal.accent }} />
-          <p className="text-sm text-neutral-500">
+          <p className="text-sm text-neutral-500 dark:text-neutral-400">
             Generá un resumen inteligente de las respuestas abiertas.
           </p>
-          <p className="text-xs text-neutral-400 mt-1">
+          <p className="text-xs text-neutral-400 mt-1 dark:text-neutral-500">
             Cada tema cita frases textuales — sin inventar.
           </p>
         </div>
@@ -115,7 +115,7 @@ export function InsightsPanel({ surveyId, accent }: Props) {
         has && (
           <div className="space-y-5">
             {insights!.generated_at && (
-              <p className="text-[11px] text-neutral-400">
+              <p className="text-[11px] text-neutral-400 dark:text-neutral-500">
                 Generado el {new Date(insights!.generated_at).toLocaleString()}
               </p>
             )}
@@ -142,7 +142,7 @@ function QuestionCard({
 }) {
   return (
     <div
-      className="rounded-2xl border bg-white overflow-hidden"
+      className="rounded-2xl border bg-white overflow-hidden dark:bg-neutral-900"
       style={{ borderColor: pal.soft }}
     >
       <div className="px-5 py-4" style={{ backgroundColor: pal.light }}>
@@ -163,7 +163,7 @@ function QuestionCard({
           return (
             <div key={i}>
               <div className="flex items-center gap-2 flex-wrap">
-                <span className="text-sm font-semibold text-neutral-800">{t.label}</span>
+                <span className="text-sm font-semibold text-neutral-800 dark:text-neutral-200">{t.label}</span>
                 <span
                   className="rounded-full px-2 py-0.5 text-[10px] font-semibold"
                   style={{ backgroundColor: s.bg, color: s.fg }}
@@ -177,13 +177,13 @@ function QuestionCard({
                   {t.count}
                 </span>
               </div>
-              <p className="mt-1 text-sm text-neutral-600">{t.summary}</p>
+              <p className="mt-1 text-sm text-neutral-600 dark:text-neutral-300">{t.summary}</p>
               {t.evidence?.length > 0 && (
                 <div className="mt-2 space-y-1.5">
                   {t.evidence.map((e, j) => (
                     <div
                       key={j}
-                      className="flex gap-2 text-xs text-neutral-500 pl-3 border-l-2"
+                      className="flex gap-2 text-xs text-neutral-500 pl-3 border-l-2 dark:text-neutral-400"
                       style={{ borderColor: pal.ring }}
                     >
                       <Quote className="w-3 h-3 shrink-0 mt-0.5" style={{ color: pal.accent }} />
@@ -198,12 +198,12 @@ function QuestionCard({
 
         {summary.key_takeaways?.length > 0 && (
           <div className="pt-3 border-t" style={{ borderColor: pal.soft }}>
-            <div className="text-[11px] font-semibold uppercase tracking-wide text-neutral-400 mb-2">
+            <div className="text-[11px] font-semibold uppercase tracking-wide text-neutral-400 mb-2 dark:text-neutral-500">
               Para llevar
             </div>
             <ul className="space-y-1">
               {summary.key_takeaways.map((k, i) => (
-                <li key={i} className="flex items-start gap-2 text-sm text-neutral-600">
+                <li key={i} className="flex items-start gap-2 text-sm text-neutral-600 dark:text-neutral-300">
                   <span
                     className="mt-1.5 w-1.5 h-1.5 rounded-full shrink-0"
                     style={{ backgroundColor: pal.accent }}

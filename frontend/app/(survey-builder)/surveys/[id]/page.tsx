@@ -260,7 +260,7 @@ export default function SurveyDetailPage() {
 
   if (status === "loading" || !survey) {
     return (
-      <div className="max-w-3xl mx-auto px-6 py-10 flex items-center gap-2 text-neutral-500 text-sm">
+      <div className="max-w-3xl mx-auto px-6 py-10 flex items-center gap-2 text-neutral-500 dark:text-neutral-400 text-sm">
         <Loader2 className="w-4 h-4 animate-spin" /> Cargando…
       </div>
     );
@@ -277,15 +277,15 @@ export default function SurveyDetailPage() {
           value={title}
           onChange={(e) => setTitle(e.target.value)}
           placeholder="Título de la encuesta"
-          className="text-2xl font-semibold bg-transparent outline-none w-full border-b border-transparent focus:border-neutral-300 pb-1"
+          className="text-2xl font-semibold bg-transparent outline-none w-full border-b border-transparent focus:border-neutral-300 dark:focus:border-neutral-600 pb-1"
         />
         <span
           className={`shrink-0 rounded-full px-3 py-1 text-xs font-medium ${
             isPublished
-              ? "bg-green-100 text-green-700"
+              ? "bg-green-100 text-green-700 dark:bg-green-950/40"
               : survey.status === "closed"
-              ? "bg-amber-100 text-amber-700"
-              : "bg-neutral-100 text-neutral-600"
+              ? "bg-amber-100 text-amber-700 dark:bg-amber-950/40"
+              : "bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300"
           }`}
         >
           {isPublished ? "Publicada" : survey.status === "closed" ? "Cerrada" : "Borrador"}
@@ -293,25 +293,25 @@ export default function SurveyDetailPage() {
       </div>
 
       {/* Public link */}
-      <div className="mt-4 flex items-center gap-2 rounded-lg border border-neutral-200 bg-white px-3 py-2 text-sm">
-        <span className="font-mono text-neutral-600 truncate">{publicUrl}</span>
+      <div className="mt-4 flex items-center gap-2 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 px-3 py-2 text-sm">
+        <span className="font-mono text-neutral-600 dark:text-neutral-300 truncate">{publicUrl}</span>
         <button
           onClick={copyLink}
-          className="ml-auto inline-flex items-center gap-1 text-neutral-500 hover:text-neutral-900"
+          className="ml-auto inline-flex items-center gap-1 text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100"
         >
           {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
           {copied ? "Copiado" : "Copiar"}
         </button>
         <button
           onClick={() => setShowQr((v) => !v)}
-          className="inline-flex items-center gap-1 text-neutral-500 hover:text-neutral-900"
+          className="inline-flex items-center gap-1 text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100"
           title="Código QR"
         >
           <QrCode className="w-4 h-4" /> QR
         </button>
         <button
           onClick={() => setShowEmbed((v) => !v)}
-          className="inline-flex items-center gap-1 text-neutral-500 hover:text-neutral-900"
+          className="inline-flex items-center gap-1 text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100"
           title="Insertar en un sitio (iframe)"
         >
           <Code2 className="w-4 h-4" /> Insertar
@@ -321,7 +321,7 @@ export default function SurveyDetailPage() {
             href={`/s/${survey.slug}`}
             target="_blank"
             rel="noreferrer"
-            className="inline-flex items-center gap-1 text-neutral-500 hover:text-neutral-900"
+            className="inline-flex items-center gap-1 text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100"
           >
             Abrir <ExternalLink className="w-3.5 h-3.5" />
           </a>
@@ -330,17 +330,17 @@ export default function SurveyDetailPage() {
 
       {/* Branded (own subdomain) link */}
       {brandedUrl && (
-        <div className="mt-2 flex items-center gap-2 rounded-lg border border-neutral-200 bg-white px-3 py-2 text-sm">
+        <div className="mt-2 flex items-center gap-2 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 px-3 py-2 text-sm">
           <span
             className="shrink-0 rounded px-1.5 py-0.5 text-xs font-medium"
             style={{ backgroundColor: `${SURVEY_ACCENT}1a`, color: SURVEY_ACCENT }}
           >
             Tu dominio
           </span>
-          <span className="font-mono text-neutral-600 truncate">{brandedUrl}</span>
+          <span className="font-mono text-neutral-600 dark:text-neutral-300 truncate">{brandedUrl}</span>
           <button
             onClick={copyBranded}
-            className="ml-auto inline-flex items-center gap-1 text-neutral-500 hover:text-neutral-900"
+            className="ml-auto inline-flex items-center gap-1 text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100"
           >
             {copiedBranded ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
             {copiedBranded ? "Copiado" : "Copiar"}
@@ -349,30 +349,30 @@ export default function SurveyDetailPage() {
       )}
 
       {showQr && (
-        <div className="mt-3 flex flex-col items-center gap-2 rounded-lg border border-neutral-200 bg-white p-5">
+        <div className="mt-3 flex flex-col items-center gap-2 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-5">
           <QRCodeSVG value={publicUrl} size={168} level="M" includeMargin />
-          <p className="text-xs text-neutral-500">Escaneá para abrir la encuesta</p>
+          <p className="text-xs text-neutral-500 dark:text-neutral-400">Escaneá para abrir la encuesta</p>
         </div>
       )}
 
       {showEmbed && (
-        <div className="mt-3 rounded-lg border border-neutral-200 bg-white p-4">
+        <div className="mt-3 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-4">
           <div className="mb-2 flex items-center justify-between gap-2">
-            <h3 className="text-sm font-semibold text-neutral-700">
+            <h3 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">
               Insertar en un sitio
             </h3>
             <button
               onClick={copyEmbed}
-              className="inline-flex items-center gap-1 text-sm text-neutral-500 hover:text-neutral-900"
+              className="inline-flex items-center gap-1 text-sm text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100"
             >
               {copiedEmbed ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
               {copiedEmbed ? "Copiado" : "Copiar"}
             </button>
           </div>
-          <pre className="overflow-x-auto rounded-md bg-neutral-50 p-3 font-mono text-xs text-neutral-700 ring-1 ring-neutral-200">
+          <pre className="overflow-x-auto rounded-md bg-neutral-50 dark:bg-neutral-950 p-3 font-mono text-xs text-neutral-700 dark:text-neutral-300 ring-1 ring-neutral-200 dark:ring-neutral-800">
             {embedSnippet}
           </pre>
-          <p className="mt-2 text-xs text-neutral-400">
+          <p className="mt-2 text-xs text-neutral-400 dark:text-neutral-500">
             Pegá este código en el HTML de tu sitio para mostrar la encuesta
             embebida. Ajustá <span className="font-mono">height</span> a gusto.
           </p>
@@ -383,7 +383,7 @@ export default function SurveyDetailPage() {
       <div className="mt-4 flex items-center gap-3">
         <Link
           href={`/surveys/${id}/edit`}
-          className="inline-flex items-center gap-2 rounded-lg border border-neutral-300 px-4 py-2 text-sm font-medium hover:bg-neutral-50"
+          className="inline-flex items-center gap-2 rounded-lg border border-neutral-300 dark:border-neutral-700 px-4 py-2 text-sm font-medium hover:bg-neutral-50 dark:hover:bg-neutral-800"
         >
           <Pencil className="w-4 h-4" /> Editor visual
         </Link>
@@ -399,7 +399,7 @@ export default function SurveyDetailPage() {
         <button
           onClick={togglePublish}
           disabled={busy}
-          className="inline-flex items-center gap-2 rounded-lg border border-neutral-300 px-4 py-2 text-sm font-medium hover:bg-neutral-50 disabled:opacity-60"
+          className="inline-flex items-center gap-2 rounded-lg border border-neutral-300 dark:border-neutral-700 px-4 py-2 text-sm font-medium hover:bg-neutral-50 dark:hover:bg-neutral-800 disabled:opacity-60"
         >
           {busy ? (
             <Loader2 className="w-4 h-4 animate-spin" />
@@ -413,7 +413,7 @@ export default function SurveyDetailPage() {
         <button
           onClick={duplicate}
           disabled={duplicating}
-          className="inline-flex items-center gap-2 rounded-lg border border-neutral-300 px-4 py-2 text-sm font-medium hover:bg-neutral-50 disabled:opacity-60"
+          className="inline-flex items-center gap-2 rounded-lg border border-neutral-300 dark:border-neutral-700 px-4 py-2 text-sm font-medium hover:bg-neutral-50 dark:hover:bg-neutral-800 disabled:opacity-60"
           title="Crear una copia en borrador"
         >
           {duplicating ? (
@@ -431,7 +431,7 @@ export default function SurveyDetailPage() {
       {/* Schema editor */}
       <div className="mt-8">
         <div className="flex items-center justify-between mb-2">
-          <h2 className="text-sm font-semibold text-neutral-700">
+          <h2 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">
             Definición del formulario (SurveyJS JSON)
           </h2>
           {parsed.error ? (
@@ -444,9 +444,9 @@ export default function SurveyDetailPage() {
           value={schemaText}
           onChange={(e) => setSchemaText(e.target.value)}
           spellCheck={false}
-          className="w-full h-80 font-mono text-xs rounded-lg border border-neutral-300 bg-white p-3 outline-none focus:border-neutral-400"
+          className="w-full h-80 font-mono text-xs rounded-lg border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-800 dark:text-neutral-100 p-3 outline-none focus:border-neutral-400 dark:focus:border-neutral-600"
         />
-        <p className="mt-2 text-xs text-neutral-400">
+        <p className="mt-2 text-xs text-neutral-400 dark:text-neutral-500">
           Edición avanzada del modelo SurveyJS. Para la mayoría de los casos usá
           el <Link href={`/surveys/${id}/edit`} className="underline">editor visual</Link>;
           acá podés pegar cualquier modelo válido o ajustar detalles finos.
@@ -458,7 +458,7 @@ export default function SurveyDetailPage() {
         {survey.evaluation?.enabled ? (
           <>
             <div className="flex items-center justify-between gap-3 mb-3">
-              <div className="inline-flex rounded-lg border border-neutral-200 bg-neutral-50 p-0.5">
+              <div className="inline-flex rounded-lg border border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-950 p-0.5">
                 {(
                   [
                     ["gradebook", "Notas"],
@@ -472,8 +472,8 @@ export default function SurveyDetailPage() {
                       onClick={() => setEvalTab(key)}
                       className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
                         active
-                          ? "bg-white text-neutral-900 shadow-sm"
-                          : "text-neutral-500 hover:text-neutral-800"
+                          ? "bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 shadow-sm"
+                          : "text-neutral-500 dark:text-neutral-400 hover:text-neutral-800 dark:hover:text-neutral-200"
                       }`}
                       style={active ? { color: SURVEY_ACCENT } : undefined}
                     >
@@ -497,7 +497,7 @@ export default function SurveyDetailPage() {
         ) : (
           <>
             <div className="flex items-center justify-between gap-3 mb-3">
-              <div className="inline-flex rounded-lg border border-neutral-200 bg-neutral-50 p-0.5">
+              <div className="inline-flex rounded-lg border border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-950 p-0.5">
                 {(
                   [
                     ["summary", "Resumen"],
@@ -511,8 +511,8 @@ export default function SurveyDetailPage() {
                       onClick={() => setResultsTab(key)}
                       className={`rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${
                         active
-                          ? "bg-white text-neutral-900 shadow-sm"
-                          : "text-neutral-500 hover:text-neutral-800"
+                          ? "bg-white dark:bg-neutral-900 text-neutral-900 dark:text-neutral-100 shadow-sm"
+                          : "text-neutral-500 dark:text-neutral-400 hover:text-neutral-800 dark:hover:text-neutral-200"
                       }`}
                       style={active ? { color: SURVEY_ACCENT } : undefined}
                     >
@@ -536,9 +536,9 @@ export default function SurveyDetailPage() {
                 <SummaryPanel surveyId={id} accent={themeToAccent(survey.theme)} />
               </div>
             ) : responses === null ? (
-              <div className="text-sm text-neutral-400">Cargando…</div>
+              <div className="text-sm text-neutral-400 dark:text-neutral-500">Cargando…</div>
             ) : responses.length === 0 ? (
-              <div className="rounded-lg border border-dashed border-neutral-300 py-10 text-center text-neutral-400 text-sm">
+              <div className="rounded-lg border border-dashed border-neutral-300 dark:border-neutral-700 py-10 text-center text-neutral-400 dark:text-neutral-500 text-sm">
                 Todavía no hay respuestas.
               </div>
             ) : (
@@ -567,7 +567,7 @@ function ExportButtons({
   onExport: (format: "csv" | "xlsx") => void;
 }) {
   const btn =
-    "inline-flex items-center gap-1.5 rounded-lg border border-neutral-300 px-3 py-1.5 text-xs font-medium hover:bg-neutral-50 disabled:opacity-50 disabled:cursor-not-allowed";
+    "inline-flex items-center gap-1.5 rounded-lg border border-neutral-300 dark:border-neutral-700 px-3 py-1.5 text-xs font-medium hover:bg-neutral-50 dark:hover:bg-neutral-800 disabled:opacity-50 disabled:cursor-not-allowed";
   return (
     <div className="flex items-center gap-2 shrink-0">
       <button
@@ -623,9 +623,9 @@ function ResponsesTable({ responses }: { responses: ResponseItem[] }) {
   }, [responses]);
 
   return (
-    <div className="overflow-x-auto rounded-lg border border-neutral-200 bg-white">
+    <div className="overflow-x-auto rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900">
       <table className="min-w-full text-sm">
-        <thead className="bg-neutral-50 text-neutral-500">
+        <thead className="bg-neutral-50 dark:bg-neutral-950 text-neutral-500 dark:text-neutral-400">
           <tr>
             <th className="text-left font-medium px-3 py-2 whitespace-nowrap">Fecha</th>
             {columns.map((c) => (
@@ -635,10 +635,10 @@ function ResponsesTable({ responses }: { responses: ResponseItem[] }) {
             ))}
           </tr>
         </thead>
-        <tbody className="divide-y divide-neutral-100">
+        <tbody className="divide-y divide-neutral-100 dark:divide-neutral-800">
           {responses.map((r) => (
             <tr key={r.id}>
-              <td className="px-3 py-2 whitespace-nowrap text-neutral-400">
+              <td className="px-3 py-2 whitespace-nowrap text-neutral-400 dark:text-neutral-500">
                 {new Date(r.submitted_at).toLocaleString()}
               </td>
               {columns.map((c) => (
@@ -664,7 +664,7 @@ function BackLink() {
   return (
     <Link
       href="/surveys"
-      className="inline-flex items-center gap-1 text-sm text-neutral-500 hover:text-neutral-900"
+      className="inline-flex items-center gap-1 text-sm text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100"
     >
       <ArrowLeft className="w-4 h-4" /> Encuestas
     </Link>

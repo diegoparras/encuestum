@@ -15,6 +15,19 @@
   --primary-foreground: 80 70% 9%;
 }
 
+/* Tema oscuro del chrome de la app (estándar Escriba, por data-theme). El
+   acento oliva se aclara un poco para contrastar sobre superficies oscuras. */
+:root[data-theme="dark"] {
+  --background: 222 18% 7%;
+  --foreground: 220 15% 92%;
+  --border: 220 12% 20%;
+  --input: 220 12% 20%;
+  --ring: 73 60% 55%;
+  --primary: 73 60% 52%;
+  --primary-foreground: 80 70% 9%;
+  color-scheme: dark;
+}
+
 html,
 body {
   padding: 0;

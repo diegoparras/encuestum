@@ -93,8 +93,8 @@ export function QuestionListPanel({
   return (
     <div className="flex h-full flex-col">
       {/* Palette */}
-      <div className="px-4 pt-4 pb-3 border-b border-neutral-200">
-        <div className="text-[11px] font-semibold uppercase tracking-wide text-neutral-400 mb-2">
+      <div className="px-4 pt-4 pb-3 border-b border-neutral-200 dark:border-neutral-800">
+        <div className="text-[11px] font-semibold uppercase tracking-wide text-neutral-400 dark:text-neutral-500 mb-2">
           Añadir pregunta
         </div>
         <div className="grid grid-cols-2 gap-1.5">
@@ -105,16 +105,16 @@ export function QuestionListPanel({
                 key={qt.type}
                 type="button"
                 onClick={() => onAdd(qt.type)}
-                className="group flex items-center gap-2 rounded-lg border border-neutral-200 bg-white px-2.5 py-2 text-left hover:border-neutral-300 hover:shadow-sm transition-all"
+                className="group flex items-center gap-2 rounded-lg border border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-900 px-2.5 py-2 text-left hover:border-neutral-300 dark:hover:border-neutral-700 hover:shadow-sm transition-all"
               >
-                <span className="grid place-items-center w-7 h-7 rounded-md bg-neutral-100 text-neutral-500 group-hover:text-neutral-700">
+                <span className="grid place-items-center w-7 h-7 rounded-md bg-neutral-100 dark:bg-neutral-800 text-neutral-500 dark:text-neutral-400 group-hover:text-neutral-700 dark:group-hover:text-neutral-300">
                   <Icon className="w-4 h-4" />
                 </span>
                 <span className="min-w-0">
-                  <span className="block text-xs font-medium text-neutral-800 truncate">
+                  <span className="block text-xs font-medium text-neutral-800 dark:text-neutral-200 truncate">
                     {qt.label}
                   </span>
-                  <span className="block text-[10px] text-neutral-400 truncate">
+                  <span className="block text-[10px] text-neutral-400 dark:text-neutral-500 truncate">
                     {qt.hint}
                   </span>
                 </span>
@@ -126,7 +126,7 @@ export function QuestionListPanel({
 
       {/* Question list */}
       <div className="flex-1 overflow-y-auto px-4 py-3">
-        <div className="text-[11px] font-semibold uppercase tracking-wide text-neutral-400 mb-2">
+        <div className="text-[11px] font-semibold uppercase tracking-wide text-neutral-400 dark:text-neutral-500 mb-2">
           Preguntas ({questions.length})
         </div>
 
@@ -134,7 +134,7 @@ export function QuestionListPanel({
           <button
             type="button"
             onClick={() => onAdd("text")}
-            className="w-full rounded-xl border border-dashed border-neutral-300 py-10 text-center text-sm text-neutral-400 hover:text-neutral-600 hover:border-neutral-400 transition-colors"
+            className="w-full rounded-xl border border-dashed border-neutral-300 dark:border-neutral-700 py-10 text-center text-sm text-neutral-400 dark:text-neutral-500 hover:text-neutral-600 dark:hover:text-neutral-400 hover:border-neutral-400 dark:hover:border-neutral-600 transition-colors"
           >
             <Plus className="w-5 h-5 mx-auto mb-1" />
             Agregá tu primera pregunta

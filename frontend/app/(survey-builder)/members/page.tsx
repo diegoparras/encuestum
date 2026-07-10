@@ -345,17 +345,17 @@ export default function MembersPage() {
   return (
     <div className="space-y-8">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight text-neutral-900">Miembros</h1>
-        <p className="mt-1 text-sm text-neutral-500">
+        <h1 className="text-2xl font-bold tracking-tight text-neutral-900 dark:text-neutral-100">Miembros</h1>
+        <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
           Gestioná el equipo de{" "}
-          <span className="font-medium text-neutral-700">{activeOrg?.name}</span>.
+          <span className="font-medium text-neutral-700 dark:text-neutral-300">{activeOrg?.name}</span>.
         </p>
       </div>
 
       {/* Members list */}
       <Card>
         <CardHeader className="flex flex-row items-center gap-2">
-          <Users className="h-5 w-5 text-neutral-400" />
+          <Users className="h-5 w-5 text-neutral-400 dark:text-neutral-500" />
           <CardTitle>Equipo</CardTitle>
         </CardHeader>
         <CardContent>
@@ -363,30 +363,30 @@ export default function MembersPage() {
             <div className="overflow-x-auto">
               <table className="w-full min-w-[560px] text-sm">
                 <thead>
-                  <tr className="border-b border-neutral-200 text-left text-xs uppercase tracking-wide text-neutral-400">
+                  <tr className="border-b border-neutral-200 dark:border-neutral-800 text-left text-xs uppercase tracking-wide text-neutral-400 dark:text-neutral-500">
                     <th className="pb-2 font-medium">Miembro</th>
                     <th className="pb-2 font-medium">Rol</th>
                     <th className="pb-2 font-medium">Desde</th>
                     <th className="pb-2 text-right font-medium">Acciones</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-neutral-100">
+                <tbody className="divide-y divide-neutral-100 dark:divide-neutral-800">
                   {members.map((m) => {
                     const isSelf = m.user_id === me?.user.id;
                     const busy = pendingUser === m.user_id;
                     return (
                       <tr key={m.user_id}>
                         <td className="py-3 pr-4">
-                          <div className="font-medium text-neutral-900">
+                          <div className="font-medium text-neutral-900 dark:text-neutral-100">
                             {m.name?.trim() || m.email}
                             {isSelf && (
-                              <span className="ml-2 rounded bg-neutral-100 px-1.5 py-0.5 text-xs text-neutral-500">
+                              <span className="ml-2 rounded bg-neutral-100 dark:bg-neutral-800 px-1.5 py-0.5 text-xs text-neutral-500 dark:text-neutral-400">
                                 vos
                               </span>
                             )}
                           </div>
                           {m.name?.trim() && (
-                            <div className="text-xs text-neutral-400">{m.email}</div>
+                            <div className="text-xs text-neutral-400 dark:text-neutral-500">{m.email}</div>
                           )}
                         </td>
                         <td className="py-3 pr-4">
@@ -406,10 +406,10 @@ export default function MembersPage() {
                               </option>
                             </Select>
                           ) : (
-                            <span className="text-neutral-700">{ROLE_LABEL[m.role]}</span>
+                            <span className="text-neutral-700 dark:text-neutral-300">{ROLE_LABEL[m.role]}</span>
                           )}
                         </td>
-                        <td className="py-3 pr-4 text-neutral-500">
+                        <td className="py-3 pr-4 text-neutral-500 dark:text-neutral-400">
                           {formatDate(m.joined_at)}
                         </td>
                         <td className="py-3 text-right">
@@ -419,7 +419,7 @@ export default function MembersPage() {
                               size="sm"
                               disabled={busy}
                               onClick={() => onRemove(m)}
-                              className="text-red-600 hover:bg-red-50 hover:text-red-700"
+                              className="text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 hover:text-red-700"
                             >
                               {busy ? (
                                 <Loader2 className="h-4 w-4 animate-spin" />
@@ -437,7 +437,7 @@ export default function MembersPage() {
               </table>
             </div>
           ) : (
-            <p className="py-6 text-center text-sm text-neutral-400">
+            <p className="py-6 text-center text-sm text-neutral-400 dark:text-neutral-500">
               Todavía no hay miembros.
             </p>
           )}
@@ -447,7 +447,7 @@ export default function MembersPage() {
       {/* Subdomain */}
       <Card>
         <CardHeader className="flex flex-row items-center gap-2">
-          <Globe className="h-5 w-5 text-neutral-400" />
+          <Globe className="h-5 w-5 text-neutral-400 dark:text-neutral-500" />
           <CardTitle>Subdominio</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -473,7 +473,7 @@ export default function MembersPage() {
                       className={me?.base_domain ? "rounded-r-none" : ""}
                     />
                     {me?.base_domain && (
-                      <span className="inline-flex select-none items-center rounded-r-lg border border-l-0 border-neutral-300 bg-neutral-50 px-3 text-sm text-neutral-500">
+                      <span className="inline-flex select-none items-center rounded-r-lg border border-l-0 border-neutral-300 dark:border-neutral-700 bg-neutral-50 dark:bg-neutral-800 px-3 text-sm text-neutral-500 dark:text-neutral-400">
                         .{me.base_domain}
                       </span>
                     )}
@@ -506,21 +506,21 @@ export default function MembersPage() {
                   URL completa. Igual podés guardar el nombre.
                 </p>
               )}
-              <p className="text-xs text-neutral-400">
+              <p className="text-xs text-neutral-400 dark:text-neutral-500">
                 Tu URL propia para encuestas y branding. Requiere configuración
                 de DNS/TLS (te la pasamos).
               </p>
             </>
           ) : activeOrg?.subdomain ? (
-            <p className="text-sm text-neutral-700">
+            <p className="text-sm text-neutral-700 dark:text-neutral-300">
               Subdominio:{" "}
-              <span className="font-mono text-neutral-900">
+              <span className="font-mono text-neutral-900 dark:text-neutral-100">
                 {activeOrg.subdomain}
                 {me?.base_domain ? `.${me.base_domain}` : ""}
               </span>
             </p>
           ) : (
-            <p className="text-sm text-neutral-400">
+            <p className="text-sm text-neutral-400 dark:text-neutral-500">
               Esta organización no tiene un subdominio configurado.
             </p>
           )}
@@ -531,7 +531,7 @@ export default function MembersPage() {
       {canManage && (
         <Card>
           <CardHeader className="flex flex-row items-center gap-2">
-            <UserPlus className="h-5 w-5 text-neutral-400" />
+            <UserPlus className="h-5 w-5 text-neutral-400 dark:text-neutral-500" />
             <CardTitle>Agregar miembro</CardTitle>
           </CardHeader>
           <CardContent>
@@ -571,7 +571,7 @@ export default function MembersPage() {
                 Agregar
               </Button>
             </form>
-            <p className="mt-2 text-xs text-neutral-400">
+            <p className="mt-2 text-xs text-neutral-400 dark:text-neutral-500">
               El usuario debe tener una cuenta registrada en Encuestum.
             </p>
           </CardContent>
@@ -582,7 +582,7 @@ export default function MembersPage() {
       {canManage && (
         <Card>
           <CardHeader className="flex flex-row items-center gap-2">
-            <Mail className="h-5 w-5 text-neutral-400" />
+            <Mail className="h-5 w-5 text-neutral-400 dark:text-neutral-500" />
             <CardTitle>Invitaciones</CardTitle>
           </CardHeader>
           <CardContent className="space-y-6">
@@ -622,17 +622,17 @@ export default function MembersPage() {
                 Invitar
               </Button>
             </form>
-            <p className="-mt-4 text-xs text-neutral-400">
+            <p className="-mt-4 text-xs text-neutral-400 dark:text-neutral-500">
               La persona recibirá un correo. Si no configuraste el envío de
               emails, copiá el enlace de la invitación y compartilo.
             </p>
 
-            <div className="border-t border-neutral-100 pt-4">
-              <h3 className="mb-3 text-xs font-medium uppercase tracking-wide text-neutral-400">
+            <div className="border-t border-neutral-100 dark:border-neutral-800 pt-4">
+              <h3 className="mb-3 text-xs font-medium uppercase tracking-wide text-neutral-400 dark:text-neutral-500">
                 Pendientes
               </h3>
               {invitations && invitations.length > 0 ? (
-                <ul className="divide-y divide-neutral-100">
+                <ul className="divide-y divide-neutral-100 dark:divide-neutral-800">
                   {invitations.map((inv) => {
                     const busy = pendingInvite === inv.id;
                     return (
@@ -641,10 +641,10 @@ export default function MembersPage() {
                         className="flex flex-col gap-2 py-3 sm:flex-row sm:items-center sm:justify-between"
                       >
                         <div className="min-w-0">
-                          <p className="truncate font-medium text-neutral-900">
+                          <p className="truncate font-medium text-neutral-900 dark:text-neutral-100">
                             {inv.email}
                           </p>
-                          <p className="text-xs text-neutral-400">
+                          <p className="text-xs text-neutral-400 dark:text-neutral-500">
                             {ROLE_LABEL[inv.role]} · Invitada el{" "}
                             {formatDate(inv.created_at)}
                           </p>
@@ -665,7 +665,7 @@ export default function MembersPage() {
                             size="sm"
                             disabled={busy}
                             onClick={() => onRevokeInvite(inv)}
-                            className="text-red-600 hover:bg-red-50 hover:text-red-700"
+                            className="text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40 hover:text-red-700"
                           >
                             {busy ? (
                               <Loader2 className="h-4 w-4 animate-spin" />
@@ -680,7 +680,7 @@ export default function MembersPage() {
                   })}
                 </ul>
               ) : (
-                <p className="py-4 text-center text-sm text-neutral-400">
+                <p className="py-4 text-center text-sm text-neutral-400 dark:text-neutral-500">
                   No hay invitaciones pendientes.
                 </p>
               )}
@@ -692,11 +692,11 @@ export default function MembersPage() {
       {/* Organizations */}
       <Card>
         <CardHeader className="flex flex-row items-center gap-2">
-          <Building2 className="h-5 w-5 text-neutral-400" />
+          <Building2 className="h-5 w-5 text-neutral-400 dark:text-neutral-500" />
           <CardTitle>Organizaciones</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <ul className="divide-y divide-neutral-100">
+          <ul className="divide-y divide-neutral-100 dark:divide-neutral-800">
             {me?.orgs.map((org) => {
               const isActive = org.id === me.active_org_id;
               return (
@@ -705,8 +705,8 @@ export default function MembersPage() {
                   className="flex items-center justify-between gap-3 py-3"
                 >
                   <div className="min-w-0">
-                    <p className="truncate font-medium text-neutral-900">{org.name}</p>
-                    <p className="text-xs text-neutral-400">{ROLE_LABEL[org.role]}</p>
+                    <p className="truncate font-medium text-neutral-900 dark:text-neutral-100">{org.name}</p>
+                    <p className="text-xs text-neutral-400 dark:text-neutral-500">{ROLE_LABEL[org.role]}</p>
                   </div>
                   {isActive ? (
                     <span className="inline-flex items-center gap-1 text-sm font-medium text-primary">
@@ -726,7 +726,7 @@ export default function MembersPage() {
             })}
           </ul>
 
-          <div className="border-t border-neutral-100 pt-4">
+          <div className="border-t border-neutral-100 dark:border-neutral-800 pt-4">
             <form
               onSubmit={onCreateOrg}
               className="flex flex-col gap-3 sm:flex-row sm:items-end"
