@@ -257,6 +257,8 @@ export interface ChatOptions {
   density?: "compact" | "cozy";
   timestamps?: boolean;
   readReceipts?: boolean; // tildes ✓✓
+  // Cómo se muestra una pregunta de escala/NPS en el chat.
+  ratingStyle?: "scale" | "slider" | "chips";
   // Comportamiento
   quickReplies?: boolean; // opciones/puntaje como chips tocables (no dropdown)
   typingIndicator?: boolean;
@@ -275,6 +277,7 @@ export const DEFAULT_CHAT: ChatOptions = {
   botStatus: "",
   tails: true,
   density: "cozy",
+  ratingStyle: "scale",
   quickReplies: true,
   typingIndicator: true,
   typeOn: false,
@@ -297,10 +300,30 @@ export interface ThankYouCta {
   url: string;
 }
 
+// Efecto de festejo al aparecer la pantalla de gracias.
+export type CelebrationEffect =
+  | "none"
+  | "confetti"
+  | "emoji"
+  | "fireworks"
+  | "balloons"
+  | "car";
+
+export const CELEBRATIONS: CelebrationEffect[] = [
+  "none",
+  "confetti",
+  "emoji",
+  "fireworks",
+  "balloons",
+  "car",
+];
+
 export interface ThankYouConfig {
   title?: string; // encabezado arriba del mensaje (admite tokens {pregunta})
   icon?: string; // ThankYouIcon | emoji | asset URL de imagen
-  confetti?: boolean; // lluvia de confeti al aparecer
+  confetti?: boolean; // LEGACY: si true y no hay `celebration`, equivale a "confetti"
+  celebration?: CelebrationEffect; // efecto de festejo al completar
+  celebrationEmoji?: string; // emoji para la lluvia (celebration="emoji")
   layout?: "card" | "minimal" | "hero";
   // Colores propios (opcionales; si faltan, hereda el tema de la encuesta)
   bgColor?: string;
@@ -319,6 +342,8 @@ export const DEFAULT_THANKYOU: ThankYouConfig = {
   title: "",
   icon: "check",
   confetti: false,
+  celebration: "none",
+  celebrationEmoji: "🎉",
   layout: "card",
   ctas: [],
   share: false,

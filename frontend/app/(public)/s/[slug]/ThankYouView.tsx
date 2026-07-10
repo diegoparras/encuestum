@@ -26,53 +26,199 @@ const LUCIDE: Record<string, React.ComponentType<{ className?: string }>> = {
   trophy: Trophy,
 };
 
-// Confeti autónomo en canvas (sin dependencias externas por el CSP).
-function Confetti({ accent }: { accent: string }) {
+// ── Festejos en canvas (sin dependencias externas por el CSP) ────────────────
+function roundRect(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, r: number) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+
+function drawCar(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number, color: string) {
+  ctx.save();
+  // sombra
+  ctx.fillStyle = "rgba(0,0,0,.18)";
+  ctx.beginPath();
+  ctx.ellipse(x + w / 2, y + h * 1.28, w * 0.5, h * 0.16, 0, 0, Math.PI * 2);
+  ctx.fill();
+  // techo
+  ctx.fillStyle = color;
+  ctx.beginPath();
+  ctx.moveTo(x + w * 0.28, y);
+  ctx.lineTo(x + w * 0.4, y - h * 0.55);
+  ctx.lineTo(x + w * 0.72, y - h * 0.55);
+  ctx.lineTo(x + w * 0.82, y);
+  ctx.closePath();
+  ctx.fill();
+  // carrocería
+  roundRect(ctx, x, y, w, h, h * 0.35);
+  ctx.fill();
+  // ventana
+  ctx.fillStyle = "rgba(255,255,255,.8)";
+  ctx.beginPath();
+  ctx.moveTo(x + w * 0.42, y - h * 0.05);
+  ctx.lineTo(x + w * 0.47, y - h * 0.46);
+  ctx.lineTo(x + w * 0.67, y - h * 0.46);
+  ctx.lineTo(x + w * 0.71, y - h * 0.05);
+  ctx.closePath();
+  ctx.fill();
+  // ruedas
+  const wr = h * 0.36;
+  ctx.fillStyle = "#111827";
+  ctx.beginPath();
+  ctx.arc(x + w * 0.26, y + h, wr, 0, Math.PI * 2);
+  ctx.arc(x + w * 0.74, y + h, wr, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.fillStyle = "#9ca3af";
+  ctx.beginPath();
+  ctx.arc(x + w * 0.26, y + h, wr * 0.44, 0, Math.PI * 2);
+  ctx.arc(x + w * 0.74, y + h, wr * 0.44, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.restore();
+}
+
+function drawFinish(ctx: CanvasRenderingContext2D, x: number, y: number, h: number, dpr: number) {
+  const cell = 9 * dpr;
+  const cols = 2;
+  const rows = Math.max(1, Math.round(h / cell));
+  for (let r = 0; r < rows; r++)
+    for (let c = 0; c < cols; c++) {
+      ctx.fillStyle = (r + c) % 2 === 0 ? "#111827" : "#f9fafb";
+      ctx.fillRect(x + c * cell, y + r * cell, cell, cell);
+    }
+}
+
+function Celebration({
+  effect,
+  emoji,
+  accent,
+  dark,
+}: {
+  effect: string;
+  emoji?: string;
+  accent: string;
+  dark: boolean;
+}) {
   const ref = useRef<HTMLCanvasElement | null>(null);
   useEffect(() => {
+    if (effect === "none") return;
     const canvas = ref.current;
     if (!canvas) return;
     const ctx = canvas.getContext("2d");
     if (!ctx) return;
     const dpr = Math.min(2, window.devicePixelRatio || 1);
+    let W = 0, H = 0;
     const resize = () => {
-      canvas.width = window.innerWidth * dpr;
-      canvas.height = window.innerHeight * dpr;
+      W = canvas.width = window.innerWidth * dpr;
+      H = canvas.height = window.innerHeight * dpr;
     };
     resize();
-    const colors = [accent, "#f59e0b", "#ef4444", "#22c55e", "#3b82f6", "#a855f7"];
-    const N = 140;
-    const parts = Array.from({ length: N }, () => ({
-      x: Math.random() * canvas.width,
-      y: -20 * dpr - Math.random() * canvas.height * 0.4,
-      w: (6 + Math.random() * 6) * dpr,
-      h: (8 + Math.random() * 8) * dpr,
-      vx: (Math.random() - 0.5) * 3 * dpr,
-      vy: (2 + Math.random() * 3.5) * dpr,
-      rot: Math.random() * Math.PI,
-      vr: (Math.random() - 0.5) * 0.3,
-      color: colors[(Math.random() * colors.length) | 0],
-    }));
+    const rand = (a: number, b: number) => a + Math.random() * (b - a);
+    const colors = [accent, "#f59e0b", "#ef4444", "#22c55e", "#3b82f6", "#a855f7", "#ec4899"];
+    const pick = () => colors[(Math.random() * colors.length) | 0];
+    const glyph = emoji && emoji.trim() ? emoji.trim() : "🎉";
+
+    let parts: any[] = [];
+    let bursts: any[] = [];
+    if (effect === "confetti" || effect === "emoji") {
+      const N = effect === "emoji" ? 46 : 150;
+      parts = Array.from({ length: N }, () => ({
+        x: rand(0, W), y: -20 * dpr - Math.random() * H * 0.5,
+        w: rand(6, 12) * dpr, h: rand(8, 16) * dpr, size: rand(22, 42) * dpr,
+        vx: rand(-1.5, 1.5) * dpr, vy: rand(2, 5.5) * dpr,
+        rot: Math.random() * Math.PI, vr: rand(-0.15, 0.15), color: pick(),
+      }));
+    } else if (effect === "balloons") {
+      parts = Array.from({ length: 16 }, () => ({
+        x: rand(W * 0.06, W * 0.94), y: H + rand(0, H * 0.6), r: rand(15, 26) * dpr,
+        vy: rand(1.1, 2.4) * dpr, phase: rand(0, Math.PI * 2), sway: rand(0.5, 1.4),
+        swayAmp: rand(8, 22) * dpr, color: pick(),
+      }));
+    } else if (effect === "fireworks") {
+      for (let i = 0; i < 6; i++)
+        bursts.push({ t: i * 380 + rand(0, 160), x: rand(W * 0.2, W * 0.8), y: rand(H * 0.2, H * 0.55), color: pick(), fired: false, parts: [] as any[] });
+    } else if (effect === "car") {
+      parts = [{ x: -90 * dpr, y: H * 0.6, w: 84 * dpr, h: 34 * dpr }];
+    }
+
     let raf = 0;
     const start = performance.now();
+    const DURATION = effect === "car" ? 3400 : 3600;
     const draw = (now: number) => {
-      const elapsed = now - start;
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
-      const fade = elapsed > 2600 ? Math.max(0, 1 - (elapsed - 2600) / 900) : 1;
-      for (const p of parts) {
-        p.x += p.vx;
-        p.y += p.vy;
-        p.vy += 0.03 * dpr;
-        p.rot += p.vr;
-        ctx.save();
+      const el = now - start;
+      ctx.clearRect(0, 0, W, H);
+      const fade = el > DURATION - 900 ? Math.max(0, 1 - (el - (DURATION - 900)) / 900) : 1;
+
+      if (effect === "confetti") {
+        for (const p of parts) {
+          p.x += p.vx; p.y += p.vy; p.vy += 0.03 * dpr; p.rot += p.vr;
+          ctx.save(); ctx.globalAlpha = fade; ctx.translate(p.x, p.y); ctx.rotate(p.rot);
+          ctx.fillStyle = p.color; ctx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h); ctx.restore();
+        }
+      } else if (effect === "emoji") {
+        ctx.textAlign = "center"; ctx.textBaseline = "middle";
+        for (const p of parts) {
+          p.x += p.vx; p.y += p.vy; p.vy += 0.02 * dpr; p.rot += p.vr;
+          ctx.save(); ctx.globalAlpha = fade; ctx.font = `${p.size}px serif`;
+          ctx.translate(p.x, p.y); ctx.rotate(p.rot); ctx.fillText(glyph, 0, 0); ctx.restore();
+        }
+      } else if (effect === "balloons") {
+        for (const p of parts) {
+          p.y -= p.vy; p.phase += 0.04 * p.sway;
+          const cx = p.x + Math.sin(p.phase) * p.swayAmp;
+          ctx.save(); ctx.globalAlpha = fade;
+          ctx.strokeStyle = dark ? "rgba(255,255,255,.35)" : "rgba(0,0,0,.28)"; ctx.lineWidth = 1.2 * dpr;
+          ctx.beginPath(); ctx.moveTo(cx, p.y + p.r);
+          ctx.quadraticCurveTo(cx - 6 * dpr, p.y + p.r * 2.4, cx, p.y + p.r * 3.4); ctx.stroke();
+          ctx.fillStyle = p.color;
+          ctx.beginPath(); ctx.ellipse(cx, p.y, p.r * 0.82, p.r, 0, 0, Math.PI * 2); ctx.fill();
+          ctx.fillStyle = "rgba(255,255,255,.28)";
+          ctx.beginPath(); ctx.ellipse(cx - p.r * 0.28, p.y - p.r * 0.32, p.r * 0.18, p.r * 0.26, 0, 0, Math.PI * 2); ctx.fill();
+          ctx.restore();
+        }
+      } else if (effect === "fireworks") {
+        for (const b of bursts) {
+          if (!b.fired && el >= b.t) {
+            b.fired = true;
+            const M = 38;
+            for (let i = 0; i < M; i++) {
+              const a = (i / M) * Math.PI * 2, sp = rand(2, 5.5) * dpr;
+              b.parts.push({ x: b.x, y: b.y, vx: Math.cos(a) * sp, vy: Math.sin(a) * sp, life: 0 });
+            }
+          }
+          if (b.fired) {
+            for (const q of b.parts) {
+              q.x += q.vx; q.y += q.vy; q.vy += 0.03 * dpr; q.vx *= 0.99; q.life += 1;
+              const a = Math.max(0, 1 - q.life / 72) * fade;
+              ctx.globalAlpha = a; ctx.fillStyle = b.color;
+              ctx.beginPath(); ctx.arc(q.x, q.y, 2.4 * dpr, 0, Math.PI * 2); ctx.fill();
+            }
+            ctx.globalAlpha = 1;
+          }
+        }
+      } else if (effect === "car") {
+        const car = parts[0];
+        const finishX = W * 0.82;
+        const progress = Math.min(1, el / 2500);
+        car.x = -90 * dpr + (finishX + 130 * dpr) * progress;
         ctx.globalAlpha = fade;
-        ctx.translate(p.x, p.y);
-        ctx.rotate(p.rot);
-        ctx.fillStyle = p.color;
-        ctx.fillRect(-p.w / 2, -p.h / 2, p.w, p.h);
-        ctx.restore();
+        // ruta
+        ctx.strokeStyle = dark ? "rgba(255,255,255,.22)" : "rgba(0,0,0,.16)";
+        ctx.lineWidth = 3 * dpr; ctx.setLineDash([14 * dpr, 12 * dpr]);
+        ctx.beginPath(); ctx.moveTo(0, car.y + car.h * 1.5); ctx.lineTo(W, car.y + car.h * 1.5); ctx.stroke();
+        ctx.setLineDash([]);
+        // meta a cuadros
+        drawFinish(ctx, finishX, car.y - car.h * 1.5, car.h * 3, dpr);
+        // auto
+        drawCar(ctx, car.x, car.y, car.w, car.h, accent);
+        ctx.globalAlpha = 1;
       }
-      if (elapsed < 3600) raf = requestAnimationFrame(draw);
+
+      if (el < DURATION) raf = requestAnimationFrame(draw);
+      else ctx.clearRect(0, 0, W, H);
     };
     raf = requestAnimationFrame(draw);
     window.addEventListener("resize", resize);
@@ -80,7 +226,9 @@ function Confetti({ accent }: { accent: string }) {
       cancelAnimationFrame(raf);
       window.removeEventListener("resize", resize);
     };
-  }, [accent]);
+  }, [effect, emoji, accent, dark]);
+
+  if (effect === "none") return null;
   return (
     <canvas
       ref={ref}
@@ -122,6 +270,13 @@ export function ThankYouView({
   const { t } = useI18n();
   const cfg: ThankYouConfig = { ...DEFAULT_THANKYOU, ...(config || {}) };
   const layout = cfg.layout || "card";
+  // Efecto de festejo (con back-compat del viejo flag `confetti`).
+  const effect =
+    cfg.celebration && cfg.celebration !== "none"
+      ? cfg.celebration
+      : cfg.confetti
+        ? "confetti"
+        : "none";
   const iconColor = cfg.iconColor || accent;
   const title = cfg.title ? (resolveTokens ? resolveTokens(cfg.title) : cfg.title) : "";
 
@@ -237,7 +392,7 @@ export function ThankYouView({
         className="min-h-screen"
         style={{ background: `linear-gradient(160deg, ${accent}22, ${pageBg} 60%)`, color: textColor }}
       >
-        {cfg.confetti && <Confetti accent={accent} />}
+        <Celebration effect={effect} emoji={cfg.celebrationEmoji} accent={accent} dark={dark} />
         {brandingHeader}
         <div className="flex min-h-[80vh] items-center justify-center p-6 text-center">
           <div className="w-full max-w-lg">{body}</div>
@@ -249,7 +404,7 @@ export function ThankYouView({
   if (layout === "minimal") {
     return (
       <div className="min-h-screen" style={{ backgroundColor: pageBg }}>
-        {cfg.confetti && <Confetti accent={accent} />}
+        <Celebration effect={effect} emoji={cfg.celebrationEmoji} accent={accent} dark={dark} />
         {brandingHeader}
         <div className="flex min-h-[80vh] items-center justify-center p-6 text-center">
           <div className="w-full max-w-md">{body}</div>
@@ -261,7 +416,7 @@ export function ThankYouView({
   // card (default)
   return (
     <div className="min-h-screen" style={{ backgroundColor: pageBg }}>
-      {cfg.confetti && <Confetti accent={accent} />}
+      <Celebration effect={effect} emoji={cfg.celebrationEmoji} accent={accent} dark={dark} />
       {brandingHeader}
       <div className="flex items-start justify-center p-4 sm:p-6">
         <div className="mt-6 w-full max-w-xl sm:mt-10">

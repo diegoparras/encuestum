@@ -291,6 +291,22 @@ export function ChatSurveyView({
   const chips = useChips ? chipItems(currentQ) : null;
   const showHeader = opts.showHeader !== false && (th.botName || th.botAvatar);
 
+  // Cómo mostrar una pregunta de escala/NPS: escala en fila, slider, o chips.
+  const isRating = currentQ?.getType?.() === "rating";
+  const ratingStyle = opts.ratingStyle || "scale";
+  const rMin = typeof currentQ?.rateMin === "number" ? currentQ.rateMin : 1;
+  const rMax = typeof currentQ?.rateMax === "number" ? currentQ.rateMax : 5;
+  const rStep = currentQ?.rateStep && currentQ.rateStep > 0 ? currentQ.rateStep : 1;
+  let renderMode: "chips" | "scale" | "slider" | "input";
+  if (isRating) {
+    if (ratingStyle === "slider") renderMode = "slider";
+    else if (ratingStyle === "chips") renderMode = chips ? "chips" : "slider";
+    else renderMode = chips ? "scale" : "slider"; // "scale" por defecto
+  } else {
+    renderMode = chips ? "chips" : "input";
+  }
+  const showSend = renderMode === "input" || renderMode === "slider" || (renderMode === "chips" && !!chips?.multi);
+
   const density = opts.density === "compact" ? 8 : 12;
 
   return (
@@ -381,12 +397,51 @@ export function ChatSurveyView({
                   {currentQ.description && <div className="enc-chat-desc">{currentQ.description}</div>}
                 </Row>
 
-                {chips ? (
-                  <div
-                    className={`enc-chat-chips${
-                      currentQ.getType?.() === "rating" ? " enc-chips-scale" : ""
-                    }`}
-                  >
+                {renderMode === "scale" && chips ? (
+                  <div>
+                    <div className="enc-scale">
+                      {chips.items.map((it, i) => (
+                        <button
+                          key={i}
+                          type="button"
+                          className={`enc-scale-btn${currentQ.value === it.value ? " enc-scale-on" : ""}`}
+                          onClick={() => pickSingle(currentQ, it.value)}
+                        >
+                          {it.text}
+                        </button>
+                      ))}
+                    </div>
+                    {(currentQ.minRateDescription || currentQ.maxRateDescription) && (
+                      <div className="enc-scale-labels">
+                        <span>{currentQ.minRateDescription}</span>
+                        <span>{currentQ.maxRateDescription}</span>
+                      </div>
+                    )}
+                  </div>
+                ) : renderMode === "slider" ? (
+                  <div className="enc-slider-wrap">
+                    <div className="enc-slider-val">
+                      {typeof currentQ.value === "number" ? currentQ.value : "—"}
+                    </div>
+                    <input
+                      type="range"
+                      className="enc-slider"
+                      min={rMin}
+                      max={rMax}
+                      step={rStep}
+                      value={typeof currentQ.value === "number" ? currentQ.value : rMin}
+                      onChange={(e) => {
+                        currentQ.value = Number(e.target.value);
+                        bump();
+                      }}
+                    />
+                    <div className="enc-slider-labels">
+                      <span>{currentQ.minRateDescription ?? rMin}</span>
+                      <span>{currentQ.maxRateDescription ?? rMax}</span>
+                    </div>
+                  </div>
+                ) : renderMode === "chips" && chips ? (
+                  <div className="enc-chat-chips">
                     {chips.items.map((it, i) => {
                       const selected = chips.multi
                         ? Array.isArray(currentQ.value) && currentQ.value.includes(it.value)
@@ -424,8 +479,9 @@ export function ChatSurveyView({
                       <ArrowLeft size={18} />
                     </button>
                   )}
-                  {/* En opción única con chips, el chip ya envía: no repetimos botón. */}
-                  {(!chips || chips.multi) && (
+                  {/* En escala/chip único, el toque ya envía: solo mostramos el
+                      botón cuando hace falta confirmar (texto, slider, multi). */}
+                  {showSend && (
                     <button type="button" onClick={advance} className="enc-chat-send">
                       {isLastQ ? t("public.chat.send") : t("public.chat.next")}
                       <Send size={16} />
@@ -551,6 +607,19 @@ function chatCss(th: ChatTheme, gap: number): string {
 .enc-chip:hover { filter:brightness(1.04); }
 .enc-chip:active { transform:scale(.96); }
 .enc-chip.enc-chip-on { background:${th.chipActiveBg}; color:${th.chipActiveFg}; border-color:${th.chipActiveBg}; }
+
+/* Escala/NPS en una sola fila (siempre entra, se lee de izquierda a derecha) */
+.enc-scale { display:flex; gap:6px; }
+.enc-scale-btn { flex:1 1 0; min-width:0; height:44px; border-radius:10px; border:1.5px solid ${th.chipBorder}; background:${th.chipBg}; color:${th.chipFg}; font-weight:600; font-size:14px; transition:transform .1s, filter .1s; }
+.enc-scale-btn:hover { filter:brightness(1.05); }
+.enc-scale-btn:active { transform:scale(.93); }
+.enc-scale-btn.enc-scale-on { background:${th.chipActiveBg}; color:${th.chipActiveFg}; border-color:${th.chipActiveBg}; }
+.enc-scale-labels, .enc-slider-labels { display:flex; justify-content:space-between; font-size:11px; margin-top:5px; color:${th.headerSubFg}; }
+
+/* Slider de escala/NPS */
+.enc-slider-wrap { display:flex; flex-direction:column; gap:4px; padding:6px 2px; }
+.enc-slider-val { text-align:center; font-size:24px; font-weight:700; color:${th.sendBg}; min-height:30px; }
+.enc-slider { width:100%; height:8px; accent-color:${th.sendBg}; cursor:pointer; }
 
 /* Compositor (input nativo para texto) */
 .enc-chat-compose { margin-top:2px; background:${th.composerBg}; border-radius:16px; box-shadow:0 2px 12px rgba(0,0,0,.06); padding:8px 12px; }

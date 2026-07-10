@@ -21,6 +21,7 @@ import {
   DEFAULT_CHAT,
   THANKYOU_ICONS,
   DEFAULT_THANKYOU,
+  CELEBRATIONS,
 } from "./model";
 import { loadFont } from "./design";
 import { AssetPicker } from "./AssetPicker";
@@ -706,6 +707,29 @@ export function DesignPanel({
                     </div>
                   )}
 
+                  {/* Estilo del rating/NPS en el chat */}
+                  <div>
+                    <label className="mb-1.5 block text-xs font-medium text-neutral-600 dark:text-neutral-300">
+                      {t("builder.design.chatRating")}
+                    </label>
+                    <div className="grid grid-cols-3 gap-2">
+                      {(["scale", "slider", "chips"] as const).map((rs) => (
+                        <button
+                          key={rs}
+                          type="button"
+                          onClick={() => patchChat({ ratingStyle: rs })}
+                          className={`rounded-lg border px-2 py-2 text-xs font-medium transition-colors ${
+                            (chat.ratingStyle ?? "scale") === rs
+                              ? "border-[#8faf0e] bg-[#8faf0e0a] text-neutral-800 dark:text-neutral-100"
+                              : "border-neutral-200 text-neutral-500 hover:border-neutral-300 dark:border-neutral-700 dark:text-neutral-400"
+                          }`}
+                        >
+                          {t(`builder.design.chatRating.${rs}`)}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
                   {/* Comportamiento */}
                   <div className="space-y-3">
                     <ToggleRow
@@ -830,11 +854,46 @@ export function DesignPanel({
                     </p>
                   </div>
 
-                  <ToggleRow
-                    label={t("builder.design.tyConfetti")}
-                    checked={!!ty.confetti}
-                    onChange={(v) => patchTy({ confetti: v })}
-                  />
+                  {/* Festejo (confeti / emojis / fuegos / globos / auto a la meta) */}
+                  <div>
+                    <label className="mb-1.5 block text-xs font-medium text-neutral-600 dark:text-neutral-300">
+                      {t("builder.design.tyCelebration")}
+                    </label>
+                    <div className="grid grid-cols-3 gap-2">
+                      {CELEBRATIONS.map((ce) => {
+                        const current = ty.celebration ?? (ty.confetti ? "confetti" : "none");
+                        return (
+                          <button
+                            key={ce}
+                            type="button"
+                            onClick={() => patchTy({ celebration: ce, confetti: ce === "confetti" })}
+                            className={`rounded-lg border px-2 py-2 text-xs font-medium transition-colors ${
+                              current === ce
+                                ? "border-[#8faf0e] bg-[#8faf0e0a] text-neutral-800 dark:text-neutral-100"
+                                : "border-neutral-200 text-neutral-500 hover:border-neutral-300 dark:border-neutral-700 dark:text-neutral-400"
+                            }`}
+                          >
+                            {t(`builder.design.celebration.${ce}`)}
+                          </button>
+                        );
+                      })}
+                    </div>
+                    {(ty.celebration ?? "none") === "emoji" && (
+                      <div className="mt-2 flex items-center gap-2">
+                        <input
+                          value={ty.celebrationEmoji ?? ""}
+                          onChange={(e) => patchTy({ celebrationEmoji: e.target.value })}
+                          placeholder="🎉"
+                          maxLength={4}
+                          className="h-9 w-14 rounded-lg border border-neutral-200 text-center text-lg dark:border-neutral-700 dark:bg-neutral-800"
+                          aria-label={t("builder.design.tyCelebrationEmoji")}
+                        />
+                        <span className="text-[11px] text-neutral-400 dark:text-neutral-500">
+                          {t("builder.design.tyCelebrationEmojiHint")}
+                        </span>
+                      </div>
+                    )}
+                  </div>
 
                   {/* Imagen/GIF */}
                   <div>
