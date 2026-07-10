@@ -71,7 +71,7 @@ type RecorderState =
   | "error"
   | "denied";
 
-const ACCENT = "#e25a4e"; // coral primario
+const ACCENT = "#8faf0e"; // coral primario
 const REC_RED = "#ef4444"; // rojo para grabar/detener
 const MAX_SECONDS = 120; // tope de grabación (2 minutos)
 
@@ -459,7 +459,7 @@ function VideoRecorder({ question }: { question: QuestionVideoResponseModel }) {
           <button
             type="button"
             onClick={removeSaved}
-            className="inline-flex min-h-[44px] items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-white"
+            className="inline-flex min-h-[44px] items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-[#1e2a06]"
             style={{ backgroundColor: ACCENT }}
           >
             <RotateCcw className="h-4 w-4" />
@@ -573,7 +573,7 @@ function VideoRecorder({ question }: { question: QuestionVideoResponseModel }) {
           <button
             type="button"
             onClick={useRecordedVideo}
-            className="inline-flex min-h-[44px] items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-white"
+            className="inline-flex min-h-[44px] items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-[#1e2a06]"
             style={{ backgroundColor: ACCENT }}
           >
             <Upload className="h-4 w-4" />
@@ -620,7 +620,7 @@ function VideoRecorder({ question }: { question: QuestionVideoResponseModel }) {
             <button
               type="button"
               onClick={useRecordedVideo}
-              className="inline-flex min-h-[44px] items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-white"
+              className="inline-flex min-h-[44px] items-center gap-2 rounded-lg px-4 py-2 text-sm font-medium text-[#1e2a06]"
               style={{ backgroundColor: ACCENT }}
             >
               <RotateCcw className="h-4 w-4" />
@@ -673,7 +673,7 @@ function VideoRecorder({ question }: { question: QuestionVideoResponseModel }) {
         <button
           type="button"
           onClick={startCamera}
-          className="inline-flex min-h-[44px] items-center gap-2 rounded-lg px-5 py-2.5 text-sm font-medium text-white"
+          className="inline-flex min-h-[44px] items-center gap-2 rounded-lg px-5 py-2.5 text-sm font-medium text-[#1e2a06]"
           style={{ backgroundColor: ACCENT }}
         >
           <Video className="h-4 w-4" />

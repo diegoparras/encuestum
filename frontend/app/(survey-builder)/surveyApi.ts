@@ -3,7 +3,7 @@ import type { UsageInfo } from "./aiApi";
 
 export type { UsageInfo };
 
-export const SURVEY_ACCENT = "#e25a4e";
+export const SURVEY_ACCENT = "#8faf0e";
 
 export interface SurveySummary {
   id: string;

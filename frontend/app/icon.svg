@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Encuestum">
+  <rect width="64" height="64" rx="15" fill="#8faf0e"/>
+  <rect x="14" y="32" width="7" height="18" rx="1.6" fill="#ffffff"/>
+  <rect x="26" y="24" width="7" height="26" rx="1.6" fill="#ffffff"/>
+  <rect x="38" y="16" width="7" height="34" rx="1.6" fill="#ffffff"/>
+  <path d="M35 24 l6 6 l8 -10" fill="none" stroke="#8faf0e" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M35 24 l6 6 l8 -10" fill="none" stroke="#ffffff" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

@@ -314,7 +314,7 @@ function LibraryDialog({
                       onClick={() => onPick(a.url)}
                       className={`relative block w-full aspect-square overflow-hidden rounded-lg border-2 transition-colors ${
                         active
-                          ? "border-[#e25a4e]"
+                          ? "border-[#8faf0e]"
                           : "border-transparent hover:border-neutral-300"
                       }`}
                       title={a.original_name ?? ""}
@@ -326,7 +326,7 @@ function LibraryDialog({
                         className="w-full h-full object-cover bg-neutral-100"
                       />
                       {active && (
-                        <span className="absolute right-1 top-1 grid h-5 w-5 place-items-center rounded-full bg-[#e25a4e] text-white">
+                        <span className="absolute right-1 top-1 grid h-5 w-5 place-items-center rounded-full bg-[#8faf0e] text-[#1e2a06]">
                           <Check className="w-3 h-3" />
                         </span>
                       )}
@@ -353,7 +353,7 @@ function LibraryDialog({
                   <li
                     key={a.id}
                     className={`flex items-center gap-3 rounded-lg border px-3 py-2 ${
-                      active ? "border-[#e25a4e] bg-[#e25a4e0a]" : "border-neutral-200"
+                      active ? "border-[#8faf0e] bg-[#8faf0e0a]" : "border-neutral-200"
                     }`}
                   >
                     {kind === "video" ? (

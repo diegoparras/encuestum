@@ -16,7 +16,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
           >
             <span
               className="inline-block h-7 w-7 rounded-lg"
-              style={{ backgroundColor: "#e25a4e" }}
+              style={{ backgroundColor: "#8faf0e" }}
               aria-hidden
             />
             Encuestum

@@ -430,11 +430,14 @@ export function typeHasChoices(type: QuestionType): boolean {
   return QUESTION_TYPES.find((q) => q.type === type)?.hasChoices ?? false;
 }
 
-const ESCRIBA_CORAL = "#e25a4e";
+// Acento de marca de Encuestum (oliva-limón). Es también el default de las
+// encuestas nuevas; el usuario puede elegir cualquier color de la paleta.
+const ESCRIBA_CORAL = "#8faf0e";
 
-// Curated Escriba-suite palette (coral accent first) + neutral-diverse options.
+// Curated palette (Encuestum accent first) + neutral-diverse options.
 export const ACCENT_PALETTE: { name: string; value: string }[] = [
-  { name: "Coral Escriba", value: ESCRIBA_CORAL },
+  { name: "Oliva Encuestum", value: ESCRIBA_CORAL },
+  { name: "Coral", value: "#e25a4e" },
   { name: "Terracota", value: "#e06a3a" },
   { name: "Salmón", value: "#ef8175" },
   { name: "Violeta", value: "#8b5cf6" },

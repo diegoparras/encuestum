@@ -20,6 +20,7 @@ import {
 import { getMe, logout, switchOrg, type Me } from "@/utils/auth";
 import { MeProvider } from "./MeContext";
 import { cn } from "@/lib/utils";
+import { EncuestumLogo } from "@/components/EncuestumLogo";
 
 function useOutsideClick(onClose: () => void) {
   const ref = useRef<HTMLDivElement>(null);
@@ -248,7 +249,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
           <button
             type="button"
             onClick={load}
-            className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-white hover:opacity-90"
+            className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-[#1e2a06] hover:opacity-90"
           >
             <Loader2 className="h-4 w-4 animate-spin" />
             Reintentando…
@@ -279,11 +280,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
                 href="/surveys"
                 className="flex items-center gap-2 text-lg font-bold tracking-tight text-neutral-900"
               >
-                <span
-                  className="inline-block h-5 w-5 rounded-md"
-                  style={{ backgroundColor: "#e25a4e" }}
-                  aria-hidden
-                />
+                <EncuestumLogo size={22} />
                 Encuestum
               </Link>
               <nav className="hidden items-center gap-1 sm:flex">

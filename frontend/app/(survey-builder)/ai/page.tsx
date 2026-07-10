@@ -40,7 +40,7 @@ import { Button } from "@/components/ui/button";
 import { Input, Label, Select } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 
-const ACCENT = "#e25a4e";
+const ACCENT = "#8faf0e";
 
 function formatDateTime(iso: string): string {
   try {
@@ -319,7 +319,7 @@ function ProviderForm({
             type="checkbox"
             checked={isDefault}
             onChange={(e) => setIsDefault(e.target.checked)}
-            className="h-4 w-4 rounded border-neutral-300 accent-[#e25a4e]"
+            className="h-4 w-4 rounded border-neutral-300 accent-[#8faf0e]"
           />
           Predeterminado
         </label>
@@ -430,7 +430,7 @@ function ProviderRow({
           </span>
           {provider.is_default && (
             <span
-              className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium text-white"
+              className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium text-[#1e2a06]"
               style={{ backgroundColor: ACCENT }}
             >
               <Star className="h-3 w-3" /> Predeterminado

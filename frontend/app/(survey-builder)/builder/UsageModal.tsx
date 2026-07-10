@@ -24,7 +24,7 @@ export function UsageModal({ usage, onClose }: Props) {
       >
         <div className="flex items-center justify-between border-b border-neutral-100 px-5 py-4">
           <div className="flex items-center gap-2">
-            <Sparkles className="h-5 w-5" style={{ color: "#e25a4e" }} />
+            <Sparkles className="h-5 w-5" style={{ color: "#8faf0e" }} />
             <h2 className="text-sm font-semibold text-neutral-900">
               Consumo de IA
             </h2>
@@ -69,8 +69,8 @@ export function UsageModal({ usage, onClose }: Props) {
         <div className="flex justify-end border-t border-neutral-100 px-5 py-4">
           <button
             onClick={onClose}
-            className="rounded-lg px-4 py-2 text-sm font-semibold text-white"
-            style={{ backgroundColor: "#e25a4e" }}
+            className="rounded-lg px-4 py-2 text-sm font-semibold text-[#1e2a06]"
+            style={{ backgroundColor: "#8faf0e" }}
           >
             Entendido
           </button>

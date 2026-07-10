@@ -495,7 +495,7 @@ export default function SurveyView({ slug }: { slug: string }) {
       </Centered>
     );
 
-  const accent = data?.theme?.cssVariables?.["--sjs-primary-backcolor"] || "#e25a4e";
+  const accent = data?.theme?.cssVariables?.["--sjs-primary-backcolor"] || "#8faf0e";
 
   if (data && data.available === false) {
     return (

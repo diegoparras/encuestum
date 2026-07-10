@@ -26,7 +26,7 @@ export const SURVEY_TEMPLATES: SurveyTemplate[] = [
     name: "En blanco",
     description: "Empezá desde cero con una sola pregunta.",
     category: "General",
-    accent: "#e25a4e",
+    accent: "#8faf0e",
     fontFamily: "system",
     title: "Nueva encuesta",
     json_schema: page([{ type: "text", name: "q1", title: "Tu primera pregunta" }]),
@@ -36,7 +36,7 @@ export const SURVEY_TEMPLATES: SurveyTemplate[] = [
     name: "NPS / Satisfacción",
     description: "Mide la recomendación y pedí un comentario.",
     category: "Feedback",
-    accent: "#e25a4e",
+    accent: "#8faf0e",
     fontFamily: "poppins",
     title: "¿Qué tan probable es que nos recomiendes?",
     json_schema: page([

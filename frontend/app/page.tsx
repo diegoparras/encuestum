@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { EncuestumLogo } from "@/components/EncuestumLogo";
 import {
   BarChart3,
   Building2,
@@ -12,7 +13,7 @@ export const metadata = {
     "Creá encuestas y evaluaciones con un editor visual y corrección híbrida por IA que no alucina. Panel del profesor con analítica e insights, y soporte multi-organización.",
 };
 
-const ACCENT = "#e25a4e";
+const ACCENT = "#8faf0e";
 
 const FEATURES = [
   {
@@ -44,11 +45,7 @@ export default function LandingPage() {
       <header className="border-b border-neutral-100">
         <div className="mx-auto flex h-16 max-w-6xl items-center justify-between px-4 sm:px-6">
           <span className="flex items-center gap-2 text-lg font-bold tracking-tight">
-            <span
-              className="inline-block h-5 w-5 rounded-md"
-              style={{ backgroundColor: ACCENT }}
-              aria-hidden
-            />
+            <EncuestumLogo size={22} />
             Encuestum
           </span>
           <div className="flex items-center gap-2">
@@ -143,13 +140,13 @@ export default function LandingPage() {
       {/* CTA */}
       <section className="mx-auto max-w-6xl px-4 py-20 sm:px-6">
         <div
-          className="rounded-2xl px-8 py-12 text-center text-white sm:px-16 sm:py-16"
+          className="rounded-2xl px-8 py-12 text-center text-[#1e2a06] sm:px-16 sm:py-16"
           style={{ backgroundColor: ACCENT }}
         >
           <h2 className="text-3xl font-bold tracking-tight sm:text-4xl">
             Empezá gratis hoy
           </h2>
-          <p className="mx-auto mt-3 max-w-xl text-white/90">
+          <p className="mx-auto mt-3 max-w-xl text-[#1e2a06]/80">
             Creá tu primera encuesta o evaluación en minutos. Sin tarjeta de
             crédito.
           </p>
@@ -167,11 +164,7 @@ export default function LandingPage() {
       <footer className="border-t border-neutral-100">
         <div className="mx-auto flex max-w-6xl flex-col items-center justify-between gap-2 px-4 py-8 text-sm text-neutral-400 sm:flex-row sm:px-6">
           <span className="flex items-center gap-2">
-            <span
-              className="inline-block h-4 w-4 rounded"
-              style={{ backgroundColor: ACCENT }}
-              aria-hidden
-            />
+            <EncuestumLogo size={18} />
             Encuestum
           </span>
           <span>© {new Date().getFullYear()} Encuestum</span>

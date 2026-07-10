@@ -3,14 +3,16 @@
 @tailwind utilities;
 
 :root {
-  /* Encuestum accent (#e25a4e) expressed as HSL for the shadcn-style tokens */
+  /* Encuestum accent — oliva-limón #8FAF0E (identidad en el stack Escriba),
+     en HSL para los tokens estilo shadcn. El oliva es claro: el texto sobre
+     el acento va OSCURO (primary-foreground) para tener contraste AA. */
   --background: 0 0% 100%;
   --foreground: 0 0% 9%;
   --border: 0 0% 89%;
   --input: 0 0% 89%;
-  --ring: 5 71% 60%;
-  --primary: 5 71% 60%;
-  --primary-foreground: 0 0% 100%;
+  --ring: 72 85% 37%;
+  --primary: 72 85% 37%;
+  --primary-foreground: 80 70% 9%;
 }
 
 html,

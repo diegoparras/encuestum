@@ -168,7 +168,7 @@ export function DesignPanel({
                 value={fontQuery}
                 onChange={(e) => setFontQuery(e.target.value)}
                 placeholder="Buscar en Google Fonts…"
-                className="w-full rounded-lg border border-neutral-200 py-2 pl-9 pr-3 text-sm text-neutral-800 placeholder:text-neutral-400 focus:border-[#e25a4e] focus:outline-none focus:ring-1 focus:ring-[#e25a4e]"
+                className="w-full rounded-lg border border-neutral-200 py-2 pl-9 pr-3 text-sm text-neutral-800 placeholder:text-neutral-400 focus:border-[#8faf0e] focus:outline-none focus:ring-1 focus:ring-[#8faf0e]"
               />
             </div>
 
@@ -176,7 +176,7 @@ export function DesignPanel({
               <>
                 {/* Chip "Actual" cuando la fuente aplicada no está en los resultados */}
                 {!filteredFonts.some((f) => f.id === design.fontFamily) && (
-                  <div className="mb-2 inline-flex max-w-full items-center gap-1.5 rounded-full border border-[#e25a4e] bg-[#e25a4e0a] px-2.5 py-1 text-xs text-neutral-700">
+                  <div className="mb-2 inline-flex max-w-full items-center gap-1.5 rounded-full border border-[#8faf0e] bg-[#8faf0e0a] px-2.5 py-1 text-xs text-neutral-700">
                     <span className="text-neutral-400">Actual:</span>
                     <span
                       className="truncate"
@@ -202,7 +202,7 @@ export function DesignPanel({
                             onClick={() => patch({ fontFamily: f.id })}
                             className={`flex w-full items-center gap-2 rounded-lg border px-3 py-2.5 text-left transition-colors ${
                               active
-                                ? "border-[#e25a4e] bg-[#e25a4e0a]"
+                                ? "border-[#8faf0e] bg-[#8faf0e0a]"
                                 : "border-neutral-200 hover:border-neutral-300"
                             }`}
                           >
@@ -216,7 +216,7 @@ export function DesignPanel({
                               {f.category}
                             </span>
                             {active && (
-                              <span className="grid h-4 w-4 shrink-0 place-items-center rounded-full bg-[#e25a4e] text-white">
+                              <span className="grid h-4 w-4 shrink-0 place-items-center rounded-full bg-[#8faf0e] text-[#1e2a06]">
                                 <Check className="w-2.5 h-2.5" />
                               </span>
                             )}
@@ -238,7 +238,7 @@ export function DesignPanel({
                       onClick={() => patch({ fontFamily: f.id })}
                       className={`relative rounded-lg border px-3 py-3 text-left transition-colors ${
                         active
-                          ? "border-[#e25a4e] bg-[#e25a4e0a]"
+                          ? "border-[#8faf0e] bg-[#8faf0e0a]"
                           : "border-neutral-200 hover:border-neutral-300"
                       }`}
                     >
@@ -252,7 +252,7 @@ export function DesignPanel({
                         {f.category}
                       </div>
                       {active && (
-                        <span className="absolute right-2 top-2 grid h-4 w-4 place-items-center rounded-full bg-[#e25a4e] text-white">
+                        <span className="absolute right-2 top-2 grid h-4 w-4 place-items-center rounded-full bg-[#8faf0e] text-[#1e2a06]">
                           <Check className="w-2.5 h-2.5" />
                         </span>
                       )}
@@ -290,7 +290,7 @@ export function DesignPanel({
             <div className="mt-3 flex items-center gap-2">
               <input
                 type="color"
-                value={/^#[0-9a-f]{6}$/i.test(accent) ? accent : "#e25a4e"}
+                value={/^#[0-9a-f]{6}$/i.test(accent) ? accent : "#8faf0e"}
                 onChange={(e) => onAccentChange(e.target.value)}
                 className="h-8 w-10 cursor-pointer rounded border border-neutral-200 bg-white p-0.5"
                 title="Color personalizado"
@@ -340,7 +340,7 @@ export function DesignPanel({
                     onClick={() => patch({ mode: m })}
                     className={`flex items-center justify-center gap-2 rounded-lg border px-3 py-2.5 text-sm font-medium transition-colors ${
                       active
-                        ? "border-[#e25a4e] bg-[#e25a4e0a] text-neutral-800"
+                        ? "border-[#8faf0e] bg-[#8faf0e0a] text-neutral-800"
                         : "border-neutral-200 text-neutral-500 hover:border-neutral-300"
                     }`}
                   >
@@ -441,7 +441,7 @@ export function DesignPanel({
                 onChange={(e) =>
                   patch({ questionOpacity: Number(e.target.value) / 100 })
                 }
-                className="w-full accent-[#e25a4e]"
+                className="w-full accent-[#8faf0e]"
               />
               <p className="mt-1 text-[11px] leading-relaxed text-neutral-400">
                 Bajala para ver el fondo a través de los cuadros (efecto vidrio).
@@ -536,7 +536,7 @@ export function DesignPanel({
                     ? design.buttonColor
                     : /^#[0-9a-f]{6}$/i.test(accent)
                       ? accent
-                      : "#e25a4e"
+                      : "#8faf0e"
                 }
                 onChange={(e) => patch({ buttonColor: e.target.value })}
                 className="h-9 w-12 cursor-pointer rounded border border-neutral-200 bg-white p-0.5"
@@ -588,7 +588,7 @@ export function DesignPanel({
                     onClick={() => patch({ alignment: opt.value })}
                     className={`flex items-center justify-center gap-2 rounded-lg border px-3 py-2.5 text-sm font-medium transition-colors ${
                       active
-                        ? "border-[#e25a4e] bg-[#e25a4e0a] text-neutral-800"
+                        ? "border-[#8faf0e] bg-[#8faf0e0a] text-neutral-800"
                         : "border-neutral-200 text-neutral-500 hover:border-neutral-300"
                     }`}
                   >
@@ -615,7 +615,7 @@ export function DesignPanel({
                     onClick={() => patch({ pageTransition: opt.id })}
                     className={`flex items-center justify-center rounded-lg border px-3 py-2.5 text-sm font-medium transition-colors ${
                       active
-                        ? "border-[#e25a4e] bg-[#e25a4e0a] text-neutral-800"
+                        ? "border-[#8faf0e] bg-[#8faf0e0a] text-neutral-800"
                         : "border-neutral-200 text-neutral-500 hover:border-neutral-300"
                     }`}
                   >
@@ -652,7 +652,7 @@ export function DesignPanel({
                   onChange={(e) =>
                     patch({ backgroundOpacity: Number(e.target.value) / 100 })
                   }
-                  className="w-full accent-[#e25a4e]"
+                  className="w-full accent-[#8faf0e]"
                 />
               </div>
             )}
@@ -714,7 +714,7 @@ export function DesignPanel({
                     onChange={(e) =>
                       patchAudio({ volume: Number(e.target.value) / 100 })
                     }
-                    className="w-full accent-[#e25a4e]"
+                    className="w-full accent-[#8faf0e]"
                   />
                 </div>
                 <p className="text-[11px] leading-relaxed text-neutral-400">
@@ -745,7 +745,7 @@ function ThemeCard({
       onClick={onClick}
       className={`relative overflow-hidden rounded-lg border text-left transition-colors ${
         active
-          ? "border-[#e25a4e] ring-1 ring-[#e25a4e]"
+          ? "border-[#8faf0e] ring-1 ring-[#8faf0e]"
           : "border-neutral-200 hover:border-neutral-300"
       }`}
     >
@@ -768,7 +768,7 @@ function ThemeCard({
         </span>
       </div>
       {active && (
-        <span className="absolute right-1.5 top-1.5 grid h-4 w-4 place-items-center rounded-full bg-[#e25a4e] text-white">
+        <span className="absolute right-1.5 top-1.5 grid h-4 w-4 place-items-center rounded-full bg-[#8faf0e] text-[#1e2a06]">
           <Check className="w-2.5 h-2.5" />
         </span>
       )}

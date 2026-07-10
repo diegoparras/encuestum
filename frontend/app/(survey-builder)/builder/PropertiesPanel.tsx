@@ -270,7 +270,7 @@ export function PropertiesPanel({
                   onClick={() => onQuestionChange({ align: opt.value })}
                   className={`rounded-md border px-2 py-1.5 text-xs font-medium transition-colors ${
                     active
-                      ? "border-[#e25a4e] bg-[#e25a4e0a] text-neutral-800"
+                      ? "border-[#8faf0e] bg-[#8faf0e0a] text-neutral-800"
                       : "border-neutral-200 text-neutral-500 hover:border-neutral-300"
                   }`}
                 >
@@ -303,7 +303,7 @@ export function PropertiesPanel({
               onChange={(e) =>
                 onQuestionChange({ boxOpacity: Number(e.target.value) / 100 })
               }
-              className="w-full accent-[#e25a4e]"
+              className="w-full accent-[#8faf0e]"
             />
             <p className="mt-1 text-[11px] leading-relaxed text-neutral-400">
               0% = sin cuadro (ideal para escalas/NPS sobre una imagen de fondo).
@@ -383,7 +383,7 @@ export function PropertiesPanel({
                     onClick={() => onQuestionChange({ ratePresentation: p.id })}
                     className={`rounded-md border px-2.5 py-2 text-xs font-medium transition-colors ${
                       active
-                        ? "border-[#e25a4e] bg-[#e25a4e0a] text-neutral-800"
+                        ? "border-[#8faf0e] bg-[#8faf0e0a] text-neutral-800"
                         : "border-neutral-200 text-neutral-500 hover:border-neutral-300"
                     }`}
                   >
