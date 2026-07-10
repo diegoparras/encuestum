@@ -63,6 +63,7 @@ class SurveyQuestionVideoResponseRenderer extends SurveyQuestionElementBase {
 
 type RecorderState =
   | "idle"
+  | "preview" // cámara encendida, esperando que toques REC
   | "recording"
   | "recorded"
   | "uploading"
@@ -169,9 +170,14 @@ function VideoRecorder({ question }: { question: QuestionVideoResponseModel }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Cuando entramos a "recording", conectamos el stream al <video> en vivo.
+  // Conectamos el stream al <video> en vivo mientras la cámara está encendida
+  // (tanto en "preview" como en "recording").
   useEffect(() => {
-    if (state === "recording" && livePreviewRef.current && streamRef.current) {
+    if (
+      (state === "preview" || state === "recording") &&
+      livePreviewRef.current &&
+      streamRef.current
+    ) {
       livePreviewRef.current.srcObject = streamRef.current;
       livePreviewRef.current.play().catch(() => {
         /* algunos navegadores requieren gesto del usuario; ignoramos */
@@ -181,7 +187,8 @@ function VideoRecorder({ question }: { question: QuestionVideoResponseModel }) {
 
   // ----- Acciones -----
 
-  async function startRecording() {
+  // Paso 1: encender la cámara y mostrar el preview en vivo (todavía NO graba).
+  async function startCamera() {
     setErrorMsg("");
     if (
       typeof navigator === "undefined" ||
@@ -198,54 +205,65 @@ function VideoRecorder({ question }: { question: QuestionVideoResponseModel }) {
         audio: true,
       });
       streamRef.current = stream;
-
-      const mimeType = pickMimeType();
-      const recorder = mimeType
-        ? new MediaRecorder(stream, { mimeType })
-        : new MediaRecorder(stream);
-      recorderRef.current = recorder;
-      chunksRef.current = [];
-
-      recorder.ondataavailable = (e: BlobEvent) => {
-        if (e.data && e.data.size > 0) chunksRef.current.push(e.data);
-      };
-      recorder.onstop = () => {
-        clearTimer();
-        const type = recorder.mimeType || mimeType || "video/webm";
-        const blob = new Blob(chunksRef.current, { type });
-        blobRef.current = blob;
-        // Cortamos la cámara: ya tenemos el blob.
-        stopStream();
-        revokeObjectUrl();
-        const url = URL.createObjectURL(blob);
-        objectUrlRef.current = url;
-        setRecordedUrl(url);
-        setState("recorded");
-      };
-
-      recorder.start();
-      setElapsed(0);
-      setState("recording");
-
-      // Contador + auto-stop al llegar al tope.
-      clearTimer();
-      timerRef.current = setInterval(() => {
-        setElapsed((prev) => {
-          const next = prev + 1;
-          if (next >= MAX_SECONDS) {
-            stopRecording();
-          }
-          return next;
-        });
-      }, 1000);
+      setState("preview");
     } catch {
-      // getUserMedia rechazado o sin dispositivo.
       stopStream();
-      setErrorMsg(
-        "No pudimos acceder a la cámara. Podés subir un archivo."
-      );
+      setErrorMsg("No pudimos acceder a la cámara. Podés subir un archivo.");
       setState("denied");
     }
+  }
+
+  // Paso 2: empezar a grabar sobre el stream ya encendido.
+  function beginRecording() {
+    const stream = streamRef.current;
+    if (!stream) {
+      startCamera();
+      return;
+    }
+    const mimeType = pickMimeType();
+    const recorder = mimeType
+      ? new MediaRecorder(stream, { mimeType })
+      : new MediaRecorder(stream);
+    recorderRef.current = recorder;
+    chunksRef.current = [];
+
+    recorder.ondataavailable = (e: BlobEvent) => {
+      if (e.data && e.data.size > 0) chunksRef.current.push(e.data);
+    };
+    recorder.onstop = () => {
+      clearTimer();
+      const type = recorder.mimeType || mimeType || "video/webm";
+      const blob = new Blob(chunksRef.current, { type });
+      blobRef.current = blob;
+      // Cortamos la cámara: ya tenemos el blob.
+      stopStream();
+      revokeObjectUrl();
+      const url = URL.createObjectURL(blob);
+      objectUrlRef.current = url;
+      setRecordedUrl(url);
+      setState("recorded");
+    };
+
+    // Timeslice de 1s: junta datos progresivamente (más robusto en grabaciones
+    // cortas y evita que el blob quede vacío).
+    recorder.start(1000);
+    setElapsed(0);
+    setState("recording");
+
+    clearTimer();
+    timerRef.current = setInterval(() => {
+      setElapsed((prev) => {
+        const next = prev + 1;
+        if (next >= MAX_SECONDS) stopRecording();
+        return next;
+      });
+    }, 1000);
+  }
+
+  // Cancela el preview antes de grabar (apaga la cámara).
+  function cancelPreview() {
+    stopStream();
+    setState("idle");
   }
 
   function stopRecording() {
@@ -328,23 +346,54 @@ function VideoRecorder({ question }: { question: QuestionVideoResponseModel }) {
 
   // ----- Render -----
 
+  // Los webm de MediaRecorder muestran un frame negro hasta que se reproducen;
+  // moviendo currentTime forzamos que se pinte el primer cuadro en la preview.
+  function forceFirstFrame(e: React.SyntheticEvent<HTMLVideoElement>) {
+    const v = e.currentTarget;
+    try {
+      if (v.currentTime < 0.04) v.currentTime = 0.05;
+    } catch {
+      /* algunos formatos no permiten seek antes de cargar; se ignora */
+    }
+  }
+
+  // El box sigue el tema de la encuesta (claro/oscuro) usando las variables CSS
+  // de SurveyJS, con fallback a claro.
   const boxClass =
-    "flex flex-col items-center gap-3 rounded-xl border border-neutral-200 bg-white p-4";
+    "flex flex-col items-center gap-3 rounded-xl border p-4";
+  const surfaceStyle: React.CSSProperties = {
+    backgroundColor: "var(--sjs-editorpanel-backcolor, #ffffff)",
+    borderColor: "var(--sjs-border-default, rgba(0,0,0,0.12))",
+    color: "var(--sjs-general-forecolor, #1f2937)",
+  };
+  // Botón secundario (borde) que también sigue el tema.
+  const ghostBtnClass =
+    "inline-flex items-center gap-2 rounded-lg border px-4 py-2 text-sm font-medium hover:opacity-80";
+  const ghostBtnStyle: React.CSSProperties = {
+    borderColor: "var(--sjs-border-default, rgba(0,0,0,0.12))",
+    color: "var(--sjs-general-forecolor-light, #525252)",
+  };
+  const hintStyle: React.CSSProperties = {
+    color: "var(--sjs-general-forecolor-light, #9ca3af)",
+  };
 
   // Estado final: ya hay un video guardado (o preview local del editor).
   if (state === "done" && (savedValue || recordedUrl)) {
     const src = savedValue || recordedUrl || "";
     const isPreviewOnly = !!previewValueUrlRef.current;
     return (
-      <div className={boxClass}>
+      <div className={boxClass} style={surfaceStyle}>
         {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
         <video
           controls
+          playsInline
+          preload="auto"
           src={src}
+          onLoadedData={forceFirstFrame}
           className="w-full max-h-80 rounded-lg bg-black"
         />
         {isPreviewOnly && (
-          <p className="text-xs text-neutral-400">
+          <p className="text-xs" style={hintStyle}>
             Vista previa (no se sube en el editor)
           </p>
         )}
@@ -361,7 +410,8 @@ function VideoRecorder({ question }: { question: QuestionVideoResponseModel }) {
           <button
             type="button"
             onClick={removeSaved}
-            className="inline-flex items-center gap-2 rounded-lg border border-neutral-200 px-4 py-2 text-sm font-medium text-neutral-600 hover:bg-neutral-50"
+            className={ghostBtnClass}
+            style={ghostBtnStyle}
           >
             <Trash2 className="h-4 w-4" />
             Quitar
@@ -371,10 +421,10 @@ function VideoRecorder({ question }: { question: QuestionVideoResponseModel }) {
     );
   }
 
-  // Grabando: preview en vivo + contador + detener.
-  if (state === "recording") {
+  // Cámara encendida, esperando que toques REC (paso 1 de 2).
+  if (state === "preview") {
     return (
-      <div className={boxClass}>
+      <div className={boxClass} style={surfaceStyle}>
         {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
         <video
           ref={livePreviewRef}
@@ -383,7 +433,49 @@ function VideoRecorder({ question }: { question: QuestionVideoResponseModel }) {
           playsInline
           className="w-full max-h-80 rounded-lg bg-black"
         />
-        <div className="flex items-center gap-2 text-sm font-semibold text-neutral-700">
+        <p className="text-xs" style={hintStyle}>
+          Acomodate y tocá <strong>Grabar</strong> cuando estés listo.
+        </p>
+        <div className="flex flex-wrap items-center justify-center gap-2">
+          <button
+            type="button"
+            onClick={beginRecording}
+            className="inline-flex items-center gap-2 rounded-lg px-5 py-2.5 text-sm font-semibold text-white"
+            style={{ backgroundColor: REC_RED }}
+          >
+            <Circle className="h-4 w-4" fill="currentColor" />
+            Grabar
+          </button>
+          <button
+            type="button"
+            onClick={cancelPreview}
+            className={ghostBtnClass}
+            style={ghostBtnStyle}
+          >
+            <Trash2 className="h-4 w-4" />
+            Cancelar
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // Grabando: preview en vivo + contador + detener.
+  if (state === "recording") {
+    return (
+      <div className={boxClass} style={surfaceStyle}>
+        {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
+        <video
+          ref={livePreviewRef}
+          autoPlay
+          muted
+          playsInline
+          className="w-full max-h-80 rounded-lg bg-black"
+        />
+        <div
+          className="flex items-center gap-2 text-sm font-semibold"
+          style={{ color: "var(--sjs-general-forecolor, #374151)" }}
+        >
           <span
             className="inline-block h-2.5 w-2.5 animate-pulse rounded-full"
             style={{ backgroundColor: REC_RED }}
@@ -409,11 +501,14 @@ function VideoRecorder({ question }: { question: QuestionVideoResponseModel }) {
   // Grabado: preview local + usar / descartar.
   if (state === "recorded" && recordedUrl) {
     return (
-      <div className={boxClass}>
+      <div className={boxClass} style={surfaceStyle}>
         {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
         <video
           controls
+          playsInline
+          preload="auto"
           src={recordedUrl}
+          onLoadedData={forceFirstFrame}
           className="w-full max-h-80 rounded-lg bg-black"
         />
         <div className="flex flex-wrap items-center justify-center gap-2">
@@ -429,7 +524,8 @@ function VideoRecorder({ question }: { question: QuestionVideoResponseModel }) {
           <button
             type="button"
             onClick={discardRecording}
-            className="inline-flex items-center gap-2 rounded-lg border border-neutral-200 px-4 py-2 text-sm font-medium text-neutral-600 hover:bg-neutral-50"
+            className={ghostBtnClass}
+            style={ghostBtnStyle}
           >
             <RotateCcw className="h-4 w-4" />
             Descartar
@@ -442,8 +538,11 @@ function VideoRecorder({ question }: { question: QuestionVideoResponseModel }) {
   // Subiendo.
   if (state === "uploading") {
     return (
-      <div className={boxClass}>
-        <div className="flex items-center gap-3 py-6 text-sm font-medium text-neutral-600">
+      <div className={boxClass} style={surfaceStyle}>
+        <div
+          className="flex items-center gap-3 py-6 text-sm font-medium"
+          style={{ color: "var(--sjs-general-forecolor, #525252)" }}
+        >
           <Loader2 className="h-5 w-5 animate-spin" style={{ color: ACCENT }} />
           Subiendo…
         </div>
@@ -454,8 +553,8 @@ function VideoRecorder({ question }: { question: QuestionVideoResponseModel }) {
   // Error de subida: reintentar.
   if (state === "error") {
     return (
-      <div className={boxClass}>
-        <p className="text-sm text-neutral-600">
+      <div className={boxClass} style={surfaceStyle}>
+        <p className="text-sm" style={ghostBtnStyle}>
           {errorMsg || "No se pudo subir."}
         </p>
         <div className="flex flex-wrap items-center justify-center gap-2">
@@ -473,7 +572,8 @@ function VideoRecorder({ question }: { question: QuestionVideoResponseModel }) {
           <button
             type="button"
             onClick={discardRecording}
-            className="inline-flex items-center gap-2 rounded-lg border border-neutral-200 px-4 py-2 text-sm font-medium text-neutral-600 hover:bg-neutral-50"
+            className={ghostBtnClass}
+            style={ghostBtnStyle}
           >
             <Trash2 className="h-4 w-4" />
             Descartar
@@ -486,12 +586,15 @@ function VideoRecorder({ question }: { question: QuestionVideoResponseModel }) {
   // Permisos denegados / sin cámara: solo subir archivo.
   if (state === "denied") {
     return (
-      <div className={boxClass}>
-        <p className="text-center text-sm text-neutral-600">
+      <div className={boxClass} style={surfaceStyle}>
+        <p className="text-center text-sm" style={ghostBtnStyle}>
           {errorMsg ||
             "No pudimos acceder a la cámara. Podés subir un archivo."}
         </p>
-        <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-neutral-200 px-4 py-2 text-sm font-medium text-neutral-700 hover:bg-neutral-50">
+        <label
+          className="inline-flex cursor-pointer items-center gap-2 rounded-lg border px-4 py-2 text-sm font-medium hover:opacity-80"
+          style={ghostBtnStyle}
+        >
           <Upload className="h-4 w-4" />
           Subir archivo
           <input
@@ -507,18 +610,21 @@ function VideoRecorder({ question }: { question: QuestionVideoResponseModel }) {
 
   // idle: grabar o subir.
   return (
-    <div className={boxClass}>
+    <div className={boxClass} style={surfaceStyle}>
       <div className="flex flex-wrap items-center justify-center gap-3">
         <button
           type="button"
-          onClick={startRecording}
+          onClick={startCamera}
           className="inline-flex items-center gap-2 rounded-lg px-5 py-2.5 text-sm font-medium text-white"
           style={{ backgroundColor: ACCENT }}
         >
           <Video className="h-4 w-4" />
           Grabar video
         </button>
-        <label className="inline-flex cursor-pointer items-center gap-2 rounded-lg border border-neutral-200 px-5 py-2.5 text-sm font-medium text-neutral-700 hover:bg-neutral-50">
+        <label
+          className="inline-flex cursor-pointer items-center gap-2 rounded-lg border px-5 py-2.5 text-sm font-medium hover:opacity-80"
+          style={ghostBtnStyle}
+        >
           <Upload className="h-4 w-4" />
           Subir archivo
           <input
@@ -529,7 +635,7 @@ function VideoRecorder({ question }: { question: QuestionVideoResponseModel }) {
           />
         </label>
       </div>
-      <p className="flex items-center gap-1.5 text-xs text-neutral-400">
+      <p className="flex items-center gap-1.5 text-xs" style={hintStyle}>
         <Circle className="h-3 w-3" style={{ color: REC_RED }} fill="currentColor" />
         Grabá hasta {MAX_SECONDS / 60} minutos con tu webcam
       </p>
