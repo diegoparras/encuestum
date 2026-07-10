@@ -6,6 +6,11 @@ import type { Lang } from "../i18n";
 // SurveyJS (Siguiente/Anterior/Enviar) los maneja el locale de survey-core.
 export const dict: Record<Lang, Record<string, string>> = {
   en: {
+    "public.chat.next": "Next",
+    "public.chat.send": "Send",
+    "public.chat.back": "Back",
+    "public.chat.answered": "Answer sent",
+    "public.chat.progress": "{n}/{total}",
     "public.loading": "Loading…",
     // Access gate
     "public.access.error.validate": "We couldn't verify your access.",
@@ -108,6 +113,11 @@ export const dict: Record<Lang, Record<string, string>> = {
     "public.video.recordHint": "Record up to {min} minutes with your webcam",
   },
   es: {
+    "public.chat.next": "Siguiente",
+    "public.chat.send": "Enviar",
+    "public.chat.back": "Atrás",
+    "public.chat.answered": "Respuesta enviada",
+    "public.chat.progress": "{n}/{total}",
     "public.loading": "Cargando…",
     "public.access.error.validate": "No pudimos validar tu acceso.",
     "public.access.error.unexpected": "Respuesta inesperada del servidor.",
@@ -206,6 +216,11 @@ export const dict: Record<Lang, Record<string, string>> = {
     "public.video.recordHint": "Grabá hasta {min} minutos con tu webcam",
   },
   fr: {
+    "public.chat.next": "Suivant",
+    "public.chat.send": "Envoyer",
+    "public.chat.back": "Retour",
+    "public.chat.answered": "Réponse envoyée",
+    "public.chat.progress": "{n}/{total}",
     "public.loading": "Chargement…",
     "public.access.error.validate": "Nous n'avons pas pu vérifier votre accès.",
     "public.access.error.unexpected": "Réponse inattendue du serveur.",
@@ -308,6 +323,11 @@ export const dict: Record<Lang, Record<string, string>> = {
       "Enregistrez jusqu'à {min} minutes avec votre webcam",
   },
   pt: {
+    "public.chat.next": "Próximo",
+    "public.chat.send": "Enviar",
+    "public.chat.back": "Voltar",
+    "public.chat.answered": "Resposta enviada",
+    "public.chat.progress": "{n}/{total}",
     "public.loading": "Carregando…",
     "public.access.error.validate": "Não conseguimos validar seu acesso.",
     "public.access.error.unexpected": "Resposta inesperada do servidor.",
@@ -407,6 +427,11 @@ export const dict: Record<Lang, Record<string, string>> = {
     "public.video.recordHint": "Grave até {min} minutos com sua webcam",
   },
   it: {
+    "public.chat.next": "Avanti",
+    "public.chat.send": "Invia",
+    "public.chat.back": "Indietro",
+    "public.chat.answered": "Risposta inviata",
+    "public.chat.progress": "{n}/{total}",
     "public.loading": "Caricamento…",
     "public.access.error.validate":
       "Non siamo riusciti a verificare il tuo accesso.",
@@ -509,6 +534,11 @@ export const dict: Record<Lang, Record<string, string>> = {
     "public.video.recordHint": "Registra fino a {min} minuti con la tua webcam",
   },
   zh: {
+    "public.chat.next": "下一步",
+    "public.chat.send": "发送",
+    "public.chat.back": "返回",
+    "public.chat.answered": "已发送回答",
+    "public.chat.progress": "{n}/{total}",
     "public.loading": "加载中…",
     "public.access.error.validate": "无法验证你的访问权限。",
     "public.access.error.unexpected": "服务器返回了意外的响应。",
@@ -596,6 +626,11 @@ export const dict: Record<Lang, Record<string, string>> = {
     "public.video.recordHint": "用摄像头最多录制 {min} 分钟",
   },
   ja: {
+    "public.chat.next": "次へ",
+    "public.chat.send": "送信",
+    "public.chat.back": "戻る",
+    "public.chat.answered": "回答を送信しました",
+    "public.chat.progress": "{n}/{total}",
     "public.loading": "読み込み中…",
     "public.access.error.validate": "アクセスを確認できませんでした。",
     "public.access.error.unexpected": "サーバーから予期しない応答がありました。",

@@ -9,6 +9,7 @@ import { Monitor, Smartphone } from "lucide-react";
 import { DesignSettings, DEFAULT_DESIGN, designToTheme, perQuestionStyleCss } from "./model";
 import { absolutizeAssets, buttonOverrideCss, cardsCss, ENC_ALIGN_CSS, loadFont, resolveAssetUrl } from "./design";
 import { registerVideoResponseQuestion } from "../../(public)/s/[slug]/VideoResponseQuestion";
+import { ChatSurveyView } from "../../(public)/s/[slug]/ChatSurveyView";
 import { useI18n } from "@/lib/i18n";
 
 // Register the custom video-response question so the preview can render it.
@@ -112,7 +113,7 @@ export function LivePreview({ schema, accent, design, language }: Props) {
                 buttonOverrideCss(d.buttonColor, d.buttonShadow) +
                 perQuestionStyleCss(debounced, d)}
             </style>
-            {d.coverImage && (
+            {d.coverImage && !d.chat && (
               // eslint-disable-next-line @next/next/no-img-element
               <img
                 src={resolveAssetUrl(d.coverImage)}
@@ -121,7 +122,13 @@ export function LivePreview({ schema, accent, design, language }: Props) {
                 style={{ height: device === "mobile" ? 120 : 180 }}
               />
             )}
-            <Survey model={model} />
+            {d.chat ? (
+              <div style={{ height: device === "mobile" ? 520 : 460 }} className="overflow-hidden">
+                <ChatSurveyView model={model} accent={accent} dark={d.mode === "dark"} embedded />
+              </div>
+            ) : (
+              <Survey model={model} />
+            )}
           </div>
         )}
       </div>

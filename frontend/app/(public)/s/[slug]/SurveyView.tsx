@@ -30,6 +30,7 @@ import {
   useMagicLinkParams,
 } from "./AccessGate";
 import { Certificate } from "./Certificate";
+import { ChatSurveyView } from "./ChatSurveyView";
 
 // Register the custom "videoresponse" question (webcam recorder) before any
 // Survey model parses JSON that uses it.
@@ -630,7 +631,7 @@ export default function SurveyView({ slug }: { slug: string }) {
       {submitting && (
         <div className="fixed top-0 inset-x-0 h-1 animate-pulse z-50" style={{ backgroundColor: accent }} />
       )}
-      {design.coverImage && (
+      {design.coverImage && !design.chat && (
         // eslint-disable-next-line @next/next/no-img-element
         <img
           src={resolveAssetUrl(design.coverImage)}
@@ -640,7 +641,11 @@ export default function SurveyView({ slug }: { slug: string }) {
           className="w-full object-cover max-h-40 sm:max-h-56 md:max-h-[280px]"
         />
       )}
-      <Survey model={model} />
+      {design.chat ? (
+        <ChatSurveyView model={model} accent={accent} dark={design.mode === "dark"} />
+      ) : (
+        <Survey model={model} />
+      )}
       {design.audio?.url && <AudioPlayer audio={design.audio} accent={accent} />}
     </div>
   );

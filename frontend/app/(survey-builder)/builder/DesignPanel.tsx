@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { X, Type, Palette, Image as ImageIcon, Music, Check, Sparkles, Contrast, Sun, Moon, Search, Square, Wand2, MousePointerClick, AlignCenter, AlignLeft } from "lucide-react";
+import { X, Type, Palette, Image as ImageIcon, Music, Check, Sparkles, Contrast, Sun, Moon, Search, Square, Wand2, MousePointerClick, AlignCenter, AlignLeft, MessagesSquare } from "lucide-react";
 import {
   ACCENT_PALETTE,
   AudioSettings,
@@ -623,6 +623,18 @@ export function DesignPanel({
             </div>
             <p className="mt-2 text-[11px] leading-relaxed text-neutral-400 dark:text-neutral-500">
               {t("builder.design.transitionsHint")}
+            </p>
+          </Section>
+
+          {/* Modo conversacional (chat estilo Typebot) */}
+          <Section icon={<MessagesSquare className="w-4 h-4" />} title={t("builder.design.chat")}>
+            <ToggleRow
+              label={t("builder.design.chatToggle")}
+              checked={!!design.chat}
+              onChange={(v) => patch({ chat: v })}
+            />
+            <p className="mt-1 text-[11px] leading-relaxed text-neutral-400 dark:text-neutral-500">
+              {t("builder.design.chatHint")}
             </p>
           </Section>
 

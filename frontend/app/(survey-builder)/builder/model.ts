@@ -234,6 +234,7 @@ export interface DesignSettings {
   questionSeparator?: boolean;
   alignment?: "left" | "center"; // title/questions/buttons alignment
   pageTransition?: PageTransition; // screen transition in one-question-per-page
+  chat?: boolean; // conversational (Typebot-style) chat skin for the respondent
   backgroundColor?: string;
   backgroundImage?: string; // asset URL (relative /assets/…)
   backgroundOpacity: number; // 0..1
@@ -1388,6 +1389,7 @@ export function designToTheme(accent: string, design: DesignSettings): Record<st
     questionSeparator: !!design.questionSeparator,
     alignment: design.alignment ?? "left",
     pageTransition: design.pageTransition ?? "none",
+    chat: !!design.chat,
     backgroundColor: design.backgroundColor ?? null,
     backgroundImage: design.backgroundImage ?? null,
     backgroundOpacity: design.backgroundOpacity ?? 1,
@@ -1417,6 +1419,7 @@ export function themeToDesign(theme: Record<string, any> | null | undefined): De
     questionSeparator: !!e.questionSeparator,
     alignment: e.alignment === "center" ? "center" : "left",
     pageTransition: e.pageTransition || "none",
+    chat: !!e.chat,
     backgroundColor: e.backgroundColor || theme?.cssVariables?.["--sjs-general-backcolor-dim"] || undefined,
     backgroundImage: e.backgroundImage || theme?.backgroundImage || undefined,
     backgroundOpacity: typeof e.backgroundOpacity === "number" ? e.backgroundOpacity : 1,
