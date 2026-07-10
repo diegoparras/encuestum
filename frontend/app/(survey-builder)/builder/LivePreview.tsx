@@ -7,7 +7,7 @@ import "survey-core/survey-core.min.css";
 import "survey-core/i18n/spanish";
 import { Monitor, Smartphone } from "lucide-react";
 import { DesignSettings, DEFAULT_DESIGN, designToTheme, perQuestionStyleCss } from "./model";
-import { absolutizeAssets, buttonOverrideCss, ENC_ALIGN_CSS, ENC_CARDS_CSS, loadFont, resolveAssetUrl } from "./design";
+import { absolutizeAssets, buttonOverrideCss, cardsCss, ENC_ALIGN_CSS, loadFont, resolveAssetUrl } from "./design";
 import { registerVideoResponseQuestion } from "../../(public)/s/[slug]/VideoResponseQuestion";
 
 // Register the custom video-response question so the preview can render it.
@@ -106,7 +106,7 @@ export function LivePreview({ schema, accent, design, language }: Props) {
                 por pregunta, igual que en la página pública. */}
             <style>
               {ENC_ALIGN_CSS +
-                ENC_CARDS_CSS +
+                cardsCss(d.mode === "dark") +
                 buttonOverrideCss(d.buttonColor, d.buttonShadow) +
                 perQuestionStyleCss(debounced, d)}
             </style>

@@ -63,20 +63,27 @@ export function buttonOverrideCss(color?: string | null, shadow?: boolean): stri
   return css;
 }
 
-/** Un marco sutil alrededor de cada pregunta (separador/contenedor). Usa las
- *  variables del tema, así que funciona en claro, oscuro y con transparencia.
- *  Scope con la clase `enc-cards` en el wrapper. */
-export const ENC_CARDS_CSS = `
+/** Un contenedor visible alrededor de cada pregunta (separador). El trazo y el
+ *  tinte dependen del modo para que se note tanto en claro como en oscuro,
+ *  incluso con cuadros transparentes sobre una imagen. Scope: `enc-cards`. */
+export function cardsCss(dark: boolean): string {
+  const line = dark ? "rgba(255,255,255,0.30)" : "rgba(0,0,0,0.16)";
+  const tint = dark ? "rgba(255,255,255,0.05)" : "rgba(255,255,255,0.28)";
+  return `
 .enc-cards .sd-element.sd-question {
-  border: 1px solid var(--sjs-border-default, rgba(0,0,0,0.12));
+  border: 1.5px solid ${line};
   border-radius: 16px;
   padding: 20px 20px 24px;
+  background-color: ${tint};
+  background-clip: padding-box;
 }
-.enc-cards .sd-row { margin-bottom: 14px; }
+.enc-cards .sd-row + .sd-row { margin-top: 18px; }
+.enc-cards .sd-row { margin-bottom: 4px; }
 @media (max-width: 640px) {
   .enc-cards .sd-element.sd-question { padding: 14px 14px 18px; }
 }
 `;
+}
 
 /** Centering rules for title, question titles/descriptions, ratings and the
  *  navigation buttons. Scope with `enc-center` on the survey wrapper. */
