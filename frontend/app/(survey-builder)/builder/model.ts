@@ -215,6 +215,77 @@ export const PAGE_TRANSITIONS: { id: PageTransition; label: string }[] = [
   { id: "blur", label: "Desenfoque" },
 ];
 
+// ── Modo conversacional (chat) ───────────────────────────────────────────────
+// Skins de apariencia del chat. Cada uno define un punto de partida (colores,
+// forma de burbuja, fondo, layout) que después se puede retocar.
+export type ChatSkin =
+  | "encuestum"
+  | "whatsapp"
+  | "telegram"
+  | "imessage"
+  | "messenger"
+  | "slack"
+  | "discord"
+  | "terminal"
+  | "minimal";
+
+export const CHAT_SKINS: { id: ChatSkin; label: string }[] = [
+  { id: "encuestum", label: "Encuestum" },
+  { id: "whatsapp", label: "WhatsApp" },
+  { id: "telegram", label: "Telegram" },
+  { id: "imessage", label: "iMessage" },
+  { id: "messenger", label: "Messenger" },
+  { id: "slack", label: "Slack" },
+  { id: "discord", label: "Discord" },
+  { id: "terminal", label: "Terminal" },
+  { id: "minimal", label: "Minimal" },
+];
+
+// Toda la personalización del chat. Se guarda en theme._encuestum.chatOptions.
+export interface ChatOptions {
+  skin: ChatSkin;
+  // Identidad del "bot" / header del chat
+  showHeader?: boolean;
+  botName?: string;
+  botAvatar?: string; // emoji, o URL de asset (imagen)
+  botStatus?: string; // subtítulo ("en línea", "responde al instante"…)
+  // Burbujas (overrides sobre el skin)
+  botBubbleColor?: string;
+  userBubbleColor?: string;
+  bubbleRadius?: number; // px (0-24)
+  tails?: boolean; // colita en las burbujas
+  density?: "compact" | "cozy";
+  timestamps?: boolean;
+  readReceipts?: boolean; // tildes ✓✓
+  // Comportamiento
+  quickReplies?: boolean; // opciones/puntaje como chips tocables (no dropdown)
+  typingIndicator?: boolean;
+  typeOn?: boolean; // efecto de tipeo letra por letra
+  autoAdvance?: boolean;
+  autoAdvanceMs?: number; // delay del auto-avance (300-1500)
+  sound?: boolean; // sonido al llegar cada mensaje
+  enterToSend?: boolean;
+}
+
+export const DEFAULT_CHAT: ChatOptions = {
+  skin: "encuestum",
+  showHeader: true,
+  botName: "",
+  botAvatar: "",
+  botStatus: "",
+  tails: true,
+  density: "cozy",
+  quickReplies: true,
+  typingIndicator: true,
+  typeOn: false,
+  autoAdvance: true,
+  autoAdvanceMs: 520,
+  sound: false,
+  timestamps: false,
+  readReceipts: false,
+  enterToSend: true,
+};
+
 export interface DesignSettings {
   fontFamily: string; // one of FONT_OPTIONS ids
   mode?: "light" | "dark"; // color scheme of the survey (default light)
@@ -235,6 +306,7 @@ export interface DesignSettings {
   alignment?: "left" | "center"; // title/questions/buttons alignment
   pageTransition?: PageTransition; // screen transition in one-question-per-page
   chat?: boolean; // conversational (Typebot-style) chat skin for the respondent
+  chatOptions?: ChatOptions; // customización del modo chat (skin, bot, comportamiento)
   backgroundColor?: string;
   backgroundImage?: string; // asset URL (relative /assets/…)
   backgroundOpacity: number; // 0..1
@@ -1390,6 +1462,7 @@ export function designToTheme(accent: string, design: DesignSettings): Record<st
     alignment: design.alignment ?? "left",
     pageTransition: design.pageTransition ?? "none",
     chat: !!design.chat,
+    chatOptions: design.chatOptions ?? null,
     backgroundColor: design.backgroundColor ?? null,
     backgroundImage: design.backgroundImage ?? null,
     backgroundOpacity: design.backgroundOpacity ?? 1,
@@ -1420,6 +1493,10 @@ export function themeToDesign(theme: Record<string, any> | null | undefined): De
     alignment: e.alignment === "center" ? "center" : "left",
     pageTransition: e.pageTransition || "none",
     chat: !!e.chat,
+    chatOptions:
+      e.chatOptions && typeof e.chatOptions === "object"
+        ? { ...DEFAULT_CHAT, ...e.chatOptions }
+        : { ...DEFAULT_CHAT },
     backgroundColor: e.backgroundColor || theme?.cssVariables?.["--sjs-general-backcolor-dim"] || undefined,
     backgroundImage: e.backgroundImage || theme?.backgroundImage || undefined,
     backgroundOpacity: typeof e.backgroundOpacity === "number" ? e.backgroundOpacity : 1,

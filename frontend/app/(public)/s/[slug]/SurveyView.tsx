@@ -642,7 +642,12 @@ export default function SurveyView({ slug }: { slug: string }) {
         />
       )}
       {design.chat ? (
-        <ChatSurveyView model={model} accent={accent} dark={design.mode === "dark"} />
+        <ChatSurveyView
+          model={model}
+          accent={accent}
+          dark={design.mode === "dark"}
+          options={design.chatOptions}
+        />
       ) : (
         <Survey model={model} />
       )}

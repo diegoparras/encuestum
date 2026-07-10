@@ -17,6 +17,8 @@ import {
   fontFromFamily,
   readableForeground,
   PAGE_TRANSITIONS,
+  CHAT_SKINS,
+  DEFAULT_CHAT,
 } from "./model";
 import { loadFont } from "./design";
 import { AssetPicker } from "./AssetPicker";
@@ -626,7 +628,7 @@ export function DesignPanel({
             </p>
           </Section>
 
-          {/* Modo conversacional (chat estilo Typebot) */}
+          {/* Modo conversacional (chat) */}
           <Section icon={<MessagesSquare className="w-4 h-4" />} title={t("builder.design.chat")}>
             <ToggleRow
               label={t("builder.design.chatToggle")}
@@ -636,6 +638,108 @@ export function DesignPanel({
             <p className="mt-1 text-[11px] leading-relaxed text-neutral-400 dark:text-neutral-500">
               {t("builder.design.chatHint")}
             </p>
+
+            {design.chat && (() => {
+              const chat = { ...DEFAULT_CHAT, ...(design.chatOptions ?? {}) };
+              const patchChat = (p: Partial<typeof chat>) =>
+                patch({ chatOptions: { ...chat, ...p } });
+              return (
+                <div className="mt-4 space-y-4 border-t border-neutral-100 pt-4 dark:border-neutral-800">
+                  {/* Skin */}
+                  <div>
+                    <label className="mb-1.5 block text-xs font-medium text-neutral-600 dark:text-neutral-300">
+                      {t("builder.design.chatSkin")}
+                    </label>
+                    <div className="grid grid-cols-3 gap-2">
+                      {CHAT_SKINS.map((s) => {
+                        const active = chat.skin === s.id;
+                        return (
+                          <button
+                            key={s.id}
+                            type="button"
+                            onClick={() => patchChat({ skin: s.id })}
+                            className={`rounded-lg border px-2 py-2 text-xs font-medium transition-colors ${
+                              active
+                                ? "border-[#8faf0e] bg-[#8faf0e0a] text-neutral-800 dark:text-neutral-100"
+                                : "border-neutral-200 text-neutral-500 hover:border-neutral-300 dark:border-neutral-700 dark:text-neutral-400 dark:hover:border-neutral-600"
+                            }`}
+                          >
+                            {s.label}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+
+                  {/* Identidad del bot */}
+                  <ToggleRow
+                    label={t("builder.design.chatHeader")}
+                    checked={chat.showHeader !== false}
+                    onChange={(v) => patchChat({ showHeader: v })}
+                  />
+                  {chat.showHeader !== false && (
+                    <div className="grid grid-cols-[auto_1fr] items-center gap-2">
+                      <input
+                        value={chat.botAvatar ?? ""}
+                        onChange={(e) => patchChat({ botAvatar: e.target.value })}
+                        placeholder="🙂"
+                        className="w-12 rounded-md border border-neutral-200 bg-white px-2 py-1.5 text-center text-sm dark:border-neutral-700 dark:bg-neutral-800"
+                        aria-label={t("builder.design.chatAvatar")}
+                      />
+                      <input
+                        value={chat.botName ?? ""}
+                        onChange={(e) => patchChat({ botName: e.target.value })}
+                        placeholder={t("builder.design.chatNamePh")}
+                        className="w-full rounded-md border border-neutral-200 bg-white px-2 py-1.5 text-sm dark:border-neutral-700 dark:bg-neutral-800"
+                        aria-label={t("builder.design.chatName")}
+                      />
+                      <div />
+                      <input
+                        value={chat.botStatus ?? ""}
+                        onChange={(e) => patchChat({ botStatus: e.target.value })}
+                        placeholder={t("builder.design.chatStatusPh")}
+                        className="w-full rounded-md border border-neutral-200 bg-white px-2 py-1.5 text-sm dark:border-neutral-700 dark:bg-neutral-800"
+                        aria-label={t("builder.design.chatStatus")}
+                      />
+                    </div>
+                  )}
+
+                  {/* Comportamiento */}
+                  <div className="space-y-3">
+                    <ToggleRow
+                      label={t("builder.design.chatQuickReplies")}
+                      checked={chat.quickReplies !== false}
+                      onChange={(v) => patchChat({ quickReplies: v })}
+                    />
+                    <ToggleRow
+                      label={t("builder.design.chatTyping")}
+                      checked={chat.typingIndicator !== false}
+                      onChange={(v) => patchChat({ typingIndicator: v })}
+                    />
+                    <ToggleRow
+                      label={t("builder.design.chatAutoAdvance")}
+                      checked={chat.autoAdvance !== false}
+                      onChange={(v) => patchChat({ autoAdvance: v })}
+                    />
+                    <ToggleRow
+                      label={t("builder.design.chatTails")}
+                      checked={chat.tails !== false}
+                      onChange={(v) => patchChat({ tails: v })}
+                    />
+                    <ToggleRow
+                      label={t("builder.design.chatReceipts")}
+                      checked={!!chat.readReceipts}
+                      onChange={(v) => patchChat({ readReceipts: v })}
+                    />
+                    <ToggleRow
+                      label={t("builder.design.chatSound")}
+                      checked={!!chat.sound}
+                      onChange={(v) => patchChat({ sound: v })}
+                    />
+                  </div>
+                </div>
+              );
+            })()}
           </Section>
 
           {/* Imagen de fondo */}

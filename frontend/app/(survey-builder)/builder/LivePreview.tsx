@@ -124,7 +124,13 @@ export function LivePreview({ schema, accent, design, language }: Props) {
             )}
             {d.chat ? (
               <div style={{ height: device === "mobile" ? 520 : 460 }} className="overflow-hidden">
-                <ChatSurveyView model={model} accent={accent} dark={d.mode === "dark"} embedded />
+                <ChatSurveyView
+                  model={model}
+                  accent={accent}
+                  dark={d.mode === "dark"}
+                  options={d.chatOptions}
+                  embedded
+                />
               </div>
             ) : (
               <Survey model={model} />
