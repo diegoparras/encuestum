@@ -191,12 +191,40 @@ export default function SurveyView({ slug }: { slug: string }) {
     survey.locale = data.language || "es";
     // The custom video-response recorder reads this to upload to the right survey.
     survey.setVariable("encSlug", slug);
+    const themeDesign = themeToDesign(data.theme);
     if (data.theme) {
       try {
-        survey.applyTheme(absolutizeAssets(data.theme) as any);
+        const theme = absolutizeAssets(data.theme) as any;
+        // Paint the background full-screen from the page wrapper (below) instead
+        // of SurveyJS's own survey element, which in one-per-page mode is short
+        // and leaves a band below. So we drop the image here and make the survey
+        // surface transparent — the wrapper shows through.
+        if (theme.backgroundImage) {
+          delete theme.backgroundImage;
+          delete theme.backgroundOpacity;
+          theme.cssVariables = {
+            ...(theme.cssVariables || {}),
+            "--sjs-general-backcolor-dim": "transparent",
+          };
+        }
+        survey.applyTheme(theme);
       } catch {
         /* best-effort */
       }
+    }
+
+    // Screen transitions when it's one-question-per-page.
+    const transition = themeDesign.pageTransition;
+    if (transition && transition !== "none") {
+      survey.onCurrentPageChanged.add(() => {
+        if (typeof document === "undefined") return;
+        const el = document.querySelector(".sd-body") as HTMLElement | null;
+        if (!el) return;
+        el.style.animation = "none";
+        // Force reflow so the animation replays on every page change.
+        void el.offsetWidth;
+        el.style.animation = `enc-${transition} 380ms cubic-bezier(0.22,0.61,0.36,1)`;
+      });
     }
 
     // Video/file answers: upload straight to storage via a presigned URL, so the
@@ -494,8 +522,28 @@ export default function SurveyView({ slug }: { slug: string }) {
   const pageBg =
     design.backgroundColor || (design.mode === "dark" ? "#181c24" : "#f6f6f7");
 
+  // Paint the background (image + color + opacity) full-screen on the wrapper,
+  // fixed, so it covers the whole viewport — no band below the questions.
+  const bgImg = design.backgroundImage ? resolveAssetUrl(design.backgroundImage) : null;
+  const bgDim = 1 - (design.backgroundOpacity ?? 1);
+  const wrapperStyle: React.CSSProperties = bgImg
+    ? {
+        backgroundColor: pageBg,
+        backgroundImage: `linear-gradient(${hexToRgba(pageBg, bgDim)}, ${hexToRgba(pageBg, bgDim)}), url("${bgImg}")`,
+        backgroundSize: "cover",
+        backgroundPosition: "center",
+        backgroundAttachment: "fixed",
+        backgroundRepeat: "no-repeat",
+      }
+    : { backgroundColor: pageBg };
+
   return (
-    <div className="min-h-screen" style={{ backgroundColor: pageBg }}>
+    <div
+      className={`min-h-screen${design.glass ? " enc-glass" : ""}`}
+      style={wrapperStyle}
+    >
+      {/* Glass (frosted) blur behind the boxes + screen transitions. */}
+      <style>{ENC_SURFACE_CSS}</style>
       {brandingHeader}
       {submitting && (
         <div className="fixed top-0 inset-x-0 h-1 animate-pulse z-50" style={{ backgroundColor: accent }} />
@@ -514,6 +562,34 @@ export default function SurveyView({ slug }: { slug: string }) {
     </div>
   );
 }
+
+// A hex (#rrggbb) → rgba() with the given alpha. Non-hex passes through opaque.
+function hexToRgba(hex: string, alpha: number): string {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
+  if (!m) return hex;
+  const n = parseInt(m[1], 16);
+  const r = (n >> 16) & 255;
+  const g = (n >> 8) & 255;
+  const b = n & 255;
+  return `rgba(${r},${g},${b},${Math.max(0, Math.min(1, alpha))})`;
+}
+
+// Frosted-glass blur behind the question/input boxes + page-transition keyframes.
+const ENC_SURFACE_CSS = `
+.enc-glass .sd-input,
+.enc-glass .sd-comment,
+.enc-glass .sd-selectbase,
+.enc-glass .sd-dropdown,
+.enc-glass .sd-boolean,
+.enc-glass .sd-rating__item,
+.enc-glass .sd-question__content {
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+@keyframes enc-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes enc-slide { from { opacity: 0; transform: translateY(28px); } to { opacity: 1; transform: translateY(0); } }
+@keyframes enc-zoom { from { opacity: 0; transform: scale(0.96); } to { opacity: 1; transform: scale(1); } }
+`;
 
 // Floating background-music control. Browsers block autoplay with sound, so we
 // respect that: if autoplay is on we start muted and let the respondent unmute,

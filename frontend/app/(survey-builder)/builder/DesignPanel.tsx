@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { X, Type, Palette, Image as ImageIcon, Music, Check, Sparkles, Contrast, Sun, Moon, Search } from "lucide-react";
+import { X, Type, Palette, Image as ImageIcon, Music, Check, Sparkles, Contrast, Sun, Moon, Search, Square, Wand2 } from "lucide-react";
 import {
   ACCENT_PALETTE,
   AudioSettings,
@@ -387,7 +387,80 @@ export function DesignPanel({
               </div>
             </div>
 
-            {/* Preguntas transparentes */}
+          </Section>
+
+          {/* Cuadros de las preguntas */}
+          <Section icon={<Square className="w-4 h-4" />} title="Cuadros de las preguntas">
+            {/* Color de los cuadros */}
+            <div>
+              <div className="mb-1.5 text-xs text-neutral-600">
+                Color de los cuadros
+              </div>
+              <div className="flex items-center gap-3">
+                <input
+                  type="color"
+                  value={
+                    design.questionColor && /^#[0-9a-f]{6}$/i.test(design.questionColor)
+                      ? design.questionColor
+                      : design.mode === "dark"
+                        ? "#1f2430"
+                        : "#ffffff"
+                  }
+                  onChange={(e) => patch({ questionColor: e.target.value })}
+                  className="h-9 w-12 cursor-pointer rounded border border-neutral-200 bg-white p-0.5"
+                />
+                <span className="flex-1 text-xs text-neutral-500">
+                  {design.questionColor ?? "Automático según el modo"}
+                </span>
+                {design.questionColor && (
+                  <button
+                    type="button"
+                    onClick={() => patch({ questionColor: undefined })}
+                    className="rounded-md border border-neutral-200 px-2 py-1 text-xs font-medium text-neutral-600 hover:bg-neutral-50"
+                  >
+                    Automático
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Opacidad de los cuadros */}
+            <div className="mt-4">
+              <div className="mb-1 flex items-center justify-between text-xs text-neutral-600">
+                <span>Opacidad</span>
+                <span className="tabular-nums text-neutral-400">
+                  {Math.round((design.questionOpacity ?? 1) * 100)}%
+                </span>
+              </div>
+              <input
+                type="range"
+                min={0}
+                max={100}
+                value={Math.round((design.questionOpacity ?? 1) * 100)}
+                onChange={(e) =>
+                  patch({ questionOpacity: Number(e.target.value) / 100 })
+                }
+                className="w-full accent-[#e25a4e]"
+              />
+              <p className="mt-1 text-[11px] leading-relaxed text-neutral-400">
+                Bajala para ver el fondo a través de los cuadros (efecto vidrio).
+              </p>
+            </div>
+
+            {/* Vidrio esmerilado (glass) */}
+            <div className="mt-4">
+              <ToggleRow
+                label="Vidrio esmerilado"
+                checked={!!design.glass}
+                onChange={(v) => patch({ glass: v })}
+              />
+              <p className="mt-1 text-[11px] leading-relaxed text-neutral-400">
+                Desenfoca lo que hay detrás de los cuadros. Combínalo con opacidad
+                &lt; 100% y una imagen de fondo.
+              </p>
+            </div>
+
+            {/* Preguntas transparentes (atajo de opacidad 0) */}
             <div className="mt-4">
               <ToggleRow
                 label="Preguntas transparentes"
@@ -395,10 +468,43 @@ export function DesignPanel({
                 onChange={(v) => patch({ transparentQuestions: v })}
               />
               <p className="mt-1 text-[11px] leading-relaxed text-neutral-400">
-                Saca la franja blanca detrás de las preguntas para que se vea el
-                fondo. Ideal cuando usás una imagen de fondo.
+                Atajo de opacidad 0: saca la franja detrás de las preguntas para que
+                se vea el fondo. Ideal cuando usás una imagen de fondo.
               </p>
             </div>
+          </Section>
+
+          {/* Transiciones */}
+          <Section icon={<Wand2 className="w-4 h-4" />} title="Transiciones">
+            <div className="grid grid-cols-2 gap-2">
+              {(
+                [
+                  { value: "none", label: "Ninguna" },
+                  { value: "fade", label: "Fundido" },
+                  { value: "slide", label: "Deslizar" },
+                  { value: "zoom", label: "Zoom" },
+                ] as const
+              ).map((opt) => {
+                const active = (design.pageTransition ?? "none") === opt.value;
+                return (
+                  <button
+                    key={opt.value}
+                    type="button"
+                    onClick={() => patch({ pageTransition: opt.value })}
+                    className={`flex items-center justify-center rounded-lg border px-3 py-2.5 text-sm font-medium transition-colors ${
+                      active
+                        ? "border-[#e25a4e] bg-[#e25a4e0a] text-neutral-800"
+                        : "border-neutral-200 text-neutral-500 hover:border-neutral-300"
+                    }`}
+                  >
+                    {opt.label}
+                  </button>
+                );
+              })}
+            </div>
+            <p className="mt-2 text-[11px] leading-relaxed text-neutral-400">
+              Se ven cuando usás una pregunta por pantalla.
+            </p>
           </Section>
 
           {/* Imagen de fondo */}

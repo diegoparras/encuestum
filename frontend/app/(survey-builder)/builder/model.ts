@@ -176,11 +176,18 @@ export interface AudioSettings {
 
 // Visual design of the survey: typography, colors, media and music. Persisted
 // inside the SurveyJS theme object (native fields + an `_encuestum` block).
+export type PageTransition = "none" | "fade" | "slide" | "zoom";
+
 export interface DesignSettings {
   fontFamily: string; // one of FONT_OPTIONS ids
   mode?: "light" | "dark"; // color scheme of the survey (default light)
   textColor?: string; // question title/description/main text color (overrides mode default)
   transparentQuestions?: boolean; // remove the white card behind questions so the background shows through
+  // Surface (color + opacity) of the question/input boxes — for glass looks.
+  questionColor?: string; // hex color of the boxes (default white/dark by mode)
+  questionOpacity?: number; // 0..1 opacity of the boxes (default 1)
+  glass?: boolean; // frosted-glass blur behind the boxes
+  pageTransition?: PageTransition; // screen transition in one-question-per-page
   backgroundColor?: string;
   backgroundImage?: string; // asset URL (relative /assets/…)
   backgroundOpacity: number; // 0..1
@@ -1161,14 +1168,21 @@ export function designToTheme(accent: string, design: DesignSettings): Record<st
     v["--sjs-font-questiondescription-color"] = rgba(design.textColor, 0.72);
   }
 
-  // Transparent questions: drop the opaque card so the background image/color
-  // shows through. Inputs keep a subtle readable surface.
-  if (design.transparentQuestions) {
-    v["--sjs-question-background"] = "transparent";
-    v["--sjs-general-backcolor"] = "transparent";
-    v["--sjs-editorpanel-backcolor"] = dark
-      ? "rgba(20,24,32,0.55)"
-      : "rgba(255,255,255,0.72)";
+  // Surface (color + opacity) of the question/input boxes. Opacity < 1 lets the
+  // background show through (glass). `transparentQuestions` is the legacy toggle
+  // = opacity 0.
+  const defaultSurface = dark ? "#252b36" : "#ffffff";
+  const surfaceColor = design.questionColor || defaultSurface;
+  let op = design.questionOpacity;
+  if (op == null) op = design.transparentQuestions ? 0 : 1;
+  op = Math.max(0, Math.min(1, op));
+  if (design.questionColor || op < 1 || design.transparentQuestions) {
+    const surface = op >= 1 ? surfaceColor : rgba(surfaceColor, op);
+    v["--sjs-question-background"] = surface;
+    v["--sjs-general-backcolor"] = surface;
+    // Inputs stay a touch more opaque so text is always readable.
+    const inputOp = Math.min(1, op + 0.12);
+    v["--sjs-editorpanel-backcolor"] = inputOp >= 1 ? surfaceColor : rgba(surfaceColor, inputOp);
   }
 
   if (design.backgroundImage) {
@@ -1182,6 +1196,10 @@ export function designToTheme(accent: string, design: DesignSettings): Record<st
     mode: design.mode ?? "light",
     textColor: design.textColor ?? null,
     transparentQuestions: !!design.transparentQuestions,
+    questionColor: design.questionColor ?? null,
+    questionOpacity: op,
+    glass: !!design.glass,
+    pageTransition: design.pageTransition ?? "none",
     backgroundColor: design.backgroundColor ?? null,
     backgroundImage: design.backgroundImage ?? null,
     backgroundOpacity: design.backgroundOpacity ?? 1,
@@ -1202,6 +1220,10 @@ export function themeToDesign(theme: Record<string, any> | null | undefined): De
     mode: e.mode === "dark" || theme?.colorPalette === "dark" ? "dark" : "light",
     textColor: e.textColor || theme?.cssVariables?.["--sjs-font-questiontitle-color"] || undefined,
     transparentQuestions: !!e.transparentQuestions,
+    questionColor: e.questionColor || undefined,
+    questionOpacity: typeof e.questionOpacity === "number" ? e.questionOpacity : 1,
+    glass: !!e.glass,
+    pageTransition: e.pageTransition || "none",
     backgroundColor: e.backgroundColor || theme?.cssVariables?.["--sjs-general-backcolor-dim"] || undefined,
     backgroundImage: e.backgroundImage || theme?.backgroundImage || undefined,
     backgroundOpacity: typeof e.backgroundOpacity === "number" ? e.backgroundOpacity : 1,
