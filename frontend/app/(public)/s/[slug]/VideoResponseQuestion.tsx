@@ -25,6 +25,7 @@ import {
 import { toast } from "sonner";
 import { useI18n } from "@/lib/i18n";
 import { uploadRespondentFile } from "./uploadFile";
+import { resolveAssetUrl } from "../../../(survey-builder)/builder/design";
 
 // ---------------------------------------------------------------------------
 // Modelo de pregunta
@@ -439,7 +440,10 @@ function VideoRecorder({ question }: { question: QuestionVideoResponseModel }) {
 
   // Estado final: ya hay un video guardado (o preview local del editor).
   if (state === "done" && (savedValue || recordedUrl)) {
-    const src = savedValue || recordedUrl || "";
+    // savedValue puede ser un `/assets/…` relativo (storage local): lo resolvemos
+    // contra la base de la API para que el <video> lo cargue del backend en dev
+    // (mismo-origen en producción). Las blob:/http se devuelven tal cual.
+    const src = resolveAssetUrl(savedValue || recordedUrl || "");
     const isPreviewOnly = !!previewValueUrlRef.current;
     return (
       <div className={boxClass} style={surfaceStyle}>
