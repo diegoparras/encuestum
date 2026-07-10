@@ -16,6 +16,7 @@ import {
   absolutizeAssets,
   buttonOverrideCss,
   ENC_ALIGN_CSS,
+  ENC_CARDS_CSS,
   loadFont,
   resolveAssetUrl,
 } from "../../../(survey-builder)/builder/design";
@@ -599,7 +600,7 @@ export default function SurveyView({ slug }: { slug: string }) {
 
   return (
     <div
-      className={`min-h-screen enc-scope${design.glass ? " enc-glass" : ""}${design.alignment === "center" ? " enc-center" : ""}`}
+      className={`min-h-screen enc-scope${design.glass ? " enc-glass" : ""}${design.alignment === "center" ? " enc-center" : ""}${design.questionSeparator ? " enc-cards" : ""}`}
       style={wrapperStyle}
     >
       {/* Glass (frosted) blur behind the boxes + screen transitions + alignment
@@ -607,7 +608,8 @@ export default function SurveyView({ slug }: { slug: string }) {
       <style>
         {ENC_SURFACE_CSS +
           ENC_ALIGN_CSS +
-          buttonOverrideCss(design.buttonColor) +
+          ENC_CARDS_CSS +
+          buttonOverrideCss(design.buttonColor, design.buttonShadow) +
           perQuestionStyleCss(data?.json_schema, design)}
       </style>
       {brandingHeader}

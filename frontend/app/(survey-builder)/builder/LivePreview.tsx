@@ -7,7 +7,7 @@ import "survey-core/survey-core.min.css";
 import "survey-core/i18n/spanish";
 import { Monitor, Smartphone } from "lucide-react";
 import { DesignSettings, DEFAULT_DESIGN, designToTheme, perQuestionStyleCss } from "./model";
-import { absolutizeAssets, buttonOverrideCss, ENC_ALIGN_CSS, loadFont, resolveAssetUrl } from "./design";
+import { absolutizeAssets, buttonOverrideCss, ENC_ALIGN_CSS, ENC_CARDS_CSS, loadFont, resolveAssetUrl } from "./design";
 import { registerVideoResponseQuestion } from "../../(public)/s/[slug]/VideoResponseQuestion";
 
 // Register the custom video-response question so the preview can render it.
@@ -99,14 +99,15 @@ export function LivePreview({ schema, accent, design, language }: Props) {
           </div>
         ) : (
           <div
-            className={`enc-scope${d.alignment === "center" ? " enc-center" : ""} mx-auto bg-white rounded-2xl shadow-sm ring-1 ring-black/5 overflow-hidden transition-all`}
+            className={`enc-scope${d.alignment === "center" ? " enc-center" : ""}${d.questionSeparator ? " enc-cards" : ""} mx-auto bg-white rounded-2xl shadow-sm ring-1 ring-black/5 overflow-hidden transition-all`}
             style={{ maxWidth: device === "mobile" ? 380 : 720 }}
           >
-            {/* Color de botones + alineación + estilos por pregunta, igual que
-                en la página pública. */}
+            {/* Color/sombra de botones + alineación + contenedores + estilos
+                por pregunta, igual que en la página pública. */}
             <style>
               {ENC_ALIGN_CSS +
-                buttonOverrideCss(d.buttonColor) +
+                ENC_CARDS_CSS +
+                buttonOverrideCss(d.buttonColor, d.buttonShadow) +
                 perQuestionStyleCss(debounced, d)}
             </style>
             {d.coverImage && (

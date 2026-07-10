@@ -511,6 +511,19 @@ export function DesignPanel({
                 se vea el fondo. Ideal cuando usás una imagen de fondo.
               </p>
             </div>
+
+            {/* Contenedor por pregunta (separador) */}
+            <div className="mt-4">
+              <ToggleRow
+                label="Contenedor por pregunta"
+                checked={!!design.questionSeparator}
+                onChange={(v) => patch({ questionSeparator: v })}
+              />
+              <p className="mt-1 text-[11px] leading-relaxed text-neutral-400">
+                Dibuja un marco sutil alrededor de cada pregunta, separándolas.
+                Queda genial con cuadros transparentes o glass.
+              </p>
+            </div>
           </Section>
 
           {/* Botones */}
@@ -545,6 +558,16 @@ export function DesignPanel({
               Color de los botones Siguiente / Anterior / Completar, independiente
               del acento.
             </p>
+            <div className="mt-4">
+              <ToggleRow
+                label="Sombra en los botones"
+                checked={!!design.buttonShadow}
+                onChange={(v) => patch({ buttonShadow: v })}
+              />
+              <p className="mt-1 text-[11px] leading-relaxed text-neutral-400">
+                Les da profundidad — se nota más sobre fondos con imagen.
+              </p>
+            </div>
           </Section>
 
           {/* Alineación */}

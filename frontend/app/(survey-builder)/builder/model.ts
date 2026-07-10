@@ -213,6 +213,10 @@ export interface DesignSettings {
   // (so a white glass box gets dark text even if the question titles are white).
   inputTextColor?: string;
   buttonColor?: string; // navigation buttons color (default: the accent)
+  buttonShadow?: boolean; // drop shadow under the navigation buttons
+  // Draw a subtle framed container around each question (great separator when
+  // the boxes are transparent over a background).
+  questionSeparator?: boolean;
   alignment?: "left" | "center"; // title/questions/buttons alignment
   pageTransition?: PageTransition; // screen transition in one-question-per-page
   backgroundColor?: string;
@@ -1251,6 +1255,8 @@ export function designToTheme(accent: string, design: DesignSettings): Record<st
     glass: !!design.glass,
     inputTextColor: design.inputTextColor ?? null,
     buttonColor: design.buttonColor ?? null,
+    buttonShadow: !!design.buttonShadow,
+    questionSeparator: !!design.questionSeparator,
     alignment: design.alignment ?? "left",
     pageTransition: design.pageTransition ?? "none",
     backgroundColor: design.backgroundColor ?? null,
@@ -1278,6 +1284,8 @@ export function themeToDesign(theme: Record<string, any> | null | undefined): De
     glass: !!e.glass,
     inputTextColor: e.inputTextColor || undefined,
     buttonColor: e.buttonColor || undefined,
+    buttonShadow: !!e.buttonShadow,
+    questionSeparator: !!e.questionSeparator,
     alignment: e.alignment === "center" ? "center" : "left",
     pageTransition: e.pageTransition || "none",
     backgroundColor: e.backgroundColor || theme?.cssVariables?.["--sjs-general-backcolor-dim"] || undefined,

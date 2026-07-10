@@ -220,33 +220,74 @@ function VideoRecorder({ question }: { question: QuestionVideoResponseModel }) {
       startCamera();
       return;
     }
+    // La construcción/arranque del MediaRecorder puede tirar (codec no
+    // soportado, stream inactivo). Nunca fallar en silencio: probamos con el
+    // mimeType elegido, caemos al default del navegador, y si aun así falla
+    // mostramos el error.
     const mimeType = pickMimeType();
-    const recorder = mimeType
-      ? new MediaRecorder(stream, { mimeType })
-      : new MediaRecorder(stream);
+    let recorder: MediaRecorder;
+    try {
+      try {
+        recorder = mimeType
+          ? new MediaRecorder(stream, { mimeType })
+          : new MediaRecorder(stream);
+      } catch {
+        recorder = new MediaRecorder(stream); // fallback sin mimeType
+      }
+    } catch (err) {
+      console.error("[encuestum] MediaRecorder no disponible:", err);
+      stopStream();
+      setErrorMsg("Tu navegador no pudo iniciar la grabación. Podés subir un archivo.");
+      setState("denied");
+      return;
+    }
     recorderRef.current = recorder;
     chunksRef.current = [];
 
     recorder.ondataavailable = (e: BlobEvent) => {
       if (e.data && e.data.size > 0) chunksRef.current.push(e.data);
     };
+    recorder.onerror = (e: any) => {
+      console.error("[encuestum] error de MediaRecorder:", e?.error || e);
+      clearTimer();
+      stopStream();
+      setErrorMsg("Falló la grabación. Probá de nuevo o subí un archivo.");
+      setState("error");
+    };
     recorder.onstop = () => {
       clearTimer();
       const type = recorder.mimeType || mimeType || "video/webm";
       const blob = new Blob(chunksRef.current, { type });
-      blobRef.current = blob;
       // Cortamos la cámara: ya tenemos el blob.
       stopStream();
+      if (blob.size === 0) {
+        console.error("[encuestum] grabación vacía (0 bytes)");
+        setErrorMsg("No se capturó video. Probá de nuevo o subí un archivo.");
+        setState("error");
+        return;
+      }
+      blobRef.current = blob;
       revokeObjectUrl();
       const url = URL.createObjectURL(blob);
       objectUrlRef.current = url;
       setRecordedUrl(url);
       setState("recorded");
+      // Subida automática: la respuesta queda registrada sin pasos extra. El
+      // respondiente igual puede "Grabar de nuevo" o "Quitar" después.
+      upload(blob as Blob & { type: string; size: number });
     };
 
     // Timeslice de 1s: junta datos progresivamente (más robusto en grabaciones
     // cortas y evita que el blob quede vacío).
-    recorder.start(1000);
+    try {
+      recorder.start(1000);
+    } catch (err) {
+      console.error("[encuestum] recorder.start falló:", err);
+      stopStream();
+      setErrorMsg("No se pudo iniciar la grabación. Podés subir un archivo.");
+      setState("denied");
+      return;
+    }
     setElapsed(0);
     setState("recording");
 
@@ -271,7 +312,12 @@ function VideoRecorder({ question }: { question: QuestionVideoResponseModel }) {
     const rec = recorderRef.current;
     if (rec && rec.state !== "inactive") {
       try {
-        rec.stop(); // dispara onstop → pasa a "recorded"
+        rec.requestData?.(); // vuelca el buffer pendiente antes de frenar
+      } catch {
+        /* opcional; algunos navegadores lo hacen solos en stop() */
+      }
+      try {
+        rec.stop(); // dispara onstop → sube y registra
       } catch {
         stopStream();
         setState("idle");
@@ -346,12 +392,23 @@ function VideoRecorder({ question }: { question: QuestionVideoResponseModel }) {
 
   // ----- Render -----
 
-  // Los webm de MediaRecorder muestran un frame negro hasta que se reproducen;
-  // moviendo currentTime forzamos que se pinte el primer cuadro en la preview.
+  // Los webm de MediaRecorder salen con duración "Infinity" y el navegador no
+  // pinta ningún cuadro ni permite buscar (preview negra). El truco estándar:
+  // saltar a un tiempo enorme y volver a 0 fuerza al navegador a indexar el
+  // archivo, habilita la barra de progreso y muestra el primer frame.
   function forceFirstFrame(e: React.SyntheticEvent<HTMLVideoElement>) {
     const v = e.currentTarget;
     try {
-      if (v.currentTime < 0.04) v.currentTime = 0.05;
+      if (v.duration === Infinity || Number.isNaN(v.duration)) {
+        const reset = () => {
+          v.removeEventListener("timeupdate", reset);
+          v.currentTime = 0.01;
+        };
+        v.addEventListener("timeupdate", reset);
+        v.currentTime = 1e10;
+      } else if (v.currentTime < 0.04) {
+        v.currentTime = 0.05;
+      }
     } catch {
       /* algunos formatos no permiten seek antes de cargar; se ignora */
     }

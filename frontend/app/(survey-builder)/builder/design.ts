@@ -44,15 +44,39 @@ export function loadFont(id: string): void {
 /** CSS that recolors the SurveyJS navigation buttons independently from the
  *  accent. Scope with the `enc-scope` class on the survey wrapper. Empty when
  *  no override is set (the accent keeps ruling). */
-export function buttonOverrideCss(color?: string | null): string {
-  if (!color) return "";
-  const fg = readableForeground(color);
-  return `
+export function buttonOverrideCss(color?: string | null, shadow?: boolean): string {
+  let css = "";
+  if (color) {
+    const fg = readableForeground(color);
+    css += `
 .enc-scope .sd-btn { color: ${color}; border-color: ${color}; }
 .enc-scope .sd-btn--action { background-color: ${color}; color: ${fg}; border-color: ${color}; }
 .enc-scope .sd-btn--action:hover { background-color: ${color}; filter: brightness(0.92); }
 `;
+  }
+  if (shadow) {
+    css += `
+.enc-scope .sd-btn { box-shadow: 0 4px 14px rgba(0,0,0,0.22); }
+.enc-scope .sd-btn:hover { box-shadow: 0 6px 18px rgba(0,0,0,0.28); }
+`;
+  }
+  return css;
 }
+
+/** Un marco sutil alrededor de cada pregunta (separador/contenedor). Usa las
+ *  variables del tema, así que funciona en claro, oscuro y con transparencia.
+ *  Scope con la clase `enc-cards` en el wrapper. */
+export const ENC_CARDS_CSS = `
+.enc-cards .sd-element.sd-question {
+  border: 1px solid var(--sjs-border-default, rgba(0,0,0,0.12));
+  border-radius: 16px;
+  padding: 20px 20px 24px;
+}
+.enc-cards .sd-row { margin-bottom: 14px; }
+@media (max-width: 640px) {
+  .enc-cards .sd-element.sd-question { padding: 14px 14px 18px; }
+}
+`;
 
 /** Centering rules for title, question titles/descriptions, ratings and the
  *  navigation buttons. Scope with `enc-center` on the survey wrapper. */
