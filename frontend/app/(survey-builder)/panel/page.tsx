@@ -14,15 +14,12 @@ import {
 import { getMe } from "@/utils/auth";
 import { downloadOrgExport, orgOverview } from "@/utils/panel";
 import { useAsyncData } from "@/lib/useAsyncData";
+import { useI18n } from "@/lib/i18n";
 import { LoadError, LoadSpinner } from "@/components/LoadError";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 
-const STATUS_LABEL: Record<string, string> = {
-  draft: "Borrador",
-  published: "Publicada",
-  closed: "Cerrada",
-};
+const STATUS_KEYS = ["draft", "published", "closed"] as const;
 
 function formatDate(iso: string): string {
   try {
@@ -63,11 +60,15 @@ function MetricCard({
 }
 
 export default function PanelPage() {
+  const { t } = useI18n();
   const [exporting, setExporting] = useState(false);
+
+  const statusLabel = (s: string) =>
+    (STATUS_KEYS as readonly string[]).includes(s) ? t(`panel.status.${s}`) : s;
 
   const { data, status, error, reload } = useAsyncData(async () => {
     const meData = await getMe();
-    if (!meData) throw new Error("Tu sesión expiró.");
+    if (!meData) throw new Error(t("panel.error.session"));
     const overview = await orgOverview(meData.active_org_id);
     return { me: meData, overview };
   }, []);
@@ -77,9 +78,9 @@ export default function PanelPage() {
     setExporting(true);
     try {
       await downloadOrgExport(data.me.active_org_id);
-      toast.success("Exportación lista");
+      toast.success(t("panel.toast.exportReady"));
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "No se pudo exportar");
+      toast.error(err instanceof Error ? err.message : t("panel.toast.exportError"));
     } finally {
       setExporting(false);
     }
@@ -96,10 +97,11 @@ export default function PanelPage() {
     <div className="space-y-8">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-neutral-900 dark:text-neutral-100">Panel</h1>
+          <h1 className="text-2xl font-bold tracking-tight text-neutral-900 dark:text-neutral-100">{t("panel.title")}</h1>
           <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
-            Resumen de{" "}
-            <span className="font-medium text-neutral-700 dark:text-neutral-300">{activeOrg?.name}</span>.
+            {t("panel.subtitle.prefix")}
+            <span className="font-medium text-neutral-700 dark:text-neutral-300">{activeOrg?.name}</span>
+            {t("panel.subtitle.suffix")}
           </p>
         </div>
         <Button onClick={onExport} disabled={exporting}>
@@ -108,29 +110,29 @@ export default function PanelPage() {
           ) : (
             <Download className="h-4 w-4" />
           )}
-          Exportar todo a Excel
+          {t("panel.export")}
         </Button>
       </div>
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <MetricCard icon={FileText} label="Encuestas" value={overview.surveys} />
-        <MetricCard icon={MessageSquare} label="Respuestas" value={overview.responses} />
-        <MetricCard icon={Users} label="Miembros" value={overview.members} />
+        <MetricCard icon={FileText} label={t("panel.metric.surveys")} value={overview.surveys} />
+        <MetricCard icon={MessageSquare} label={t("panel.metric.responses")} value={overview.responses} />
+        <MetricCard icon={Users} label={t("panel.metric.members")} value={overview.members} />
       </div>
 
       <Card>
         <CardHeader className="flex flex-row items-center gap-2">
           <BarChart3 className="h-5 w-5 text-neutral-400 dark:text-neutral-500" />
-          <CardTitle>Encuestas por estado</CardTitle>
+          <CardTitle>{t("panel.byStatus.title")}</CardTitle>
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-3 gap-4">
-            {(["draft", "published", "closed"] as const).map((s) => (
+            {STATUS_KEYS.map((s) => (
               <div key={s} className="rounded-lg border border-neutral-200 dark:border-neutral-800 p-4 text-center">
                 <div className="text-2xl font-bold text-neutral-900 dark:text-neutral-100">
                   {overview.by_status[s].toLocaleString("es")}
                 </div>
-                <div className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">{STATUS_LABEL[s]}</div>
+                <div className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">{statusLabel(s)}</div>
               </div>
             ))}
           </div>
@@ -139,7 +141,7 @@ export default function PanelPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Encuestas recientes</CardTitle>
+          <CardTitle>{t("panel.recent.title")}</CardTitle>
         </CardHeader>
         <CardContent>
           {overview.recent.length > 0 ? (
@@ -147,10 +149,10 @@ export default function PanelPage() {
               <table className="w-full min-w-[560px] text-sm">
                 <thead>
                   <tr className="border-b border-neutral-200 dark:border-neutral-800 text-left text-xs uppercase tracking-wide text-neutral-400 dark:text-neutral-500">
-                    <th className="pb-2 font-medium">Encuesta</th>
-                    <th className="pb-2 font-medium">Estado</th>
-                    <th className="pb-2 font-medium">Respuestas</th>
-                    <th className="pb-2 font-medium">Actualizada</th>
+                    <th className="pb-2 font-medium">{t("panel.recent.col.survey")}</th>
+                    <th className="pb-2 font-medium">{t("panel.recent.col.status")}</th>
+                    <th className="pb-2 font-medium">{t("panel.recent.col.responses")}</th>
+                    <th className="pb-2 font-medium">{t("panel.recent.col.updated")}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-neutral-100 dark:divide-neutral-800">
@@ -161,11 +163,11 @@ export default function PanelPage() {
                           href={`/surveys/${s.id}`}
                           className="font-medium text-neutral-900 dark:text-neutral-100 hover:text-primary hover:underline"
                         >
-                          {s.title?.trim() || "(sin título)"}
+                          {s.title?.trim() || t("panel.recent.untitled")}
                         </Link>
                       </td>
                       <td className="py-3 pr-4 text-neutral-500 dark:text-neutral-400">
-                        {STATUS_LABEL[s.status] ?? s.status}
+                        {statusLabel(s.status)}
                       </td>
                       <td className="py-3 pr-4 text-neutral-700 dark:text-neutral-300">
                         {s.responses.toLocaleString("es")}
@@ -178,7 +180,7 @@ export default function PanelPage() {
             </div>
           ) : (
             <p className="py-6 text-center text-sm text-neutral-400 dark:text-neutral-500">
-              Todavía no hay encuestas en esta organización.
+              {t("panel.recent.empty")}
             </p>
           )}
         </CardContent>

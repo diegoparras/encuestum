@@ -34,16 +34,11 @@ import {
   type Role,
 } from "@/utils/auth";
 import { useAsyncData } from "@/lib/useAsyncData";
+import { useI18n } from "@/lib/i18n";
 import { LoadError, LoadSpinner } from "@/components/LoadError";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Select } from "@/components/ui/input";
-
-const ROLE_LABEL: Record<Role, string> = {
-  owner: "Propietario",
-  admin: "Administrador",
-  member: "Miembro",
-};
 
 function formatDate(iso: string): string {
   try {
@@ -58,9 +53,11 @@ function formatDate(iso: string): string {
 }
 
 export default function MembersPage() {
+  const { t } = useI18n();
+  const roleLabel = (role: Role) => t(`members.role.${role}`);
   const { data, status, error, reload, setData } = useAsyncData(async () => {
     const meData = await getMe();
-    if (!meData) throw new Error("Tu sesión expiró.");
+    if (!meData) throw new Error(t("members.error.session"));
     const members = await listMembers(meData.active_org_id);
     const active =
       meData.orgs.find((o) => o.id === meData.active_org_id) ?? meData.orgs[0];
@@ -177,9 +174,9 @@ export default function MembersPage() {
       setMembers((prev) => (prev ? [...prev, member] : [member]));
       setNewEmail("");
       setNewRole("member");
-      toast.success("Miembro agregado");
+      toast.success(t("members.toast.added"));
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "No se pudo agregar el miembro");
+      toast.error(err instanceof Error ? err.message : t("members.toast.addError"));
     } finally {
       setAdding(false);
     }
@@ -193,9 +190,9 @@ export default function MembersPage() {
       setMembers((prev) =>
         prev ? prev.map((m) => (m.user_id === userId ? updated : m)) : prev
       );
-      toast.success("Rol actualizado");
+      toast.success(t("members.toast.roleUpdated"));
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "No se pudo cambiar el rol");
+      toast.error(err instanceof Error ? err.message : t("members.toast.roleError"));
       // Reload to restore the true value in the select.
       void reload();
     } finally {
@@ -207,21 +204,21 @@ export default function MembersPage() {
     if (!me) return;
     const isSelf = member.user_id === me.user.id;
     const msg = isSelf
-      ? "¿Seguro que querés salir de esta organización?"
-      : `¿Quitar a ${member.email} de la organización?`;
+      ? t("members.confirm.leave")
+      : t("members.confirm.remove", { email: member.email });
     if (!window.confirm(msg)) return;
     setPendingUser(member.user_id);
     try {
       await removeMember(me.active_org_id, member.user_id);
       if (isSelf) {
-        toast.success("Saliste de la organización");
+        toast.success(t("members.toast.left"));
         window.location.reload();
         return;
       }
       setMembers((prev) => (prev ? prev.filter((m) => m.user_id !== member.user_id) : prev));
-      toast.success("Miembro quitado");
+      toast.success(t("members.toast.removed"));
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "No se pudo quitar el miembro");
+      toast.error(err instanceof Error ? err.message : t("members.toast.removeError"));
     } finally {
       setPendingUser(null);
     }
@@ -233,7 +230,7 @@ export default function MembersPage() {
       await switchOrg(orgId);
       window.location.reload();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "No se pudo cambiar de organización");
+      toast.error(err instanceof Error ? err.message : t("members.toast.switchError"));
     }
   }
 
@@ -242,10 +239,10 @@ export default function MembersPage() {
     setCreatingOrg(true);
     try {
       await createOrg(newOrgName.trim());
-      toast.success("Organización creada");
+      toast.success(t("members.toast.orgCreated"));
       window.location.reload();
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "No se pudo crear la organización");
+      toast.error(err instanceof Error ? err.message : t("members.toast.orgCreateError"));
       setCreatingOrg(false);
     }
   }
@@ -264,10 +261,10 @@ export default function MembersPage() {
           : prev
       );
       setSubdomainInput(updated.subdomain ?? "");
-      toast.success(updated.subdomain ? "Subdominio guardado" : "Subdominio quitado");
+      toast.success(updated.subdomain ? t("members.toast.subdomainSaved") : t("members.toast.subdomainRemoved"));
     } catch (err) {
       toast.error(
-        err instanceof Error ? err.message : "No se pudo guardar el subdominio"
+        err instanceof Error ? err.message : t("members.toast.subdomainError")
       );
     } finally {
       setSavingSubdomain(false);
@@ -298,13 +295,13 @@ export default function MembersPage() {
       setInviteEmail("");
       setInviteRole("member");
       if (invite.accept_url) {
-        toast.success("Invitación creada. Copiá el enlace para compartirlo.");
+        toast.success(t("members.toast.inviteCreated"));
       } else {
-        toast.success("Invitación enviada por correo");
+        toast.success(t("members.toast.inviteSent"));
       }
     } catch (err) {
       toast.error(
-        err instanceof Error ? err.message : "No se pudo crear la invitación"
+        err instanceof Error ? err.message : t("members.toast.inviteError")
       );
     } finally {
       setInviting(false);
@@ -313,17 +310,17 @@ export default function MembersPage() {
 
   async function onRevokeInvite(invite: Invitation) {
     if (!me) return;
-    if (!window.confirm(`¿Revocar la invitación de ${invite.email}?`)) return;
+    if (!window.confirm(t("members.confirm.revoke", { email: invite.email }))) return;
     setPendingInvite(invite.id);
     try {
       await revokeInvitation(me.active_org_id, invite.id);
       setInvitations((prev) =>
         prev ? prev.filter((i) => i.id !== invite.id) : prev
       );
-      toast.success("Invitación revocada");
+      toast.success(t("members.toast.inviteRevoked"));
     } catch (err) {
       toast.error(
-        err instanceof Error ? err.message : "No se pudo revocar la invitación"
+        err instanceof Error ? err.message : t("members.toast.revokeError")
       );
     } finally {
       setPendingInvite(null);
@@ -333,9 +330,9 @@ export default function MembersPage() {
   async function onCopyLink(url: string) {
     try {
       await navigator.clipboard.writeText(url);
-      toast.success("Enlace copiado");
+      toast.success(t("members.toast.linkCopied"));
     } catch {
-      toast.error("No se pudo copiar el enlace");
+      toast.error(t("members.toast.linkCopyError"));
     }
   }
 
@@ -345,10 +342,11 @@ export default function MembersPage() {
   return (
     <div className="space-y-8">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight text-neutral-900 dark:text-neutral-100">Miembros</h1>
+        <h1 className="text-2xl font-bold tracking-tight text-neutral-900 dark:text-neutral-100">{t("members.title")}</h1>
         <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
-          Gestioná el equipo de{" "}
-          <span className="font-medium text-neutral-700 dark:text-neutral-300">{activeOrg?.name}</span>.
+          {t("members.subtitle.prefix")}
+          <span className="font-medium text-neutral-700 dark:text-neutral-300">{activeOrg?.name}</span>
+          {t("members.subtitle.suffix")}
         </p>
       </div>
 
@@ -356,7 +354,7 @@ export default function MembersPage() {
       <Card>
         <CardHeader className="flex flex-row items-center gap-2">
           <Users className="h-5 w-5 text-neutral-400 dark:text-neutral-500" />
-          <CardTitle>Equipo</CardTitle>
+          <CardTitle>{t("members.team.title")}</CardTitle>
         </CardHeader>
         <CardContent>
           {members && members.length > 0 ? (
@@ -364,10 +362,10 @@ export default function MembersPage() {
               <table className="w-full min-w-[560px] text-sm">
                 <thead>
                   <tr className="border-b border-neutral-200 dark:border-neutral-800 text-left text-xs uppercase tracking-wide text-neutral-400 dark:text-neutral-500">
-                    <th className="pb-2 font-medium">Miembro</th>
-                    <th className="pb-2 font-medium">Rol</th>
-                    <th className="pb-2 font-medium">Desde</th>
-                    <th className="pb-2 text-right font-medium">Acciones</th>
+                    <th className="pb-2 font-medium">{t("members.team.col.member")}</th>
+                    <th className="pb-2 font-medium">{t("members.team.col.role")}</th>
+                    <th className="pb-2 font-medium">{t("members.team.col.since")}</th>
+                    <th className="pb-2 text-right font-medium">{t("members.team.col.actions")}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-neutral-100 dark:divide-neutral-800">
@@ -381,7 +379,7 @@ export default function MembersPage() {
                             {m.name?.trim() || m.email}
                             {isSelf && (
                               <span className="ml-2 rounded bg-neutral-100 dark:bg-neutral-800 px-1.5 py-0.5 text-xs text-neutral-500 dark:text-neutral-400">
-                                vos
+                                {t("members.you")}
                               </span>
                             )}
                           </div>
@@ -399,14 +397,14 @@ export default function MembersPage() {
                               }
                               className="h-8 w-40 py-0"
                             >
-                              <option value="member">Miembro</option>
-                              <option value="admin">Administrador</option>
+                              <option value="member">{t("members.role.member")}</option>
+                              <option value="admin">{t("members.role.admin")}</option>
                               <option value="owner" disabled={!canAssignOwner}>
-                                Propietario
+                                {t("members.role.owner")}
                               </option>
                             </Select>
                           ) : (
-                            <span className="text-neutral-700 dark:text-neutral-300">{ROLE_LABEL[m.role]}</span>
+                            <span className="text-neutral-700 dark:text-neutral-300">{roleLabel(m.role)}</span>
                           )}
                         </td>
                         <td className="py-3 pr-4 text-neutral-500 dark:text-neutral-400">
@@ -426,7 +424,7 @@ export default function MembersPage() {
                               ) : (
                                 <Trash2 className="h-4 w-4" />
                               )}
-                              {isSelf ? "Salir" : "Quitar"}
+                              {isSelf ? t("members.action.leave") : t("members.action.remove")}
                             </Button>
                           )}
                         </td>
@@ -438,7 +436,7 @@ export default function MembersPage() {
             </div>
           ) : (
             <p className="py-6 text-center text-sm text-neutral-400 dark:text-neutral-500">
-              Todavía no hay miembros.
+              {t("members.team.empty")}
             </p>
           )}
         </CardContent>
@@ -448,7 +446,7 @@ export default function MembersPage() {
       <Card>
         <CardHeader className="flex flex-row items-center gap-2">
           <Globe className="h-5 w-5 text-neutral-400 dark:text-neutral-500" />
-          <CardTitle>Subdominio</CardTitle>
+          <CardTitle>{t("members.subdomain.title")}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           {canManage ? (
@@ -458,7 +456,7 @@ export default function MembersPage() {
                 className="flex flex-col gap-3 sm:flex-row sm:items-end"
               >
                 <div className="flex-1 space-y-1.5">
-                  <Label htmlFor="subdomain">Subdominio propio</Label>
+                  <Label htmlFor="subdomain">{t("members.subdomain.label")}</Label>
                   <div className="flex items-stretch">
                     <Input
                       id="subdomain"
@@ -486,7 +484,7 @@ export default function MembersPage() {
                     ) : (
                       <Save className="h-4 w-4" />
                     )}
-                    Guardar
+                    {t("members.subdomain.save")}
                   </Button>
                   {activeOrg?.subdomain && (
                     <Button
@@ -495,25 +493,23 @@ export default function MembersPage() {
                       disabled={savingSubdomain}
                       onClick={onRemoveSubdomain}
                     >
-                      Quitar
+                      {t("members.subdomain.remove")}
                     </Button>
                   )}
                 </div>
               </form>
               {!me?.base_domain && (
                 <p className="text-xs text-amber-600">
-                  Configurá <code>ENCUESTUM_BASE_DOMAIN</code> para habilitar la
-                  URL completa. Igual podés guardar el nombre.
+                  {t("members.subdomain.envHint.prefix")}<code>ENCUESTUM_BASE_DOMAIN</code>{t("members.subdomain.envHint.suffix")}
                 </p>
               )}
               <p className="text-xs text-neutral-400 dark:text-neutral-500">
-                Tu URL propia para encuestas y branding. Requiere configuración
-                de DNS/TLS (te la pasamos).
+                {t("members.subdomain.help")}
               </p>
             </>
           ) : activeOrg?.subdomain ? (
             <p className="text-sm text-neutral-700 dark:text-neutral-300">
-              Subdominio:{" "}
+              {t("members.subdomain.readonlyLabel")}
               <span className="font-mono text-neutral-900 dark:text-neutral-100">
                 {activeOrg.subdomain}
                 {me?.base_domain ? `.${me.base_domain}` : ""}
@@ -521,7 +517,7 @@ export default function MembersPage() {
             </p>
           ) : (
             <p className="text-sm text-neutral-400 dark:text-neutral-500">
-              Esta organización no tiene un subdominio configurado.
+              {t("members.subdomain.none")}
             </p>
           )}
         </CardContent>
@@ -532,7 +528,7 @@ export default function MembersPage() {
         <Card>
           <CardHeader className="flex flex-row items-center gap-2">
             <UserPlus className="h-5 w-5 text-neutral-400 dark:text-neutral-500" />
-            <CardTitle>Agregar miembro</CardTitle>
+            <CardTitle>{t("members.add.title")}</CardTitle>
           </CardHeader>
           <CardContent>
             <form
@@ -540,26 +536,26 @@ export default function MembersPage() {
               className="flex flex-col gap-3 sm:flex-row sm:items-end"
             >
               <div className="flex-1 space-y-1.5">
-                <Label htmlFor="newEmail">Correo del usuario</Label>
+                <Label htmlFor="newEmail">{t("members.add.emailLabel")}</Label>
                 <Input
                   id="newEmail"
                   type="email"
                   required
                   value={newEmail}
                   onChange={(e) => setNewEmail(e.target.value)}
-                  placeholder="persona@ejemplo.com"
+                  placeholder={t("members.add.emailPlaceholder")}
                 />
               </div>
               <div className="space-y-1.5 sm:w-48">
-                <Label htmlFor="newRole">Rol</Label>
+                <Label htmlFor="newRole">{t("members.role.label")}</Label>
                 <Select
                   id="newRole"
                   value={newRole}
                   onChange={(e) => setNewRole(e.target.value as Role)}
                 >
-                  <option value="member">Miembro</option>
-                  <option value="admin">Administrador</option>
-                  {canAssignOwner && <option value="owner">Propietario</option>}
+                  <option value="member">{t("members.role.member")}</option>
+                  <option value="admin">{t("members.role.admin")}</option>
+                  {canAssignOwner && <option value="owner">{t("members.role.owner")}</option>}
                 </Select>
               </div>
               <Button type="submit" disabled={adding}>
@@ -568,11 +564,11 @@ export default function MembersPage() {
                 ) : (
                   <Plus className="h-4 w-4" />
                 )}
-                Agregar
+                {t("members.add.submit")}
               </Button>
             </form>
             <p className="mt-2 text-xs text-neutral-400 dark:text-neutral-500">
-              El usuario debe tener una cuenta registrada en Encuestum.
+              {t("members.add.hint")}
             </p>
           </CardContent>
         </Card>
@@ -583,7 +579,7 @@ export default function MembersPage() {
         <Card>
           <CardHeader className="flex flex-row items-center gap-2">
             <Mail className="h-5 w-5 text-neutral-400 dark:text-neutral-500" />
-            <CardTitle>Invitaciones</CardTitle>
+            <CardTitle>{t("members.invitations.title")}</CardTitle>
           </CardHeader>
           <CardContent className="space-y-6">
             <form
@@ -591,26 +587,26 @@ export default function MembersPage() {
               className="flex flex-col gap-3 sm:flex-row sm:items-end"
             >
               <div className="flex-1 space-y-1.5">
-                <Label htmlFor="inviteEmail">Invitar por email</Label>
+                <Label htmlFor="inviteEmail">{t("members.invite.emailLabel")}</Label>
                 <Input
                   id="inviteEmail"
                   type="email"
                   required
                   value={inviteEmail}
                   onChange={(e) => setInviteEmail(e.target.value)}
-                  placeholder="persona@ejemplo.com"
+                  placeholder={t("members.add.emailPlaceholder")}
                 />
               </div>
               <div className="space-y-1.5 sm:w-48">
-                <Label htmlFor="inviteRole">Rol</Label>
+                <Label htmlFor="inviteRole">{t("members.role.label")}</Label>
                 <Select
                   id="inviteRole"
                   value={inviteRole}
                   onChange={(e) => setInviteRole(e.target.value as Role)}
                 >
-                  <option value="member">Miembro</option>
-                  <option value="admin">Administrador</option>
-                  {canAssignOwner && <option value="owner">Propietario</option>}
+                  <option value="member">{t("members.role.member")}</option>
+                  <option value="admin">{t("members.role.admin")}</option>
+                  {canAssignOwner && <option value="owner">{t("members.role.owner")}</option>}
                 </Select>
               </div>
               <Button type="submit" disabled={inviting}>
@@ -619,17 +615,16 @@ export default function MembersPage() {
                 ) : (
                   <Mail className="h-4 w-4" />
                 )}
-                Invitar
+                {t("members.invite.submit")}
               </Button>
             </form>
             <p className="-mt-4 text-xs text-neutral-400 dark:text-neutral-500">
-              La persona recibirá un correo. Si no configuraste el envío de
-              emails, copiá el enlace de la invitación y compartilo.
+              {t("members.invite.hint")}
             </p>
 
             <div className="border-t border-neutral-100 dark:border-neutral-800 pt-4">
               <h3 className="mb-3 text-xs font-medium uppercase tracking-wide text-neutral-400 dark:text-neutral-500">
-                Pendientes
+                {t("members.invitations.pending")}
               </h3>
               {invitations && invitations.length > 0 ? (
                 <ul className="divide-y divide-neutral-100 dark:divide-neutral-800">
@@ -645,8 +640,10 @@ export default function MembersPage() {
                             {inv.email}
                           </p>
                           <p className="text-xs text-neutral-400 dark:text-neutral-500">
-                            {ROLE_LABEL[inv.role]} · Invitada el{" "}
-                            {formatDate(inv.created_at)}
+                            {t("members.invitations.meta", {
+                              role: roleLabel(inv.role),
+                              date: formatDate(inv.created_at),
+                            })}
                           </p>
                         </div>
                         <div className="flex items-center gap-2">
@@ -657,7 +654,7 @@ export default function MembersPage() {
                               onClick={() => onCopyLink(inv.accept_url as string)}
                             >
                               <Copy className="h-4 w-4" />
-                              Copiar enlace
+                              {t("members.invite.copyLink")}
                             </Button>
                           )}
                           <Button
@@ -672,7 +669,7 @@ export default function MembersPage() {
                             ) : (
                               <Trash2 className="h-4 w-4" />
                             )}
-                            Revocar
+                            {t("members.invite.revoke")}
                           </Button>
                         </div>
                       </li>
@@ -681,7 +678,7 @@ export default function MembersPage() {
                 </ul>
               ) : (
                 <p className="py-4 text-center text-sm text-neutral-400 dark:text-neutral-500">
-                  No hay invitaciones pendientes.
+                  {t("members.invitations.empty")}
                 </p>
               )}
             </div>
@@ -693,7 +690,7 @@ export default function MembersPage() {
       <Card>
         <CardHeader className="flex flex-row items-center gap-2">
           <Building2 className="h-5 w-5 text-neutral-400 dark:text-neutral-500" />
-          <CardTitle>Organizaciones</CardTitle>
+          <CardTitle>{t("members.orgs.title")}</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
           <ul className="divide-y divide-neutral-100 dark:divide-neutral-800">
@@ -706,11 +703,11 @@ export default function MembersPage() {
                 >
                   <div className="min-w-0">
                     <p className="truncate font-medium text-neutral-900 dark:text-neutral-100">{org.name}</p>
-                    <p className="text-xs text-neutral-400 dark:text-neutral-500">{ROLE_LABEL[org.role]}</p>
+                    <p className="text-xs text-neutral-400 dark:text-neutral-500">{roleLabel(org.role)}</p>
                   </div>
                   {isActive ? (
                     <span className="inline-flex items-center gap-1 text-sm font-medium text-primary">
-                      <Check className="h-4 w-4" /> Activa
+                      <Check className="h-4 w-4" /> {t("members.orgs.active")}
                     </span>
                   ) : (
                     <Button
@@ -718,7 +715,7 @@ export default function MembersPage() {
                       size="sm"
                       onClick={() => onSwitchOrg(org.id)}
                     >
-                      Cambiar a esta
+                      {t("members.orgs.switch")}
                     </Button>
                   )}
                 </li>
@@ -732,14 +729,14 @@ export default function MembersPage() {
               className="flex flex-col gap-3 sm:flex-row sm:items-end"
             >
               <div className="flex-1 space-y-1.5">
-                <Label htmlFor="newOrgName">Nueva organización</Label>
+                <Label htmlFor="newOrgName">{t("members.orgs.newLabel")}</Label>
                 <Input
                   id="newOrgName"
                   type="text"
                   required
                   value={newOrgName}
                   onChange={(e) => setNewOrgName(e.target.value)}
-                  placeholder="Nombre de la organización"
+                  placeholder={t("members.orgs.newPlaceholder")}
                 />
               </div>
               <Button type="submit" variant="outline" disabled={creatingOrg}>
@@ -748,7 +745,7 @@ export default function MembersPage() {
                 ) : (
                   <Plus className="h-4 w-4" />
                 )}
-                Crear
+                {t("members.orgs.create")}
               </Button>
             </form>
           </div>

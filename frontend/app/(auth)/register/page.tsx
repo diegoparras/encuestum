@@ -5,11 +5,13 @@ import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Loader2 } from "lucide-react";
 import { register } from "@/utils/auth";
+import { useI18n } from "@/lib/i18n";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/input";
 
 export default function RegisterPage() {
+  const { t } = useI18n();
   const router = useRouter();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -24,7 +26,7 @@ export default function RegisterPage() {
     e.preventDefault();
     setError(null);
     if (password.length < 8) {
-      setError("La contraseña debe tener al menos 8 caracteres.");
+      setError(t("auth.errors.passwordTooShort"));
       return;
     }
     setLoading(true);
@@ -38,7 +40,7 @@ export default function RegisterPage() {
       router.push("/surveys");
       router.refresh();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "No se pudo crear la cuenta");
+      setError(err instanceof Error ? err.message : t("auth.errors.registerFailed"));
       setLoading(false);
     }
   }
@@ -46,14 +48,14 @@ export default function RegisterPage() {
   return (
     <Card>
       <CardContent className="py-6">
-        <h1 className="text-xl font-semibold text-neutral-900 dark:text-neutral-100">Crear cuenta</h1>
+        <h1 className="text-xl font-semibold text-neutral-900 dark:text-neutral-100">{t("auth.register.title")}</h1>
         <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
-          Empezá a crear encuestas y evaluaciones en minutos.
+          {t("auth.register.subtitle")}
         </p>
 
         <form onSubmit={onSubmit} className="mt-6 space-y-4">
           <div className="space-y-1.5">
-            <Label htmlFor="email">Correo electrónico</Label>
+            <Label htmlFor="email">{t("auth.email.label")}</Label>
             <Input
               id="email"
               type="email"
@@ -61,12 +63,12 @@ export default function RegisterPage() {
               required
               value={email}
               onChange={(e) => setEmail(e.target.value)}
-              placeholder="vos@ejemplo.com"
+              placeholder={t("auth.email.placeholder")}
             />
           </div>
 
           <div className="space-y-1.5">
-            <Label htmlFor="password">Contraseña</Label>
+            <Label htmlFor="password">{t("auth.password.label")}</Label>
             <Input
               id="password"
               type="password"
@@ -75,7 +77,7 @@ export default function RegisterPage() {
               minLength={8}
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              placeholder="Mínimo 8 caracteres"
+              placeholder={t("auth.password.minPlaceholder")}
             />
             <p
               className={
@@ -84,13 +86,13 @@ export default function RegisterPage() {
                   : "text-xs text-neutral-400 dark:text-neutral-500"
               }
             >
-              Al menos 8 caracteres.
+              {t("auth.password.hint")}
             </p>
           </div>
 
           <div className="space-y-1.5">
             <Label htmlFor="name">
-              Nombre <span className="text-neutral-400 dark:text-neutral-500">(opcional)</span>
+              {t("auth.register.nameLabel")} <span className="text-neutral-400 dark:text-neutral-500">{t("auth.optional")}</span>
             </Label>
             <Input
               id="name"
@@ -98,21 +100,21 @@ export default function RegisterPage() {
               autoComplete="name"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              placeholder="Tu nombre"
+              placeholder={t("auth.register.namePlaceholder")}
             />
           </div>
 
           <div className="space-y-1.5">
             <Label htmlFor="orgName">
-              Nombre de la organización{" "}
-              <span className="text-neutral-400 dark:text-neutral-500">(opcional)</span>
+              {t("auth.register.orgLabel")}{" "}
+              <span className="text-neutral-400 dark:text-neutral-500">{t("auth.optional")}</span>
             </Label>
             <Input
               id="orgName"
               type="text"
               value={orgName}
               onChange={(e) => setOrgName(e.target.value)}
-              placeholder="Mi organización"
+              placeholder={t("auth.register.orgPlaceholder")}
             />
           </div>
 
@@ -124,14 +126,14 @@ export default function RegisterPage() {
 
           <Button type="submit" className="w-full" disabled={loading}>
             {loading && <Loader2 className="h-4 w-4 animate-spin" />}
-            {loading ? "Creando cuenta…" : "Crear cuenta"}
+            {loading ? t("auth.register.submitting") : t("auth.register.submit")}
           </Button>
         </form>
 
         <p className="mt-6 text-center text-sm text-neutral-500 dark:text-neutral-400">
-          ¿Ya tenés cuenta?{" "}
+          {t("auth.register.haveAccount")}{" "}
           <Link href="/login" className="font-medium text-primary hover:underline">
-            Ingresar
+            {t("auth.actions.login")}
           </Link>
         </p>
       </CardContent>

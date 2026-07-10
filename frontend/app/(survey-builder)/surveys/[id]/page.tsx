@@ -29,6 +29,7 @@ import {
 import { getMe, type Me } from "@/utils/auth";
 import { useAsyncData } from "@/lib/useAsyncData";
 import { LoadError } from "@/components/LoadError";
+import { useI18n } from "@/lib/i18n";
 import { GradesPanel } from "../../GradesPanel";
 import { GradebookPanel } from "../../GradebookPanel";
 import { InsightsPanel } from "../../InsightsPanel";
@@ -38,6 +39,7 @@ import { themeToAccent } from "../../builder/model";
 export default function SurveyDetailPage() {
   const { id } = useParams<{ id: string }>();
   const router = useRouter();
+  const { t } = useI18n();
   // Sólo la encuesta se carga al montar. La lista completa de respuestas es
   // pesada y NO se descarga en la pestaña "Resumen": se baja perezosamente
   // (ver abajo) sólo cuando hace falta mostrarla o exportarla.
@@ -163,7 +165,7 @@ export default function SurveyDetailPage() {
 
   async function save() {
     if (!parsed.value) {
-      setActionError("El JSON del formulario no es válido.");
+      setActionError(t("surveys.detail.jsonInvalidError"));
       return;
     }
     setSaving(true);
@@ -174,10 +176,10 @@ export default function SurveyDetailPage() {
         json_schema: parsed.value,
       });
       setSurvey(updated);
-      setNotice("Cambios guardados.");
+      setNotice(t("surveys.detail.saved"));
       setTimeout(() => setNotice(null), 2500);
     } catch (e: any) {
-      setActionError(e?.message || "No se pudo guardar.");
+      setActionError(e?.message || t("surveys.detail.saveError"));
     } finally {
       setSaving(false);
     }
@@ -194,7 +196,7 @@ export default function SurveyDetailPage() {
           : await surveyApi.publish(id);
       setSurvey(updated);
     } catch (e: any) {
-      setActionError(e?.message || "No se pudo cambiar el estado.");
+      setActionError(e?.message || t("surveys.detail.statusError"));
     } finally {
       setBusy(false);
     }
@@ -206,7 +208,7 @@ export default function SurveyDetailPage() {
     try {
       await downloadResponses(id, format);
     } catch (e: any) {
-      toast.error(e?.message || "No se pudo exportar las respuestas.");
+      toast.error(e?.message || t("surveys.toast.exportError"));
     } finally {
       setExporting(null);
     }
@@ -217,10 +219,10 @@ export default function SurveyDetailPage() {
     setDuplicating(true);
     try {
       const copy = await surveyApi.duplicateSurvey(id);
-      toast.success("Encuesta duplicada. Abriendo la copia…");
+      toast.success(t("surveys.toast.duplicatedOpening"));
       router.push(`/surveys/${copy.id}/edit`);
     } catch (e: any) {
-      toast.error(e?.message || "No se pudo duplicar la encuesta.");
+      toast.error(e?.message || t("surveys.toast.duplicateError"));
       setDuplicating(false);
     }
   }
@@ -242,7 +244,7 @@ export default function SurveyDetailPage() {
   function copyEmbed() {
     navigator.clipboard?.writeText(embedSnippet).then(() => {
       setCopiedEmbed(true);
-      toast.success("Snippet copiado. Pegalo en tu sitio.");
+      toast.success(t("surveys.toast.embedCopied"));
       setTimeout(() => setCopiedEmbed(false), 1800);
     });
   }
@@ -261,7 +263,7 @@ export default function SurveyDetailPage() {
   if (status === "loading" || !survey) {
     return (
       <div className="max-w-3xl mx-auto px-6 py-10 flex items-center gap-2 text-neutral-500 dark:text-neutral-400 text-sm">
-        <Loader2 className="w-4 h-4 animate-spin" /> Cargando…
+        <Loader2 className="w-4 h-4 animate-spin" /> {t("surveys.loading")}
       </div>
     );
   }
@@ -276,7 +278,7 @@ export default function SurveyDetailPage() {
         <input
           value={title}
           onChange={(e) => setTitle(e.target.value)}
-          placeholder="Título de la encuesta"
+          placeholder={t("surveys.detail.titlePlaceholder")}
           className="text-2xl font-semibold bg-transparent outline-none w-full border-b border-transparent focus:border-neutral-300 dark:focus:border-neutral-600 pb-1"
         />
         <span
@@ -288,7 +290,11 @@ export default function SurveyDetailPage() {
               : "bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300"
           }`}
         >
-          {isPublished ? "Publicada" : survey.status === "closed" ? "Cerrada" : "Borrador"}
+          {isPublished
+            ? t("surveys.status.published")
+            : survey.status === "closed"
+            ? t("surveys.status.closed")
+            : t("surveys.status.draft")}
         </span>
       </div>
 
@@ -300,21 +306,21 @@ export default function SurveyDetailPage() {
           className="ml-auto inline-flex items-center gap-1 text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100"
         >
           {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-          {copied ? "Copiado" : "Copiar"}
+          {copied ? t("surveys.copied") : t("surveys.copy")}
         </button>
         <button
           onClick={() => setShowQr((v) => !v)}
           className="inline-flex items-center gap-1 text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100"
-          title="Código QR"
+          title={t("surveys.qrTitle")}
         >
           <QrCode className="w-4 h-4" /> QR
         </button>
         <button
           onClick={() => setShowEmbed((v) => !v)}
           className="inline-flex items-center gap-1 text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100"
-          title="Insertar en un sitio (iframe)"
+          title={t("surveys.embedTitle")}
         >
-          <Code2 className="w-4 h-4" /> Insertar
+          <Code2 className="w-4 h-4" /> {t("surveys.embed")}
         </button>
         {isPublished && (
           <a
@@ -323,7 +329,7 @@ export default function SurveyDetailPage() {
             rel="noreferrer"
             className="inline-flex items-center gap-1 text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100"
           >
-            Abrir <ExternalLink className="w-3.5 h-3.5" />
+            {t("surveys.open")} <ExternalLink className="w-3.5 h-3.5" />
           </a>
         )}
       </div>
@@ -335,7 +341,7 @@ export default function SurveyDetailPage() {
             className="shrink-0 rounded px-1.5 py-0.5 text-xs font-medium"
             style={{ backgroundColor: `${SURVEY_ACCENT}1a`, color: SURVEY_ACCENT }}
           >
-            Tu dominio
+            {t("surveys.yourDomain")}
           </span>
           <span className="font-mono text-neutral-600 dark:text-neutral-300 truncate">{brandedUrl}</span>
           <button
@@ -343,7 +349,7 @@ export default function SurveyDetailPage() {
             className="ml-auto inline-flex items-center gap-1 text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100"
           >
             {copiedBranded ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-            {copiedBranded ? "Copiado" : "Copiar"}
+            {copiedBranded ? t("surveys.copied") : t("surveys.copy")}
           </button>
         </div>
       )}
@@ -351,7 +357,7 @@ export default function SurveyDetailPage() {
       {showQr && (
         <div className="mt-3 flex flex-col items-center gap-2 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-5">
           <QRCodeSVG value={publicUrl} size={168} level="M" includeMargin />
-          <p className="text-xs text-neutral-500 dark:text-neutral-400">Escaneá para abrir la encuesta</p>
+          <p className="text-xs text-neutral-500 dark:text-neutral-400">{t("surveys.qrHint")}</p>
         </div>
       )}
 
@@ -359,22 +365,23 @@ export default function SurveyDetailPage() {
         <div className="mt-3 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-4">
           <div className="mb-2 flex items-center justify-between gap-2">
             <h3 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">
-              Insertar en un sitio
+              {t("surveys.embedHeading")}
             </h3>
             <button
               onClick={copyEmbed}
               className="inline-flex items-center gap-1 text-sm text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100"
             >
               {copiedEmbed ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
-              {copiedEmbed ? "Copiado" : "Copiar"}
+              {copiedEmbed ? t("surveys.copied") : t("surveys.copy")}
             </button>
           </div>
           <pre className="overflow-x-auto rounded-md bg-neutral-50 dark:bg-neutral-950 p-3 font-mono text-xs text-neutral-700 dark:text-neutral-300 ring-1 ring-neutral-200 dark:ring-neutral-800">
             {embedSnippet}
           </pre>
           <p className="mt-2 text-xs text-neutral-400 dark:text-neutral-500">
-            Pegá este código en el HTML de tu sitio para mostrar la encuesta
-            embebida. Ajustá <span className="font-mono">height</span> a gusto.
+            {t("surveys.embedHelpBefore")}{" "}
+            <span className="font-mono">height</span>{" "}
+            {t("surveys.embedHelpAfter")}
           </p>
         </div>
       )}
@@ -385,7 +392,7 @@ export default function SurveyDetailPage() {
           href={`/surveys/${id}/edit`}
           className="inline-flex items-center gap-2 rounded-lg border border-neutral-300 dark:border-neutral-700 px-4 py-2 text-sm font-medium hover:bg-neutral-50 dark:hover:bg-neutral-800"
         >
-          <Pencil className="w-4 h-4" /> Editor visual
+          <Pencil className="w-4 h-4" /> {t("surveys.visualEditor")}
         </Link>
         <button
           onClick={save}
@@ -394,7 +401,7 @@ export default function SurveyDetailPage() {
           style={{ backgroundColor: SURVEY_ACCENT }}
         >
           {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
-          Guardar
+          {t("surveys.save")}
         </button>
         <button
           onClick={togglePublish}
@@ -408,20 +415,20 @@ export default function SurveyDetailPage() {
           ) : (
             <Send className="w-4 h-4" />
           )}
-          {isPublished ? "Cerrar" : "Publicar"}
+          {isPublished ? t("surveys.closeSurvey") : t("surveys.publish")}
         </button>
         <button
           onClick={duplicate}
           disabled={duplicating}
           className="inline-flex items-center gap-2 rounded-lg border border-neutral-300 dark:border-neutral-700 px-4 py-2 text-sm font-medium hover:bg-neutral-50 dark:hover:bg-neutral-800 disabled:opacity-60"
-          title="Crear una copia en borrador"
+          title={t("surveys.duplicateDraftTitle")}
         >
           {duplicating ? (
             <Loader2 className="w-4 h-4 animate-spin" />
           ) : (
             <Copy className="w-4 h-4" />
           )}
-          Duplicar
+          {t("surveys.duplicate")}
         </button>
       </div>
 
@@ -432,12 +439,14 @@ export default function SurveyDetailPage() {
       <div className="mt-8">
         <div className="flex items-center justify-between mb-2">
           <h2 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">
-            Definición del formulario (SurveyJS JSON)
+            {t("surveys.schemaHeading")}
           </h2>
           {parsed.error ? (
-            <span className="text-xs text-red-600">JSON inválido: {parsed.error}</span>
+            <span className="text-xs text-red-600">
+              {t("surveys.jsonInvalid", { error: parsed.error })}
+            </span>
           ) : (
-            <span className="text-xs text-green-600">JSON válido</span>
+            <span className="text-xs text-green-600">{t("surveys.jsonValid")}</span>
           )}
         </div>
         <textarea
@@ -447,9 +456,11 @@ export default function SurveyDetailPage() {
           className="w-full h-80 font-mono text-xs rounded-lg border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-800 dark:text-neutral-100 p-3 outline-none focus:border-neutral-400 dark:focus:border-neutral-600"
         />
         <p className="mt-2 text-xs text-neutral-400 dark:text-neutral-500">
-          Edición avanzada del modelo SurveyJS. Para la mayoría de los casos usá
-          el <Link href={`/surveys/${id}/edit`} className="underline">editor visual</Link>;
-          acá podés pegar cualquier modelo válido o ajustar detalles finos.
+          {t("surveys.schemaHelpBefore")}{" "}
+          <Link href={`/surveys/${id}/edit`} className="underline">
+            {t("surveys.schemaHelpLink")}
+          </Link>
+          {t("surveys.schemaHelpAfter")}
         </p>
       </div>
 
@@ -461,8 +472,8 @@ export default function SurveyDetailPage() {
               <div className="inline-flex rounded-lg border border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-950 p-0.5">
                 {(
                   [
-                    ["gradebook", "Notas"],
-                    ["grading", "Correcciones"],
+                    ["gradebook", t("surveys.tabGrades")],
+                    ["grading", t("surveys.tabGrading")],
                   ] as const
                 ).map(([key, label]) => {
                   const active = evalTab === key;
@@ -500,8 +511,13 @@ export default function SurveyDetailPage() {
               <div className="inline-flex rounded-lg border border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-950 p-0.5">
                 {(
                   [
-                    ["summary", "Resumen"],
-                    ["responses", `Respuestas${responses ? ` (${responses.length})` : ""}`],
+                    ["summary", t("surveys.tabSummary")],
+                    [
+                      "responses",
+                      responses
+                        ? t("surveys.tabResponsesCount", { n: responses.length })
+                        : t("surveys.tabResponses"),
+                    ],
                   ] as const
                 ).map(([key, label]) => {
                   const active = resultsTab === key;
@@ -536,10 +552,10 @@ export default function SurveyDetailPage() {
                 <SummaryPanel surveyId={id} accent={themeToAccent(survey.theme)} />
               </div>
             ) : responses === null ? (
-              <div className="text-sm text-neutral-400 dark:text-neutral-500">Cargando…</div>
+              <div className="text-sm text-neutral-400 dark:text-neutral-500">{t("surveys.loading")}</div>
             ) : responses.length === 0 ? (
               <div className="rounded-lg border border-dashed border-neutral-300 dark:border-neutral-700 py-10 text-center text-neutral-400 dark:text-neutral-500 text-sm">
-                Todavía no hay respuestas.
+                {t("surveys.noResponses")}
               </div>
             ) : (
               <ResponsesTable responses={responses} />
@@ -566,6 +582,7 @@ function ExportButtons({
   disabled: boolean;
   onExport: (format: "csv" | "xlsx") => void;
 }) {
+  const { t } = useI18n();
   const btn =
     "inline-flex items-center gap-1.5 rounded-lg border border-neutral-300 dark:border-neutral-700 px-3 py-1.5 text-xs font-medium hover:bg-neutral-50 dark:hover:bg-neutral-800 disabled:opacity-50 disabled:cursor-not-allowed";
   return (
@@ -574,7 +591,7 @@ function ExportButtons({
         onClick={() => onExport("csv")}
         disabled={disabled || !!exporting}
         className={btn}
-        title={disabled ? "No hay respuestas para exportar" : "Descargar CSV"}
+        title={disabled ? t("surveys.exportNoneTitle") : t("surveys.exportCsvTitle")}
       >
         {exporting === "csv" ? (
           <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -587,7 +604,7 @@ function ExportButtons({
         onClick={() => onExport("xlsx")}
         disabled={disabled || !!exporting}
         className={btn}
-        title={disabled ? "No hay respuestas para exportar" : "Descargar Excel"}
+        title={disabled ? t("surveys.exportNoneTitle") : t("surveys.exportXlsxTitle")}
       >
         {exporting === "xlsx" ? (
           <Loader2 className="w-3.5 h-3.5 animate-spin" />
@@ -611,6 +628,7 @@ function hasOpenText(schema: Record<string, any> | null | undefined): boolean {
 }
 
 function ResponsesTable({ responses }: { responses: ResponseItem[] }) {
+  const { t } = useI18n();
   // Union of all answer keys across responses, preserving first-seen order.
   const columns = useMemo(() => {
     const seen: string[] = [];
@@ -627,7 +645,7 @@ function ResponsesTable({ responses }: { responses: ResponseItem[] }) {
       <table className="min-w-full text-sm">
         <thead className="bg-neutral-50 dark:bg-neutral-950 text-neutral-500 dark:text-neutral-400">
           <tr>
-            <th className="text-left font-medium px-3 py-2 whitespace-nowrap">Fecha</th>
+            <th className="text-left font-medium px-3 py-2 whitespace-nowrap">{t("surveys.colDate")}</th>
             {columns.map((c) => (
               <th key={c} className="text-left font-medium px-3 py-2 whitespace-nowrap">
                 {c}
@@ -661,12 +679,13 @@ function formatCell(value: any): string {
 }
 
 function BackLink() {
+  const { t } = useI18n();
   return (
     <Link
       href="/surveys"
       className="inline-flex items-center gap-1 text-sm text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100"
     >
-      <ArrowLeft className="w-4 h-4" /> Encuestas
+      <ArrowLeft className="w-4 h-4" /> {t("surveys.back")}
     </Link>
   );
 }

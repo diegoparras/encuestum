@@ -5,11 +5,13 @@ import { useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Loader2 } from "lucide-react";
 import { resetPassword } from "@/utils/auth";
+import { useI18n } from "@/lib/i18n";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/input";
 
 function ResetForm() {
+  const { t } = useI18n();
   const searchParams = useSearchParams();
   const token = searchParams.get("token") ?? "";
 
@@ -25,15 +27,15 @@ function ResetForm() {
     e.preventDefault();
     setError(null);
     if (!token) {
-      setError("El enlace no es válido. Solicitá uno nuevo.");
+      setError(t("auth.errors.invalidLink"));
       return;
     }
     if (password.length < 8) {
-      setError("La contraseña debe tener al menos 8 caracteres.");
+      setError(t("auth.errors.passwordTooShort"));
       return;
     }
     if (password !== confirm) {
-      setError("Las contraseñas no coinciden.");
+      setError(t("auth.errors.passwordMismatch"));
       return;
     }
     setLoading(true);
@@ -42,7 +44,7 @@ function ResetForm() {
       setDone(true);
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : "No se pudo restablecer la contraseña"
+        err instanceof Error ? err.message : t("auth.errors.resetFailed")
       );
     } finally {
       setLoading(false);
@@ -53,24 +55,23 @@ function ResetForm() {
     <Card>
       <CardContent className="py-6">
         <h1 className="text-xl font-semibold text-neutral-900 dark:text-neutral-100">
-          Restablecer contraseña
+          {t("auth.reset.title")}
         </h1>
         <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
-          Elegí una nueva contraseña para tu cuenta.
+          {t("auth.reset.subtitle")}
         </p>
 
         {done ? (
           <>
             <p className="mt-6 rounded-lg bg-green-50 px-3 py-2 text-sm text-green-700 dark:bg-green-950/40">
-              Tu contraseña se actualizó correctamente. Ya podés ingresar con la
-              nueva.
+              {t("auth.reset.success")}
             </p>
             <p className="mt-6 text-center text-sm text-neutral-500 dark:text-neutral-400">
               <Link
                 href="/login"
                 className="font-medium text-primary hover:underline"
               >
-                Ir a Ingresar
+                {t("auth.goToLogin")}
               </Link>
             </p>
           </>
@@ -78,13 +79,12 @@ function ResetForm() {
           <>
             {!token && (
               <p className="mt-6 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-700 dark:bg-amber-950/40">
-                Falta el token de recuperación. Abrí el enlace del correo o
-                solicitá uno nuevo.
+                {t("auth.reset.missingToken")}
               </p>
             )}
             <form onSubmit={onSubmit} className="mt-6 space-y-4">
               <div className="space-y-1.5">
-                <Label htmlFor="password">Nueva contraseña</Label>
+                <Label htmlFor="password">{t("auth.reset.newPasswordLabel")}</Label>
                 <Input
                   id="password"
                   type="password"
@@ -93,7 +93,7 @@ function ResetForm() {
                   minLength={8}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  placeholder="Mínimo 8 caracteres"
+                  placeholder={t("auth.password.minPlaceholder")}
                 />
                 <p
                   className={
@@ -102,12 +102,12 @@ function ResetForm() {
                       : "text-xs text-neutral-400 dark:text-neutral-500"
                   }
                 >
-                  Al menos 8 caracteres.
+                  {t("auth.password.hint")}
                 </p>
               </div>
 
               <div className="space-y-1.5">
-                <Label htmlFor="confirm">Repetir contraseña</Label>
+                <Label htmlFor="confirm">{t("auth.reset.confirmLabel")}</Label>
                 <Input
                   id="confirm"
                   type="password"
@@ -115,7 +115,7 @@ function ResetForm() {
                   required
                   value={confirm}
                   onChange={(e) => setConfirm(e.target.value)}
-                  placeholder="Repetí la contraseña"
+                  placeholder={t("auth.reset.confirmPlaceholder")}
                 />
               </div>
 
@@ -127,7 +127,7 @@ function ResetForm() {
 
               <Button type="submit" className="w-full" disabled={loading}>
                 {loading && <Loader2 className="h-4 w-4 animate-spin" />}
-                {loading ? "Guardando…" : "Restablecer contraseña"}
+                {loading ? t("auth.reset.submitting") : t("auth.reset.submit")}
               </Button>
             </form>
 
@@ -136,7 +136,7 @@ function ResetForm() {
                 href="/login"
                 className="font-medium text-primary hover:underline"
               >
-                Volver a Ingresar
+                {t("auth.backToLogin")}
               </Link>
             </p>
           </>

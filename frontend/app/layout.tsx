@@ -1,6 +1,7 @@
 import "./globals.css";
 import React from "react";
 import { Toaster } from "sonner";
+import { I18nProvider } from "@/lib/i18n";
 
 export const metadata = {
   title: "Encuestum",
@@ -18,17 +19,19 @@ export default function RootLayout({
   return (
     <html lang="es" suppressHydrationWarning>
       <head>
-        {/* Estándar Escriba: aplicar el tema antes de pintar, para evitar flash. */}
+        {/* Estándar Escriba: aplicar tema e idioma antes de pintar, sin flash. */}
         <script
           dangerouslySetInnerHTML={{
             __html:
-              'try{if(localStorage.getItem("encuestum.theme")==="dark")document.documentElement.dataset.theme="dark"}catch(e){}',
+              'try{if(localStorage.getItem("encuestum.theme")==="dark")document.documentElement.dataset.theme="dark";var l=localStorage.getItem("encuestum.lang");if(l)document.documentElement.lang=l}catch(e){}',
           }}
         />
       </head>
       <body suppressHydrationWarning>
-        {children}
-        <Toaster richColors position="top-center" />
+        <I18nProvider>
+          {children}
+          <Toaster richColors position="top-center" />
+        </I18nProvider>
       </body>
     </html>
   );

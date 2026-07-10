@@ -20,6 +20,7 @@ import {
 import { LoadError, LoadSpinner } from "@/components/LoadError";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { useI18n } from "@/lib/i18n";
 
 function formatDate(iso: string): string {
   try {
@@ -60,6 +61,7 @@ function MetricCard({
 }
 
 export default function AdminPage() {
+  const { t } = useI18n();
   const [me, setMe] = useState<Me | null>(null);
   const [data, setData] = useState<AdminOverview | null>(null);
   const [status, setStatus] = useState<"loading" | "ready" | "forbidden" | "error">(
@@ -74,7 +76,7 @@ export default function AdminPage() {
     try {
       const meData = await getMe();
       if (!meData) {
-        setError("Tu sesión expiró.");
+        setError(t("admin.session.expired"));
         setStatus("error");
         return;
       }
@@ -87,10 +89,10 @@ export default function AdminPage() {
       setData(overview);
       setStatus("ready");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "No se pudieron cargar los datos");
+      setError(err instanceof Error ? err.message : t("admin.load.error"));
       setStatus("error");
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     void load();
@@ -100,9 +102,9 @@ export default function AdminPage() {
     setExporting(true);
     try {
       await downloadAdminExport();
-      toast.success("Exportación lista");
+      toast.success(t("admin.toast.exportReady"));
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "No se pudo exportar");
+      toast.error(err instanceof Error ? err.message : t("admin.toast.exportError"));
     } finally {
       setExporting(false);
     }
@@ -115,9 +117,9 @@ export default function AdminPage() {
       <Card>
         <CardContent className="flex flex-col items-center gap-3 py-12 text-center">
           <ShieldAlert className="h-8 w-8 text-neutral-300 dark:text-neutral-600" />
-          <p className="text-sm font-medium text-neutral-700 dark:text-neutral-300">No tenés acceso</p>
+          <p className="text-sm font-medium text-neutral-700 dark:text-neutral-300">{t("admin.forbidden.title")}</p>
           <p className="max-w-sm text-sm text-neutral-400 dark:text-neutral-500">
-            Esta sección es exclusiva para administradores de la plataforma.
+            {t("admin.forbidden.body")}
           </p>
         </CardContent>
       </Card>
@@ -135,10 +137,10 @@ export default function AdminPage() {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight text-neutral-900 dark:text-neutral-100">
-            Administración
+            {t("admin.page.title")}
           </h1>
           <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
-            Resumen global de la plataforma
+            {t("admin.page.subtitle")}
             {me?.user.email ? ` · ${me.user.email}` : ""}.
           </p>
         </div>
@@ -148,21 +150,21 @@ export default function AdminPage() {
           ) : (
             <Download className="h-4 w-4" />
           )}
-          Exportar plataforma a Excel
+          {t("admin.export.button")}
         </Button>
       </div>
 
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <MetricCard icon={Building2} label="Organizaciones" value={data.orgs} />
-        <MetricCard icon={Users} label="Usuarios" value={data.users} />
-        <MetricCard icon={FileText} label="Encuestas" value={data.surveys} />
-        <MetricCard icon={MessageSquare} label="Respuestas" value={data.responses} />
+        <MetricCard icon={Building2} label={t("admin.metric.orgs")} value={data.orgs} />
+        <MetricCard icon={Users} label={t("admin.metric.users")} value={data.users} />
+        <MetricCard icon={FileText} label={t("admin.metric.surveys")} value={data.surveys} />
+        <MetricCard icon={MessageSquare} label={t("admin.metric.responses")} value={data.responses} />
       </div>
 
       <Card>
         <CardHeader className="flex flex-row items-center gap-2">
           <Building2 className="h-5 w-5 text-neutral-400 dark:text-neutral-500" />
-          <CardTitle>Organizaciones</CardTitle>
+          <CardTitle>{t("admin.orgs.title")}</CardTitle>
         </CardHeader>
         <CardContent>
           {data.organizations.length > 0 ? (
@@ -170,11 +172,11 @@ export default function AdminPage() {
               <table className="w-full min-w-[640px] text-sm">
                 <thead>
                   <tr className="border-b border-neutral-200 text-left text-xs uppercase tracking-wide text-neutral-400 dark:border-neutral-800 dark:text-neutral-500">
-                    <th className="pb-2 font-medium">Organización</th>
-                    <th className="pb-2 font-medium">Encuestas</th>
-                    <th className="pb-2 font-medium">Respuestas</th>
-                    <th className="pb-2 font-medium">Miembros</th>
-                    <th className="pb-2 font-medium">Creada</th>
+                    <th className="pb-2 font-medium">{t("admin.orgs.colName")}</th>
+                    <th className="pb-2 font-medium">{t("admin.orgs.colSurveys")}</th>
+                    <th className="pb-2 font-medium">{t("admin.orgs.colResponses")}</th>
+                    <th className="pb-2 font-medium">{t("admin.orgs.colMembers")}</th>
+                    <th className="pb-2 font-medium">{t("admin.orgs.colCreated")}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-neutral-100 dark:divide-neutral-800">
@@ -203,7 +205,7 @@ export default function AdminPage() {
             </div>
           ) : (
             <p className="py-6 text-center text-sm text-neutral-400 dark:text-neutral-500">
-              No hay organizaciones registradas.
+              {t("admin.orgs.empty")}
             </p>
           )}
         </CardContent>

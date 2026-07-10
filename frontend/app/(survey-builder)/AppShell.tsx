@@ -7,6 +7,7 @@ import {
   BarChart3,
   Building2,
   ClipboardList,
+  Globe,
   Info,
   Loader2,
   LogOut,
@@ -24,6 +25,7 @@ import { getApiUrl } from "@/utils/api";
 import { MeProvider } from "./MeContext";
 import { cn } from "@/lib/utils";
 import { EncuestumLogo } from "@/components/EncuestumLogo";
+import { useI18n, LANGS, LANG_LABELS } from "@/lib/i18n";
 
 function useOutsideClick(onClose: () => void) {
   const ref = useRef<HTMLDivElement>(null);
@@ -70,18 +72,19 @@ function Kebab() {
 
 // Menú kebab: TODO adentro (usuario, organización, tema, secciones, acerca de,
 // cerrar sesión). El header solo lleva el logo y este botón (§3.2 del estándar).
-const NAV_ITEMS: { href: string; label: string; icon: React.ComponentType<{ className?: string }>; superOnly?: boolean }[] = [
-  { href: "/surveys", label: "Encuestas", icon: ClipboardList },
-  { href: "/members", label: "Miembros", icon: Users },
-  { href: "/panel", label: "Panel", icon: BarChart3 },
-  { href: "/integrations", label: "Integraciones", icon: Webhook },
-  { href: "/ai", label: "IA", icon: Sparkles },
-  { href: "/admin", label: "Admin", icon: Shield, superOnly: true },
+const NAV_ITEMS: { href: string; tkey: string; icon: React.ComponentType<{ className?: string }>; superOnly?: boolean }[] = [
+  { href: "/surveys", tkey: "nav.surveys", icon: ClipboardList },
+  { href: "/members", tkey: "nav.members", icon: Users },
+  { href: "/panel", tkey: "nav.panel", icon: BarChart3 },
+  { href: "/integrations", tkey: "nav.integrations", icon: Webhook },
+  { href: "/ai", tkey: "nav.ai", icon: Sparkles },
+  { href: "/admin", tkey: "nav.admin", icon: Shield, superOnly: true },
 ];
 
 function AppMenu({ me }: { me: Me }) {
   const router = useRouter();
   const pathname = usePathname();
+  const { t, lang, setLang } = useI18n();
   const [open, setOpen] = useState(false);
   const [about, setAbout] = useState(false);
   const [loggingOut, setLoggingOut] = useState(false);
@@ -121,8 +124,8 @@ function AppMenu({ me }: { me: Me }) {
         onClick={() => setOpen((v) => !v)}
         aria-haspopup="true"
         aria-expanded={open}
-        aria-label="Menú"
-        title="Menú"
+        aria-label={t("menu.title")}
+        title={t("menu.title")}
         className="grid h-9 w-9 place-items-center rounded-lg text-neutral-500 hover:bg-neutral-100 hover:text-neutral-800 dark:text-neutral-400 dark:hover:bg-neutral-800 dark:hover:text-neutral-100"
       >
         <Kebab />
@@ -133,7 +136,7 @@ function AppMenu({ me }: { me: Me }) {
           {/* Usuario */}
           <div className="px-3 py-2">
             <p className="truncate text-sm font-medium text-neutral-900 dark:text-neutral-100">
-              {me.user.name?.trim() || "Sin nombre"}
+              {me.user.name?.trim() || t("menu.noName")}
             </p>
             <p className="truncate text-xs text-neutral-400">{me.user.email}</p>
           </div>
@@ -142,7 +145,7 @@ function AppMenu({ me }: { me: Me }) {
           {me.orgs.length > 1 ? (
             <div className="px-3 pb-2 pt-1">
               <label className="mb-1 block text-[11px] font-semibold uppercase tracking-wide text-neutral-400">
-                Organización
+                {t("menu.org")}
               </label>
               <select
                 value={activeOrg?.id}
@@ -167,8 +170,29 @@ function AppMenu({ me }: { me: Me }) {
 
           {/* Tema */}
           <MenuItem onClick={toggleTheme} icon={dark ? Sun : Moon}>
-            {dark ? "Tema claro" : "Tema oscuro"}
+            {dark ? t("menu.themeLight") : t("menu.themeDark")}
           </MenuItem>
+
+          {/* Idioma (convención Escriba: en el menú, nunca suelto en el header) */}
+          <div className="flex items-center gap-2.5 px-3 py-2 text-sm text-neutral-600 dark:text-neutral-300">
+            <Globe className="h-4 w-4 shrink-0" />
+            <label htmlFor="enc-lang" className="sr-only">
+              {t("menu.language")}
+            </label>
+            <select
+              id="enc-lang"
+              value={lang}
+              onChange={(e) => setLang(e.target.value as (typeof LANGS)[number])}
+              className="w-full rounded-md border border-neutral-200 bg-white px-2 py-1 text-sm text-neutral-700 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-200"
+              aria-label={t("menu.language")}
+            >
+              {LANGS.map((l) => (
+                <option key={l} value={l}>
+                  {LANG_LABELS[l]}
+                </option>
+              ))}
+            </select>
+          </div>
 
           <MenuSep />
 
@@ -180,14 +204,14 @@ function AppMenu({ me }: { me: Me }) {
               icon={n.icon}
               active={pathname === n.href || (n.href === "/surveys" && pathname.startsWith("/surveys/"))}
             >
-              {n.label}
+              {t(n.tkey)}
             </MenuItem>
           ))}
 
           <MenuSep />
 
           <MenuItem onClick={() => { setOpen(false); setAbout(true); }} icon={Info}>
-            Acerca de Encuestum
+            {t("menu.about")}
           </MenuItem>
 
           <MenuSep />
@@ -199,7 +223,7 @@ function AppMenu({ me }: { me: Me }) {
             className="flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50 disabled:opacity-60 dark:hover:bg-red-950/40"
           >
             {loggingOut ? <Loader2 className="h-4 w-4 animate-spin" /> : <LogOut className="h-4 w-4" />}
-            Cerrar sesión
+            {t("menu.logout")}
           </button>
         </div>
       )}
@@ -242,6 +266,7 @@ function MenuSep() {
 }
 
 function AboutModal({ onClose }: { onClose: () => void }) {
+  const { t } = useI18n();
   const [version, setVersion] = useState<string>("…");
   useEffect(() => {
     fetch(getApiUrl("/api/health"), { cache: "no-store" })
@@ -263,8 +288,8 @@ function AboutModal({ onClose }: { onClose: () => void }) {
         <div className="flex items-center gap-3">
           <EncuestumLogo size={40} />
           <div>
-            <h2 className="text-base font-semibold text-neutral-900 dark:text-neutral-100">Encuestum</h2>
-            <p className="text-xs text-neutral-400">Encuestas y evaluaciones con corrección por IA</p>
+            <h2 className="text-base font-semibold text-neutral-900 dark:text-neutral-100">{t("app.name")}</h2>
+            <p className="text-xs text-neutral-400">{t("app.tagline")}</p>
           </div>
           <button
             type="button"
@@ -275,12 +300,12 @@ function AboutModal({ onClose }: { onClose: () => void }) {
           </button>
         </div>
         <dl className="mt-5 space-y-2 text-sm">
-          <Row label="Versión" value={version} />
-          <Row label="Rol en la suite" value="Satélite" />
-          <Row label="Licencia" value="MIT · open source" />
+          <Row label={t("about.version")} value={version} />
+          <Row label={t("about.role")} value={t("about.role.value")} />
+          <Row label={t("about.license")} value={t("about.license.value")} />
         </dl>
         <p className="mt-5 border-t border-neutral-100 pt-3 text-xs text-neutral-400 dark:border-neutral-800">
-          Diego Parras · Ecosistema Escriba
+          {t("about.author")}
         </p>
       </div>
     </div>
@@ -296,6 +321,47 @@ function Row({ label, value }: { label: string; value: string }) {
   );
 }
 
+
+function DisconnectedScreen({ onRetry }: { onRetry: () => void }) {
+  const { t } = useI18n();
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-neutral-50 px-4">
+      <div className="flex max-w-sm flex-col items-center gap-4 text-center">
+        <div className="grid h-12 w-12 place-items-center rounded-full bg-red-50 text-red-500">
+          <WifiOff className="h-6 w-6" />
+        </div>
+        <div>
+          <p className="text-base font-semibold text-neutral-800">
+            {t("common.disconnected.title")}
+          </p>
+          <p className="mt-1 text-sm text-neutral-500">
+            {t("common.disconnected.body")}
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={onRetry}
+          className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-[#1e2a06] hover:opacity-90"
+        >
+          <Loader2 className="h-4 w-4 animate-spin" />
+          {t("common.retrying")}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function LoadingScreen() {
+  const { t } = useI18n();
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-neutral-50">
+      <div className="flex flex-col items-center gap-3 text-neutral-400">
+        <Loader2 className="h-6 w-6 animate-spin" />
+        <p className="text-sm">{t("common.loading")}</p>
+      </div>
+    </div>
+  );
+}
 
 export default function AppShell({ children }: { children: React.ReactNode }) {
   const router = useRouter();
@@ -343,43 +409,11 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
   }, [status, load]);
 
   if (status === "error") {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-neutral-50 px-4">
-        <div className="flex max-w-sm flex-col items-center gap-4 text-center">
-          <div className="grid h-12 w-12 place-items-center rounded-full bg-red-50 text-red-500">
-            <WifiOff className="h-6 w-6" />
-          </div>
-          <div>
-            <p className="text-base font-semibold text-neutral-800">
-              Sin conexión con el servidor
-            </p>
-            <p className="mt-1 text-sm text-neutral-500">
-              No pudimos contactar a Encuestum. Revisá tu conexión o esperá unos
-              segundos — reintentamos solos.
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={load}
-            className="inline-flex items-center gap-2 rounded-lg bg-primary px-4 py-2 text-sm font-medium text-[#1e2a06] hover:opacity-90"
-          >
-            <Loader2 className="h-4 w-4 animate-spin" />
-            Reintentando…
-          </button>
-        </div>
-      </div>
-    );
+    return <DisconnectedScreen onRetry={load} />;
   }
 
   if (status !== "ready" || !me) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-neutral-50">
-        <div className="flex flex-col items-center gap-3 text-neutral-400">
-          <Loader2 className="h-6 w-6 animate-spin" />
-          <p className="text-sm">Cargando…</p>
-        </div>
-      </div>
-    );
+    return <LoadingScreen />;
   }
 
   return (

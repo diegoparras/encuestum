@@ -39,6 +39,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input, Label, Select } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
+import { useI18n } from "@/lib/i18n";
+
+type TFn = (key: string, vars?: Record<string, string | number>) => string;
 
 const ACCENT = "#8faf0e";
 
@@ -56,12 +59,16 @@ function formatDateTime(iso: string): string {
   }
 }
 
-function modelOptionLabel(m: AiModel): string {
+function modelOptionLabel(m: AiModel, t: TFn): string {
   const name = m.name || m.id;
   const parts: string[] = [];
-  if (m.input_per_m !== null) parts.push(`entrada US$${m.input_per_m}`);
-  if (m.output_per_m !== null) parts.push(`salida US$${m.output_per_m}`);
-  return parts.length > 0 ? `${name} — ${parts.join(" / ")} (por 1M)` : name;
+  if (m.input_per_m !== null)
+    parts.push(t("ai.model.inputPrice", { price: m.input_per_m }));
+  if (m.output_per_m !== null)
+    parts.push(t("ai.model.outputPrice", { price: m.output_per_m }));
+  return parts.length > 0
+    ? `${name} — ${parts.join(" / ")} ${t("ai.model.per1m")}`
+    : name;
 }
 
 // ---------------------------------------------------------------------------
@@ -81,6 +88,7 @@ function ProviderForm({
   onCancel,
   onSaved,
 }: ProviderFormProps) {
+  const { t } = useI18n();
   const editing = !!provider;
   const [kind, setKind] = useState<ProviderKind>(provider?.kind ?? "openai");
   const [name, setName] = useState(provider?.name ?? "");
@@ -116,14 +124,14 @@ function ProviderForm({
           });
       setModels(res.models);
       if (res.models.length === 0) {
-        toast.info("No se encontraron modelos");
+        toast.info(t("ai.toast.noModels"));
       } else {
-        toast.success(`${res.models.length} modelo(s) encontrado(s)`);
+        toast.success(t("ai.toast.modelsFound", { count: res.models.length }));
         if (!model && res.models[0]) setModel(res.models[0].id);
       }
     } catch (err) {
       toast.error(
-        err instanceof Error ? err.message : "No se pudieron buscar los modelos"
+        err instanceof Error ? err.message : t("ai.toast.searchModelsError")
       );
     } finally {
       setSearching(false);
@@ -133,15 +141,15 @@ function ProviderForm({
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!name.trim()) {
-      toast.error("Ingresá un nombre para el proveedor");
+      toast.error(t("ai.toast.nameRequired"));
       return;
     }
     if (!model.trim()) {
-      toast.error("Elegí o ingresá un modelo");
+      toast.error(t("ai.toast.modelRequired"));
       return;
     }
     if (kind === "custom" && !baseUrl.trim()) {
-      toast.error("El proveedor personalizado necesita una URL base");
+      toast.error(t("ai.toast.baseUrlRequired"));
       return;
     }
     setSaving(true);
@@ -155,11 +163,11 @@ function ProviderForm({
           is_default: isDefault,
           enabled,
         });
-        toast.success("Proveedor actualizado");
+        toast.success(t("ai.toast.providerUpdated"));
         onSaved(updated);
       } else {
         if (!apiKey.trim()) {
-          toast.error("Ingresá la API key");
+          toast.error(t("ai.toast.apiKeyRequired"));
           setSaving(false);
           return;
         }
@@ -173,12 +181,12 @@ function ProviderForm({
           is_default: isDefault,
         };
         const created = await aiApi.createProvider(body);
-        toast.success("Proveedor agregado");
+        toast.success(t("ai.toast.providerAdded"));
         onSaved(created);
       }
     } catch (err) {
       toast.error(
-        err instanceof Error ? err.message : "No se pudo guardar el proveedor"
+        err instanceof Error ? err.message : t("ai.toast.saveProviderError")
       );
     } finally {
       setSaving(false);
@@ -192,13 +200,13 @@ function ProviderForm({
     >
       <div className="flex items-center justify-between">
         <h3 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">
-          {editing ? "Editar proveedor" : "Nuevo proveedor"}
+          {editing ? t("ai.form.editTitle") : t("ai.form.newTitle")}
         </h3>
         <button
           type="button"
           onClick={onCancel}
           className="text-neutral-400 hover:text-neutral-700 dark:text-neutral-500 dark:hover:text-neutral-300"
-          aria-label="Cerrar formulario"
+          aria-label={t("ai.form.close")}
         >
           <X className="h-4 w-4" />
         </button>
@@ -206,7 +214,7 @@ function ProviderForm({
 
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <div className="space-y-1.5">
-          <Label htmlFor="prov-kind">Proveedor</Label>
+          <Label htmlFor="prov-kind">{t("ai.form.kind")}</Label>
           <Select
             id="prov-kind"
             value={kind}
@@ -215,28 +223,28 @@ function ProviderForm({
           >
             <option value="openai">OpenAI</option>
             <option value="openrouter">OpenRouter</option>
-            <option value="custom">Personalizado</option>
+            <option value="custom">{t("ai.kind.custom")}</option>
           </Select>
           {editing && (
             <p className="text-[11px] text-neutral-400 dark:text-neutral-500">
-              El tipo de proveedor no se puede cambiar.
+              {t("ai.form.kindLocked")}
             </p>
           )}
         </div>
 
         <div className="space-y-1.5">
-          <Label htmlFor="prov-name">Nombre</Label>
+          <Label htmlFor="prov-name">{t("ai.form.name")}</Label>
           <Input
             id="prov-name"
             value={name}
             onChange={(e) => setName(e.target.value)}
-            placeholder="Ej. OpenAI producción"
+            placeholder={t("ai.form.namePlaceholder")}
           />
         </div>
       </div>
 
       <div className="space-y-1.5">
-        <Label htmlFor="prov-baseurl">URL base</Label>
+        <Label htmlFor="prov-baseurl">{t("ai.form.baseUrl")}</Label>
         <Input
           id="prov-baseurl"
           value={baseUrl}
@@ -246,14 +254,15 @@ function ProviderForm({
         />
         {kind !== "custom" && (
           <p className="text-[11px] text-neutral-400 dark:text-neutral-500">
-            Se completa automáticamente según el proveedor.
+            {t("ai.form.baseUrlAuto")}
           </p>
         )}
       </div>
 
       <div className="space-y-1.5">
         <Label htmlFor="prov-key">
-          API key {editing && <span className="text-neutral-400 dark:text-neutral-500">(opcional)</span>}
+          {t("ai.form.apiKey")}{" "}
+          {editing && <span className="text-neutral-400 dark:text-neutral-500">{t("ai.form.optional")}</span>}
         </Label>
         <Input
           id="prov-key"
@@ -262,7 +271,7 @@ function ProviderForm({
           onChange={(e) => setApiKey(e.target.value)}
           placeholder={
             editing
-              ? `Actual: ${provider!.key_hint || "•••"} — dejá vacío para conservarla`
+              ? t("ai.form.apiKeyPlaceholderEdit", { hint: provider!.key_hint || "•••" })
               : "sk-…"
           }
         />
@@ -270,17 +279,17 @@ function ProviderForm({
 
       <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
         <div className="flex-1 space-y-1.5">
-          <Label htmlFor="prov-model">Modelo</Label>
+          <Label htmlFor="prov-model">{t("ai.form.model")}</Label>
           {models.length > 0 ? (
             <Select
               id="prov-model"
               value={model}
               onChange={(e) => setModel(e.target.value)}
             >
-              <option value="">Elegí un modelo…</option>
+              <option value="">{t("ai.form.modelSelect")}</option>
               {models.map((m) => (
                 <option key={m.id} value={m.id}>
-                  {modelOptionLabel(m)}
+                  {modelOptionLabel(m, t)}
                 </option>
               ))}
             </Select>
@@ -289,7 +298,7 @@ function ProviderForm({
               id="prov-model"
               value={model}
               onChange={(e) => setModel(e.target.value)}
-              placeholder="Ej. gpt-4o-mini"
+              placeholder={t("ai.form.modelPlaceholder")}
             />
           )}
         </div>
@@ -300,7 +309,7 @@ function ProviderForm({
           disabled={searching || (!editing && !apiKey.trim())}
           title={
             !editing && !apiKey.trim()
-              ? "Ingresá la API key para buscar modelos"
+              ? t("ai.form.searchModelsHint")
               : undefined
           }
         >
@@ -309,7 +318,7 @@ function ProviderForm({
           ) : (
             <Search className="h-4 w-4" />
           )}
-          Buscar modelos
+          {t("ai.form.searchModels")}
         </Button>
       </div>
 
@@ -321,19 +330,19 @@ function ProviderForm({
             onChange={(e) => setIsDefault(e.target.checked)}
             className="h-4 w-4 rounded border-neutral-300 accent-[#8faf0e] dark:border-neutral-600"
           />
-          Predeterminado
+          {t("ai.form.default")}
         </label>
 
         {editing && (
           <label className="flex cursor-pointer items-center gap-2 text-sm text-neutral-700 dark:text-neutral-300">
             <Switch checked={enabled} onCheckedChange={setEnabled} />
-            Habilitado
+            {t("ai.form.enabled")}
           </label>
         )}
 
         {!editing && isSuperadmin && (
           <div className="flex items-center gap-2 text-sm text-neutral-700 dark:text-neutral-300">
-            <span>Alcance:</span>
+            <span>{t("ai.form.scope")}</span>
             <div className="inline-flex overflow-hidden rounded-lg border border-neutral-300 dark:border-neutral-700">
               <button
                 type="button"
@@ -344,7 +353,7 @@ function ProviderForm({
                     : "bg-white text-neutral-600 hover:bg-neutral-50 dark:bg-neutral-900 dark:text-neutral-300 dark:hover:bg-neutral-800"
                 }`}
               >
-                Mi organización
+                {t("ai.scope.org")}
               </button>
               <button
                 type="button"
@@ -355,7 +364,7 @@ function ProviderForm({
                     : "bg-white text-neutral-600 hover:bg-neutral-50 dark:bg-neutral-900 dark:text-neutral-300 dark:hover:bg-neutral-800"
                 }`}
               >
-                Global (plataforma)
+                {t("ai.scope.global")}
               </button>
             </div>
           </div>
@@ -364,7 +373,7 @@ function ProviderForm({
 
       <div className="flex justify-end gap-2">
         <Button type="button" variant="outline" onClick={onCancel}>
-          Cancelar
+          {t("ai.form.cancel")}
         </Button>
         <Button type="submit" disabled={saving}>
           {saving ? (
@@ -372,7 +381,7 @@ function ProviderForm({
           ) : (
             <Check className="h-4 w-4" />
           )}
-          {editing ? "Guardar cambios" : "Agregar proveedor"}
+          {editing ? t("ai.form.saveChanges") : t("ai.form.addProvider")}
         </Button>
       </div>
     </form>
@@ -392,18 +401,19 @@ function ProviderRow({
   onEdit: () => void;
   onDeleted: (id: string) => void;
 }) {
+  const { t } = useI18n();
   const [deleting, setDeleting] = useState(false);
 
   async function onDelete() {
-    if (!window.confirm(`¿Eliminar el proveedor "${provider.name}"?`)) return;
+    if (!window.confirm(t("ai.confirm.deleteProvider", { name: provider.name }))) return;
     setDeleting(true);
     try {
       await aiApi.deleteProvider(provider.id);
-      toast.success("Proveedor eliminado");
+      toast.success(t("ai.toast.providerDeleted"));
       onDeleted(provider.id);
     } catch (err) {
       toast.error(
-        err instanceof Error ? err.message : "No se pudo eliminar el proveedor"
+        err instanceof Error ? err.message : t("ai.toast.deleteProviderError")
       );
       setDeleting(false);
     }
@@ -426,40 +436,40 @@ function ProviderRow({
             ) : (
               <Building2 className="h-3 w-3" />
             )}
-            {provider.scope === "global" ? "Global" : "Organización"}
+            {provider.scope === "global" ? t("ai.row.global") : t("ai.row.org")}
           </span>
           {provider.is_default && (
             <span
               className="inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-medium text-[#1e2a06]"
               style={{ backgroundColor: ACCENT }}
             >
-              <Star className="h-3 w-3" /> Predeterminado
+              <Star className="h-3 w-3" /> {t("ai.row.default")}
             </span>
           )}
           {!provider.enabled && (
             <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[11px] font-medium text-amber-700 dark:bg-amber-950/40">
-              Deshabilitado
+              {t("ai.row.disabled")}
             </span>
           )}
           {!provider.editable && (
             <span className="rounded-full bg-neutral-100 px-2 py-0.5 text-[11px] font-medium text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400">
-              Solo lectura
+              {t("ai.row.readOnly")}
             </span>
           )}
         </div>
         <p className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">
-          {KIND_LABEL[provider.kind]} · Modelo{" "}
+          {KIND_LABEL[provider.kind]} · {t("ai.row.modelLabel")}{" "}
           <span className="font-mono text-neutral-700 dark:text-neutral-300">{provider.model}</span>
         </p>
         <p className="mt-0.5 text-xs text-neutral-400 dark:text-neutral-500">
-          {provider.base_url || "—"} · Key {provider.key_hint || "•••"}
+          {provider.base_url || "—"} · {t("ai.row.key")} {provider.key_hint || "•••"}
         </p>
       </div>
 
       {provider.editable && (
         <div className="flex shrink-0 items-center gap-2">
           <Button variant="outline" size="sm" onClick={onEdit}>
-            <Pencil className="h-4 w-4" /> Editar
+            <Pencil className="h-4 w-4" /> {t("ai.row.edit")}
           </Button>
           <Button
             variant="ghost"
@@ -473,7 +483,7 @@ function ProviderRow({
             ) : (
               <Trash2 className="h-4 w-4" />
             )}
-            Eliminar
+            {t("ai.row.delete")}
           </Button>
         </div>
       )}
@@ -486,6 +496,7 @@ function ProviderRow({
 // ---------------------------------------------------------------------------
 
 function ProvidersSection({ isSuperadmin }: { isSuperadmin: boolean }) {
+  const { t } = useI18n();
   const {
     data: providers,
     status,
@@ -512,11 +523,11 @@ function ProvidersSection({ isSuperadmin }: { isSuperadmin: boolean }) {
       <CardHeader className="flex flex-row items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <Sparkles className="h-5 w-5 text-neutral-400 dark:text-neutral-500" />
-          <CardTitle>Proveedores de IA</CardTitle>
+          <CardTitle>{t("ai.providers.title")}</CardTitle>
         </div>
         {!showForm && !editingId && (
           <Button size="sm" onClick={() => setShowForm(true)}>
-            <Plus className="h-4 w-4" /> Agregar proveedor
+            <Plus className="h-4 w-4" /> {t("ai.providers.add")}
           </Button>
         )}
       </CardHeader>
@@ -567,8 +578,7 @@ function ProvidersSection({ isSuperadmin }: { isSuperadmin: boolean }) {
             <div className="py-8 text-center">
               <Sparkles className="mx-auto h-8 w-8 text-neutral-300 dark:text-neutral-600" />
               <p className="mt-3 text-sm text-neutral-400 dark:text-neutral-500">
-                Todavía no hay proveedores de IA configurados. Agregá uno para
-                empezar a generar y corregir con IA.
+                {t("ai.providers.empty")}
               </p>
             </div>
           )
@@ -594,6 +604,7 @@ function StatBox({ label, value }: { label: string; value: string }) {
 }
 
 function UsageSection({ isSuperadmin }: { isSuperadmin: boolean }) {
+  const { t } = useI18n();
   const [scope, setScope] = useState<ProviderScope>("org");
   const [report, setReport] = useState<UsageReport | null>(null);
   const [loading, setLoading] = useState(true);
@@ -606,12 +617,12 @@ function UsageSection({ isSuperadmin }: { isSuperadmin: boolean }) {
       setReport(await aiApi.usage(s, 50));
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : "No se pudo cargar el consumo"
+        err instanceof Error ? err.message : t("ai.usage.loadError")
       );
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     void load(scope);
@@ -622,7 +633,7 @@ function UsageSection({ isSuperadmin }: { isSuperadmin: boolean }) {
       <CardHeader className="flex flex-row items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <Activity className="h-5 w-5 text-neutral-400 dark:text-neutral-500" />
-          <CardTitle>Consumo</CardTitle>
+          <CardTitle>{t("ai.usage.title")}</CardTitle>
         </div>
         {isSuperadmin && (
           <div className="inline-flex overflow-hidden rounded-lg border border-neutral-300 dark:border-neutral-700">
@@ -635,7 +646,7 @@ function UsageSection({ isSuperadmin }: { isSuperadmin: boolean }) {
                   : "bg-white text-neutral-600 hover:bg-neutral-50 dark:bg-neutral-900 dark:text-neutral-300 dark:hover:bg-neutral-800"
               }`}
             >
-              Mi organización
+              {t("ai.scope.org")}
             </button>
             <button
               type="button"
@@ -646,7 +657,7 @@ function UsageSection({ isSuperadmin }: { isSuperadmin: boolean }) {
                   : "bg-white text-neutral-600 hover:bg-neutral-50 dark:bg-neutral-900 dark:text-neutral-300 dark:hover:bg-neutral-800"
               }`}
             >
-              Global (plataforma)
+              {t("ai.scope.global")}
             </button>
           </div>
         )}
@@ -665,22 +676,22 @@ function UsageSection({ isSuperadmin }: { isSuperadmin: boolean }) {
               size="sm"
               onClick={() => void load(scope)}
             >
-              Reintentar
+              {t("ai.retry")}
             </Button>
           </div>
         ) : report ? (
           <>
             <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
               <StatBox
-                label="Llamadas"
+                label={t("ai.usage.calls")}
                 value={report.totals.calls.toLocaleString("es")}
               />
               <StatBox
-                label="Tokens totales"
+                label={t("ai.usage.totalTokens")}
                 value={report.totals.total_tokens.toLocaleString("es")}
               />
               <StatBox
-                label="Costo aproximado"
+                label={t("ai.usage.approxCost")}
                 value={
                   report.totals.total_cost_usd !== null
                     ? `≈ ${formatCost(report.totals.total_cost_usd)}`
@@ -694,11 +705,11 @@ function UsageSection({ isSuperadmin }: { isSuperadmin: boolean }) {
                 <table className="w-full min-w-[640px] text-sm">
                   <thead>
                     <tr className="border-b border-neutral-200 text-left text-xs uppercase tracking-wide text-neutral-400 dark:border-neutral-800 dark:text-neutral-500">
-                      <th className="pb-2 font-medium">Operación</th>
-                      <th className="pb-2 font-medium">Modelo</th>
-                      <th className="pb-2 font-medium">Tokens</th>
-                      <th className="pb-2 font-medium">Costo</th>
-                      <th className="pb-2 font-medium">Fecha</th>
+                      <th className="pb-2 font-medium">{t("ai.usage.colOperation")}</th>
+                      <th className="pb-2 font-medium">{t("ai.usage.colModel")}</th>
+                      <th className="pb-2 font-medium">{t("ai.usage.colTokens")}</th>
+                      <th className="pb-2 font-medium">{t("ai.usage.colCost")}</th>
+                      <th className="pb-2 font-medium">{t("ai.usage.colDate")}</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-neutral-100 dark:divide-neutral-800">
@@ -726,7 +737,7 @@ function UsageSection({ isSuperadmin }: { isSuperadmin: boolean }) {
               </div>
             ) : (
               <p className="py-6 text-center text-sm text-neutral-400 dark:text-neutral-500">
-                Todavía no hay consumo registrado.
+                {t("ai.usage.empty")}
               </p>
             )}
           </>
@@ -755,6 +766,7 @@ const EMPTY_DRAFT: PriceDraft = {
 };
 
 function PricesSection() {
+  const { t } = useI18n();
   const [data, setData] = useState<PricesReport | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -769,12 +781,12 @@ function PricesSection() {
       setData(await aiApi.prices());
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : "No se pudieron cargar los precios"
+        err instanceof Error ? err.message : t("ai.prices.loadError")
       );
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [t]);
 
   useEffect(() => {
     void load();
@@ -794,11 +806,11 @@ function PricesSection() {
     const input = Number(draft.input_per_m);
     const output = Number(draft.output_per_m);
     if (!draft.model.trim()) {
-      toast.error("Ingresá el modelo");
+      toast.error(t("ai.toast.priceModelRequired"));
       return;
     }
     if (Number.isNaN(input) || Number.isNaN(output)) {
-      toast.error("Los precios deben ser números");
+      toast.error(t("ai.toast.pricesMustBeNumbers"));
       return;
     }
     setSaving(true);
@@ -809,12 +821,12 @@ function PricesSection() {
         input_per_m: input,
         output_per_m: output,
       });
-      toast.success("Precio guardado");
+      toast.success(t("ai.toast.priceSaved"));
       setDraft(null);
       await load();
     } catch (err) {
       toast.error(
-        err instanceof Error ? err.message : "No se pudo guardar el precio"
+        err instanceof Error ? err.message : t("ai.toast.savePriceError")
       );
     } finally {
       setSaving(false);
@@ -823,15 +835,15 @@ function PricesSection() {
 
   async function onDelete(row: PriceRow) {
     if (!row.id) return;
-    if (!window.confirm(`¿Borrar el precio de ${row.model}?`)) return;
+    if (!window.confirm(t("ai.confirm.deletePrice", { model: row.model }))) return;
     setDeletingId(row.id);
     try {
       await aiApi.deletePrice(row.id);
-      toast.success("Precio eliminado");
+      toast.success(t("ai.toast.priceDeleted"));
       await load();
     } catch (err) {
       toast.error(
-        err instanceof Error ? err.message : "No se pudo eliminar el precio"
+        err instanceof Error ? err.message : t("ai.toast.deletePriceError")
       );
     } finally {
       setDeletingId(null);
@@ -845,23 +857,23 @@ function PricesSection() {
       <CardHeader className="flex flex-row items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <DollarSign className="h-5 w-5 text-neutral-400 dark:text-neutral-500" />
-          <CardTitle>Precios</CardTitle>
+          <CardTitle>{t("ai.prices.title")}</CardTitle>
         </div>
         {editable && !draft && (
           <Button size="sm" onClick={() => setDraft({ ...EMPTY_DRAFT })}>
-            <Plus className="h-4 w-4" /> Agregar precio
+            <Plus className="h-4 w-4" /> {t("ai.prices.add")}
           </Button>
         )}
       </CardHeader>
       <CardContent className="space-y-4">
         <p className="text-xs text-neutral-400 dark:text-neutral-500">
-          Precios en dólares por cada 1&nbsp;millón de tokens.
+          {t("ai.prices.subtitle")}
         </p>
 
         {draft && (
           <div className="grid grid-cols-1 gap-3 rounded-xl border border-neutral-200 bg-neutral-50 p-4 sm:grid-cols-5 sm:items-end dark:border-neutral-800 dark:bg-neutral-950">
             <div className="space-y-1.5">
-              <Label htmlFor="price-kind">Tipo</Label>
+              <Label htmlFor="price-kind">{t("ai.prices.kind")}</Label>
               <Select
                 id="price-kind"
                 value={draft.kind}
@@ -871,11 +883,11 @@ function PricesSection() {
               >
                 <option value="openai">OpenAI</option>
                 <option value="openrouter">OpenRouter</option>
-                <option value="custom">Personalizado</option>
+                <option value="custom">{t("ai.kind.custom")}</option>
               </Select>
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="price-model">Modelo</Label>
+              <Label htmlFor="price-model">{t("ai.prices.model")}</Label>
               <Input
                 id="price-model"
                 value={draft.model}
@@ -884,7 +896,7 @@ function PricesSection() {
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="price-in">Entrada / 1M</Label>
+              <Label htmlFor="price-in">{t("ai.prices.inputPerM")}</Label>
               <Input
                 id="price-in"
                 type="number"
@@ -897,7 +909,7 @@ function PricesSection() {
               />
             </div>
             <div className="space-y-1.5">
-              <Label htmlFor="price-out">Salida / 1M</Label>
+              <Label htmlFor="price-out">{t("ai.prices.outputPerM")}</Label>
               <Input
                 id="price-out"
                 type="number"
@@ -916,7 +928,7 @@ function PricesSection() {
                 ) : (
                   <Check className="h-4 w-4" />
                 )}
-                Guardar
+                {t("ai.prices.save")}
               </Button>
               <Button variant="outline" onClick={() => setDraft(null)}>
                 <X className="h-4 w-4" />
@@ -938,7 +950,7 @@ function PricesSection() {
               size="sm"
               onClick={() => void load()}
             >
-              Reintentar
+              {t("ai.retry")}
             </Button>
           </div>
         ) : data && data.prices.length > 0 ? (
@@ -946,12 +958,12 @@ function PricesSection() {
             <table className="w-full min-w-[600px] text-sm">
               <thead>
                 <tr className="border-b border-neutral-200 text-left text-xs uppercase tracking-wide text-neutral-400 dark:border-neutral-800 dark:text-neutral-500">
-                  <th className="pb-2 font-medium">Tipo</th>
-                  <th className="pb-2 font-medium">Modelo</th>
-                  <th className="pb-2 font-medium">Entrada / 1M</th>
-                  <th className="pb-2 font-medium">Salida / 1M</th>
-                  <th className="pb-2 font-medium">Origen</th>
-                  {editable && <th className="pb-2 font-medium text-right">Acciones</th>}
+                  <th className="pb-2 font-medium">{t("ai.prices.colKind")}</th>
+                  <th className="pb-2 font-medium">{t("ai.prices.colModel")}</th>
+                  <th className="pb-2 font-medium">{t("ai.prices.colInput")}</th>
+                  <th className="pb-2 font-medium">{t("ai.prices.colOutput")}</th>
+                  <th className="pb-2 font-medium">{t("ai.prices.colSource")}</th>
+                  {editable && <th className="pb-2 font-medium text-right">{t("ai.prices.colActions")}</th>}
                 </tr>
               </thead>
               <tbody className="divide-y divide-neutral-100 dark:divide-neutral-800">
@@ -977,7 +989,7 @@ function PricesSection() {
                             : "bg-neutral-100 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400"
                         }`}
                       >
-                        {row.source === "custom" ? "Personalizado" : "Por defecto"}
+                        {row.source === "custom" ? t("ai.prices.sourceCustom") : t("ai.prices.sourceDefault")}
                       </span>
                     </td>
                     {editable && (
@@ -1016,7 +1028,7 @@ function PricesSection() {
         ) : (
           data && (
             <p className="py-6 text-center text-sm text-neutral-400 dark:text-neutral-500">
-              No hay precios configurados.
+              {t("ai.prices.empty")}
             </p>
           )
         )}
@@ -1030,16 +1042,17 @@ function PricesSection() {
 // ---------------------------------------------------------------------------
 
 export default function AiPage() {
+  const { t } = useI18n();
   const { data: me, status, error, reload } = useAsyncData(async () => {
     const data = await getMe();
-    if (!data) throw new Error("Tu sesión expiró.");
+    if (!data) throw new Error(t("ai.session.expired"));
     return data;
   }, []);
 
   if (status === "loading") return <LoadSpinner />;
   if (status === "error" || !me) {
     return (
-      <LoadError message={error ?? "No hay sesión."} onRetry={reload} />
+      <LoadError message={error ?? t("ai.session.none")} onRetry={reload} />
     );
   }
 
@@ -1048,10 +1061,9 @@ export default function AiPage() {
   return (
     <div className="space-y-8">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight text-neutral-900 dark:text-neutral-100">IA</h1>
+        <h1 className="text-2xl font-bold tracking-tight text-neutral-900 dark:text-neutral-100">{t("ai.page.title")}</h1>
         <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
-          Configurá proveedores de inteligencia artificial, seguí el consumo y
-          administrá los precios de los modelos.
+          {t("ai.page.subtitle")}
         </p>
       </div>
 

@@ -23,6 +23,7 @@ import {
 } from "@/utils/webhooks";
 import { surveyApi, type SurveySummary } from "../surveyApi";
 import { useAsyncData } from "@/lib/useAsyncData";
+import { useI18n } from "@/lib/i18n";
 import { LoadError, LoadSpinner } from "@/components/LoadError";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -45,9 +46,10 @@ function isHttpUrl(value: string): boolean {
 }
 
 export default function IntegrationsPage() {
+  const { t } = useI18n();
   const { data, status, error, reload, setData } = useAsyncData(async () => {
     const meData = await getMe();
-    if (!meData) throw new Error("Tu sesión expiró.");
+    if (!meData) throw new Error(t("integrations.error.session"));
     const list = await listWebhooks(meData.active_org_id);
     // El selector de encuesta es opcional; si falla no rompemos la página.
     let surveys: SurveySummary[] = [];
@@ -88,9 +90,9 @@ export default function IntegrationsPage() {
   const surveyTitle = useCallback(
     (id: string): string => {
       const s = surveys.find((x) => x.id === id);
-      return s?.title?.trim() || "(sin título)";
+      return s?.title?.trim() || t("integrations.untitled");
     },
-    [surveys]
+    [surveys, t]
   );
 
   async function onAdd(e: React.FormEvent) {
@@ -98,7 +100,7 @@ export default function IntegrationsPage() {
     if (!me) return;
     const url = newUrl.trim();
     if (!isHttpUrl(url)) {
-      toast.error("La URL debe empezar con http:// o https://");
+      toast.error(t("integrations.toast.urlInvalid"));
       return;
     }
     setAdding(true);
@@ -111,9 +113,9 @@ export default function IntegrationsPage() {
       setWebhooks((prev) => [webhook, ...prev]);
       setNewUrl("");
       setNewSurveyId("");
-      toast.success("Webhook agregado");
+      toast.success(t("integrations.toast.added"));
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "No se pudo agregar el webhook");
+      toast.error(err instanceof Error ? err.message : t("integrations.toast.addError"));
     } finally {
       setAdding(false);
     }
@@ -125,12 +127,12 @@ export default function IntegrationsPage() {
     try {
       const result = await testWebhook(me.active_org_id, webhook.id);
       if (result.ok) {
-        toast.success("Enviado ✓");
+        toast.success(t("integrations.toast.sent"));
       } else {
-        toast.error("Falló: la URL no respondió correctamente");
+        toast.error(t("integrations.toast.testFailed"));
       }
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "No se pudo probar el webhook");
+      toast.error(err instanceof Error ? err.message : t("integrations.toast.testError"));
     } finally {
       setTesting(null);
     }
@@ -138,14 +140,14 @@ export default function IntegrationsPage() {
 
   async function onDelete(webhook: Webhook) {
     if (!me) return;
-    if (!window.confirm(`¿Eliminar el webhook hacia ${webhook.url}?`)) return;
+    if (!window.confirm(t("integrations.confirm.delete", { url: webhook.url }))) return;
     setDeleting(webhook.id);
     try {
       await deleteWebhook(me.active_org_id, webhook.id);
       setWebhooks((prev) => prev.filter((w) => w.id !== webhook.id));
-      toast.success("Webhook eliminado");
+      toast.success(t("integrations.toast.deleted"));
     } catch (err) {
-      toast.error(err instanceof Error ? err.message : "No se pudo eliminar el webhook");
+      toast.error(err instanceof Error ? err.message : t("integrations.toast.deleteError"));
     } finally {
       setDeleting(null);
     }
@@ -154,9 +156,9 @@ export default function IntegrationsPage() {
   async function onCopySecret(secret: string) {
     try {
       await navigator.clipboard.writeText(secret);
-      toast.success("Secreto copiado");
+      toast.success(t("integrations.toast.secretCopied"));
     } catch {
-      toast.error("No se pudo copiar el secreto");
+      toast.error(t("integrations.toast.secretCopyError"));
     }
   }
 
@@ -167,12 +169,12 @@ export default function IntegrationsPage() {
     <div className="space-y-8">
       <div>
         <h1 className="text-2xl font-bold tracking-tight text-neutral-900 dark:text-neutral-100">
-          Integraciones
+          {t("integrations.title")}
         </h1>
         <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
-          Mandá cada respuesta en tiempo real a Zapier, Make, Google Sheets o tu
-          propia URL desde{" "}
-          <span className="font-medium text-neutral-700 dark:text-neutral-300">{activeOrg?.name}</span>.
+          {t("integrations.subtitle.prefix")}
+          <span className="font-medium text-neutral-700 dark:text-neutral-300">{activeOrg?.name}</span>
+          {t("integrations.subtitle.suffix")}
         </p>
       </div>
 
@@ -180,12 +182,12 @@ export default function IntegrationsPage() {
       <Card>
         <CardHeader className="flex flex-row items-center gap-2">
           <Plus className="h-5 w-5 text-neutral-400 dark:text-neutral-500" />
-          <CardTitle>Agregar webhook</CardTitle>
+          <CardTitle>{t("integrations.add.title")}</CardTitle>
         </CardHeader>
         <CardContent>
           <form onSubmit={onAdd} className="flex flex-col gap-3 sm:flex-row sm:items-end">
             <div className="flex-1 space-y-1.5">
-              <Label htmlFor="webhookUrl">URL de destino</Label>
+              <Label htmlFor="webhookUrl">{t("integrations.add.urlLabel")}</Label>
               <Input
                 id="webhookUrl"
                 type="url"
@@ -196,16 +198,16 @@ export default function IntegrationsPage() {
               />
             </div>
             <div className="space-y-1.5 sm:w-64">
-              <Label htmlFor="webhookSurvey">Alcance</Label>
+              <Label htmlFor="webhookSurvey">{t("integrations.add.scopeLabel")}</Label>
               <Select
                 id="webhookSurvey"
                 value={newSurveyId}
                 onChange={(e) => setNewSurveyId(e.target.value)}
               >
-                <option value="">Todas las encuestas</option>
+                <option value="">{t("integrations.allSurveys")}</option>
                 {surveys.map((s) => (
                   <option key={s.id} value={s.id}>
-                    {s.title?.trim() || "(sin título)"}
+                    {s.title?.trim() || t("integrations.untitled")}
                   </option>
                 ))}
               </Select>
@@ -216,12 +218,11 @@ export default function IntegrationsPage() {
               ) : (
                 <Plus className="h-4 w-4" />
               )}
-              Agregar webhook
+              {t("integrations.add.submit")}
             </Button>
           </form>
           <p className="mt-2 text-xs text-neutral-400 dark:text-neutral-500">
-            Elegí una encuesta específica o dejá &quot;Todas las encuestas&quot; para
-            enviar las respuestas de toda la organización.
+            {t("integrations.add.hint")}
           </p>
         </CardContent>
       </Card>
@@ -230,7 +231,7 @@ export default function IntegrationsPage() {
       <Card>
         <CardHeader className="flex flex-row items-center gap-2">
           <WebhookIcon className="h-5 w-5 text-neutral-400 dark:text-neutral-500" />
-          <CardTitle>Webhooks configurados</CardTitle>
+          <CardTitle>{t("integrations.list.title")}</CardTitle>
         </CardHeader>
         <CardContent>
           {webhooks && webhooks.length > 0 ? (
@@ -245,13 +246,11 @@ export default function IntegrationsPage() {
                       <div className="min-w-0">
                         <p className="truncate font-medium text-neutral-900 dark:text-neutral-100">{w.url}</p>
                         <p className="mt-0.5 text-xs text-neutral-400 dark:text-neutral-500">
-                          {w.survey_id ? (
-                            <>Encuesta: {surveyTitle(w.survey_id)}</>
-                          ) : (
-                            <>Todas las encuestas</>
-                          )}{" "}
-                          · Creado el {formatDate(w.created_at)}
-                          {!w.active && " · Inactivo"}
+                          {w.survey_id
+                            ? t("integrations.list.survey", { title: surveyTitle(w.survey_id) })
+                            : t("integrations.allSurveys")}{" "}
+                          {t("integrations.list.created", { date: formatDate(w.created_at) })}
+                          {!w.active && t("integrations.list.inactive")}
                         </p>
                       </div>
                       <div className="flex shrink-0 flex-wrap items-center gap-2">
@@ -266,7 +265,7 @@ export default function IntegrationsPage() {
                           ) : (
                             <Send className="h-4 w-4" />
                           )}
-                          Probar
+                          {t("integrations.list.test")}
                         </Button>
                         <Button
                           variant="ghost"
@@ -280,7 +279,7 @@ export default function IntegrationsPage() {
                           ) : (
                             <Eye className="h-4 w-4" />
                           )}
-                          {show ? "Ocultar secreto" : "Ver secreto"}
+                          {show ? t("integrations.list.hideSecret") : t("integrations.list.showSecret")}
                         </Button>
                         <Button
                           variant="ghost"
@@ -294,7 +293,7 @@ export default function IntegrationsPage() {
                           ) : (
                             <Trash2 className="h-4 w-4" />
                           )}
-                          Eliminar
+                          {t("integrations.list.delete")}
                         </Button>
                       </div>
                     </div>
@@ -310,7 +309,7 @@ export default function IntegrationsPage() {
                           onClick={() => onCopySecret(w.secret)}
                         >
                           <Copy className="h-4 w-4" />
-                          Copiar
+                          {t("integrations.list.copy")}
                         </Button>
                       </div>
                     )}
@@ -322,8 +321,7 @@ export default function IntegrationsPage() {
             <div className="py-10 text-center">
               <WebhookIcon className="mx-auto h-8 w-8 text-neutral-300 dark:text-neutral-600" />
               <p className="mt-3 text-sm text-neutral-400 dark:text-neutral-500">
-                Todavía no configuraste ningún webhook. Agregá uno arriba para
-                empezar a recibir las respuestas.
+                {t("integrations.list.empty")}
               </p>
             </div>
           )}
@@ -336,22 +334,22 @@ export default function IntegrationsPage() {
           <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-neutral-400 dark:text-neutral-500" />
           <div className="space-y-1 text-sm text-neutral-600 dark:text-neutral-300">
             <p>
-              Cada respuesta se envía con los headers{" "}
+              {t("integrations.help.sentWith")}
               <code className="rounded bg-neutral-100 px-1 py-0.5 font-mono text-xs dark:bg-neutral-800 dark:text-neutral-200">
                 X-Encuestum-Event
-              </code>{" "}
-              y{" "}
+              </code>
+              {t("integrations.help.and")}
               <code className="rounded bg-neutral-100 px-1 py-0.5 font-mono text-xs dark:bg-neutral-800 dark:text-neutral-200">
                 X-Encuestum-Signature
               </code>
-              .
+              {t("integrations.help.headersSuffix")}
             </p>
             <p className="text-neutral-500 dark:text-neutral-400">
-              Verificá la autenticidad con el header{" "}
+              {t("integrations.help.verify")}
               <code className="rounded bg-neutral-100 px-1 py-0.5 font-mono text-xs dark:bg-neutral-800 dark:text-neutral-200">
                 X-Encuestum-Signature
-              </code>{" "}
-              (HMAC-SHA256 del cuerpo con tu secreto).
+              </code>
+              {t("integrations.help.verifySuffix")}
             </p>
           </div>
         </CardContent>

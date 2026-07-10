@@ -4,11 +4,13 @@ import { useState } from "react";
 import Link from "next/link";
 import { Loader2 } from "lucide-react";
 import { forgotPassword } from "@/utils/auth";
+import { useI18n } from "@/lib/i18n";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/input";
 
 export default function ForgotPage() {
+  const { t } = useI18n();
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -20,13 +22,10 @@ export default function ForgotPage() {
     setLoading(true);
     try {
       const res = await forgotPassword(email.trim());
-      setMessage(
-        res.detail ||
-          "Si el correo está registrado, te enviamos un enlace para restablecer tu contraseña."
-      );
+      setMessage(res.detail || t("auth.forgot.successFallback"));
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : "No se pudo procesar la solicitud"
+        err instanceof Error ? err.message : t("auth.errors.requestFailed")
       );
     } finally {
       setLoading(false);
@@ -37,10 +36,10 @@ export default function ForgotPage() {
     <Card>
       <CardContent className="py-6">
         <h1 className="text-xl font-semibold text-neutral-900 dark:text-neutral-100">
-          Recuperar contraseña
+          {t("auth.forgot.title")}
         </h1>
         <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">
-          Ingresá tu correo y te enviaremos un enlace para restablecerla.
+          {t("auth.forgot.subtitle")}
         </p>
 
         {message ? (
@@ -50,7 +49,7 @@ export default function ForgotPage() {
         ) : (
           <form onSubmit={onSubmit} className="mt-6 space-y-4">
             <div className="space-y-1.5">
-              <Label htmlFor="email">Correo electrónico</Label>
+              <Label htmlFor="email">{t("auth.email.label")}</Label>
               <Input
                 id="email"
                 type="email"
@@ -58,7 +57,7 @@ export default function ForgotPage() {
                 required
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
-                placeholder="vos@ejemplo.com"
+                placeholder={t("auth.email.placeholder")}
               />
             </div>
 
@@ -70,14 +69,14 @@ export default function ForgotPage() {
 
             <Button type="submit" className="w-full" disabled={loading}>
               {loading && <Loader2 className="h-4 w-4 animate-spin" />}
-              {loading ? "Enviando…" : "Enviar enlace"}
+              {loading ? t("auth.forgot.submitting") : t("auth.forgot.submit")}
             </Button>
           </form>
         )}
 
         <p className="mt-6 text-center text-sm text-neutral-500 dark:text-neutral-400">
           <Link href="/login" className="font-medium text-primary hover:underline">
-            Volver a Ingresar
+            {t("auth.backToLogin")}
           </Link>
         </p>
       </CardContent>
