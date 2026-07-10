@@ -45,10 +45,13 @@ class LocalStorage:
         token = create_purpose_token(
             "upload", {"key": key, "ct": content_type}, max(1, s.upload_url_ttl // 3600) or 1
         )
-        base = s.public_base_url
+        # URL RELATIVA a propósito: el navegador la resuelve contra la base de la
+        # API (misma-origen en la imagen all-in-one; el backend en dev). Antes se
+        # anteponía public_base_url, que en dev apunta al FRONTEND y hacía fallar
+        # el PUT (el endpoint de subida vive en el backend).
         return UploadTarget(
             key=key, method="PUT",
-            url=f"{base}/api/v1/uploads/local?token={token}",
+            url=f"/api/v1/uploads/local?token={token}",
             headers={"Content-Type": content_type},
             public_url=self.public_url(key),
         )

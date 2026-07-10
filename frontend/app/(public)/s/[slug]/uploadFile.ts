@@ -17,7 +17,11 @@ export async function uploadRespondentFile(
   );
   if (!pre.ok) throw new Error(await pre.text().catch(() => "upload-url failed"));
   const { upload_url, method, headers, public_url } = await pre.json();
-  const put = await fetch(upload_url, { method, headers, body: file });
+  // Storage local devuelve una URL RELATIVA (/api/v1/uploads/local…) → se resuelve
+  // contra la base de la API (backend en dev, mismo-origen en producción). S3
+  // devuelve una URL absoluta al bucket → se usa tal cual.
+  const putUrl = upload_url.startsWith("/") ? getApiUrl(upload_url) : upload_url;
+  const put = await fetch(putUrl, { method, headers, body: file });
   if (!put.ok) throw new Error("PUT failed");
   return public_url as string;
 }
