@@ -22,6 +22,10 @@ interface Props {
   dark: boolean;
   options?: ChatOptions | null;
   embedded?: boolean;
+  // Cierre como última burbuja del bot (modo chat con thankYou.chatMode="bubble").
+  finished?: boolean;
+  finishMessage?: string;
+  finishCtas?: { label: string; url: string }[] | null;
 }
 
 // Tipos que se contestan tocando (chips). El texto libre usa el input nativo.
@@ -102,7 +106,16 @@ function blip() {
   }
 }
 
-export function ChatSurveyView({ model, accent, dark, options, embedded }: Props) {
+export function ChatSurveyView({
+  model,
+  accent,
+  dark,
+  options,
+  embedded,
+  finished,
+  finishMessage,
+  finishCtas,
+}: Props) {
   const { t } = useI18n();
   const opts: ChatOptions = { ...DEFAULT_CHAT, ...(options || {}) };
   const th = resolveChatSkin(opts, accent, dark);
@@ -110,6 +123,7 @@ export function ChatSurveyView({ model, accent, dark, options, embedded }: Props
 
   const [version, setVersion] = useState(0);
   const [typing, setTyping] = useState(true);
+  const [finishTyping, setFinishTyping] = useState(true);
   const [pending, setPending] = useState<any>(null); // selección multi antes de enviar
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const typingTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -172,7 +186,24 @@ export function ChatSurveyView({ model, accent, dark, options, embedded }: Props
   useEffect(() => {
     const el = scrollRef.current;
     if (el) el.scrollTo({ top: el.scrollHeight, behavior: "smooth" });
-  }, [version, typing]);
+  }, [version, typing, finishTyping]);
+
+  // Al terminar, un breve "escribiendo…" antes de la burbuja final de gracias.
+  useEffect(() => {
+    if (!finished) return;
+    if (!opts.typingIndicator) {
+      setFinishTyping(false);
+      if (opts.sound) blip();
+      return;
+    }
+    setFinishTyping(true);
+    const id = setTimeout(() => {
+      setFinishTyping(false);
+      if (opts.sound) blip();
+    }, 700);
+    return () => clearTimeout(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [finished]);
 
   function visibleQuestions(): any[] {
     try {
@@ -287,8 +318,8 @@ export function ChatSurveyView({ model, accent, dark, options, embedded }: Props
 
       <div className="enc-chat-scroll" ref={scrollRef}>
         <div className="enc-chat-thread">
-          {/* Transcript */}
-          {allQ.slice(0, curIdx).map((q, i) => {
+          {/* Transcript (al terminar mostramos TODAS las respondidas) */}
+          {(finished ? allQ : allQ.slice(0, curIdx)).map((q, i) => {
             if (!q) return null;
             const a = answerText(q, fallbackAnswer);
             return (
@@ -305,8 +336,40 @@ export function ChatSurveyView({ model, accent, dark, options, embedded }: Props
             );
           })}
 
+          {/* Burbuja final de agradecimiento (cierre en chat) */}
+          {finished &&
+            (finishTyping ? (
+              <Row side="bot" th={th}>
+                <Typing />
+              </Row>
+            ) : (
+              <>
+                <Row side="bot" th={th}>
+                  {finishMessage}
+                </Row>
+                {finishCtas && finishCtas.filter((c) => c.label && c.url).length > 0 && (
+                  <div className="enc-chat-chips">
+                    {finishCtas
+                      .filter((c) => c.label && c.url)
+                      .map((c, i) => (
+                        <a
+                          key={i}
+                          href={c.url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="enc-chip"
+                        >
+                          {c.label}
+                        </a>
+                      ))}
+                  </div>
+                )}
+              </>
+            ))}
+
           {/* Pregunta actual */}
-          {typing ? (
+          {!finished &&
+            (typing ? (
             <Row side="bot" th={th}>
               <Typing />
             </Row>
@@ -367,13 +430,15 @@ export function ChatSurveyView({ model, accent, dark, options, embedded }: Props
                 </div>
               </>
             )
-          )}
+            ))}
         </div>
       </div>
 
-      <div className="enc-chat-progress" aria-hidden>
-        {t("public.chat.progress", { n: Math.min(curIdx + 1, total), total })}
-      </div>
+      {!finished && (
+        <div className="enc-chat-progress" aria-hidden>
+          {t("public.chat.progress", { n: Math.min(curIdx + 1, total), total })}
+        </div>
+      )}
     </div>
   );
 }

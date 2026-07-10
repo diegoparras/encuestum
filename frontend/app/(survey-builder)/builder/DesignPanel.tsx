@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { X, Type, Palette, Image as ImageIcon, Music, Check, Sparkles, Contrast, Sun, Moon, Search, Square, Wand2, MousePointerClick, AlignCenter, AlignLeft, MessagesSquare } from "lucide-react";
+import { X, Type, Palette, Image as ImageIcon, Music, Check, Sparkles, Contrast, Sun, Moon, Search, Square, Wand2, MousePointerClick, AlignCenter, AlignLeft, MessagesSquare, PartyPopper, Plus, Trash2 } from "lucide-react";
 import {
   ACCENT_PALETTE,
   AudioSettings,
@@ -19,6 +19,8 @@ import {
   PAGE_TRANSITIONS,
   CHAT_SKINS,
   DEFAULT_CHAT,
+  THANKYOU_ICONS,
+  DEFAULT_THANKYOU,
 } from "./model";
 import { loadFont } from "./design";
 import { AssetPicker } from "./AssetPicker";
@@ -737,6 +739,202 @@ export function DesignPanel({
                       onChange={(v) => patchChat({ sound: v })}
                     />
                   </div>
+                </div>
+              );
+            })()}
+          </Section>
+
+          {/* Pantalla de agradecimiento */}
+          <Section icon={<PartyPopper className="w-4 h-4" />} title={t("builder.design.ty")}>
+            {(() => {
+              const ty = { ...DEFAULT_THANKYOU, ...(design.thankYou ?? {}) };
+              const patchTy = (p: Partial<typeof ty>) => patch({ thankYou: { ...ty, ...p } });
+              const ICON_GLYPH: Record<string, string> = {
+                check: "✓", heart: "❤", star: "★", party: "🎉", trophy: "🏆", none: "∅",
+              };
+              const ctas = ty.ctas ?? [];
+              const setCtas = (next: typeof ctas) => patchTy({ ctas: next });
+              return (
+                <div className="space-y-4">
+                  {/* Layout */}
+                  <div>
+                    <label className="mb-1.5 block text-xs font-medium text-neutral-600 dark:text-neutral-300">
+                      {t("builder.design.tyLayout")}
+                    </label>
+                    <div className="grid grid-cols-3 gap-2">
+                      {(["card", "minimal", "hero"] as const).map((l) => (
+                        <button
+                          key={l}
+                          type="button"
+                          onClick={() => patchTy({ layout: l })}
+                          className={`rounded-lg border px-2 py-2 text-xs font-medium transition-colors ${
+                            (ty.layout ?? "card") === l
+                              ? "border-[#8faf0e] bg-[#8faf0e0a] text-neutral-800 dark:text-neutral-100"
+                              : "border-neutral-200 text-neutral-500 hover:border-neutral-300 dark:border-neutral-700 dark:text-neutral-400"
+                          }`}
+                        >
+                          {t(`builder.design.tyLayout.${l}`)}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Ícono */}
+                  <div>
+                    <label className="mb-1.5 block text-xs font-medium text-neutral-600 dark:text-neutral-300">
+                      {t("builder.design.tyIcon")}
+                    </label>
+                    <div className="flex flex-wrap gap-2">
+                      {THANKYOU_ICONS.map((ic) => (
+                        <button
+                          key={ic}
+                          type="button"
+                          onClick={() => patchTy({ icon: ic })}
+                          className={`grid h-9 w-9 place-items-center rounded-lg border text-base transition-colors ${
+                            ty.icon === ic
+                              ? "border-[#8faf0e] bg-[#8faf0e0a]"
+                              : "border-neutral-200 dark:border-neutral-700"
+                          }`}
+                          title={ic}
+                        >
+                          {ICON_GLYPH[ic]}
+                        </button>
+                      ))}
+                      <input
+                        value={ty.icon && !ICON_GLYPH[ty.icon] && !/^(https?:|\/)/.test(ty.icon) ? ty.icon : ""}
+                        onChange={(e) => patchTy({ icon: e.target.value || "none" })}
+                        placeholder="🎯"
+                        maxLength={4}
+                        className="h-9 w-12 rounded-lg border border-neutral-200 text-center text-base dark:border-neutral-700 dark:bg-neutral-800"
+                        aria-label={t("builder.design.tyEmoji")}
+                      />
+                    </div>
+                    <p className="mt-1 text-[11px] text-neutral-400 dark:text-neutral-500">
+                      {t("builder.design.tyIconHint")}
+                    </p>
+                  </div>
+
+                  {/* Título + confeti */}
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-neutral-600 dark:text-neutral-300">
+                      {t("builder.design.tyTitle")}
+                    </label>
+                    <input
+                      value={ty.title ?? ""}
+                      onChange={(e) => patchTy({ title: e.target.value })}
+                      placeholder={t("builder.design.tyTitlePh")}
+                      className="w-full rounded-md border border-neutral-200 px-2.5 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-800"
+                    />
+                    <p className="mt-1 text-[11px] text-neutral-400 dark:text-neutral-500">
+                      {t("builder.design.tyTokenHint")}
+                    </p>
+                  </div>
+
+                  <ToggleRow
+                    label={t("builder.design.tyConfetti")}
+                    checked={!!ty.confetti}
+                    onChange={(v) => patchTy({ confetti: v })}
+                  />
+
+                  {/* Imagen/GIF */}
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-neutral-600 dark:text-neutral-300">
+                      {t("builder.design.tyImage")}
+                    </label>
+                    <AssetPicker kind="image" value={ty.image} onChange={(url) => patchTy({ image: url })} />
+                  </div>
+
+                  {/* Botones CTA */}
+                  <div>
+                    <label className="mb-1.5 block text-xs font-medium text-neutral-600 dark:text-neutral-300">
+                      {t("builder.design.tyCtas")}
+                    </label>
+                    <div className="space-y-2">
+                      {ctas.map((c, i) => (
+                        <div key={i} className="flex items-center gap-1.5">
+                          <input
+                            value={c.label}
+                            onChange={(e) => setCtas(ctas.map((x, j) => (j === i ? { ...x, label: e.target.value } : x)))}
+                            placeholder={t("builder.design.tyCtaLabel")}
+                            className="w-1/3 rounded-md border border-neutral-200 px-2 py-1.5 text-sm dark:border-neutral-700 dark:bg-neutral-800"
+                          />
+                          <input
+                            value={c.url}
+                            onChange={(e) => setCtas(ctas.map((x, j) => (j === i ? { ...x, url: e.target.value } : x)))}
+                            placeholder="https://…"
+                            className="flex-1 rounded-md border border-neutral-200 px-2 py-1.5 text-sm dark:border-neutral-700 dark:bg-neutral-800"
+                          />
+                          <button
+                            type="button"
+                            onClick={() => setCtas(ctas.filter((_, j) => j !== i))}
+                            className="grid h-8 w-8 place-items-center rounded-md text-neutral-400 hover:bg-neutral-100 dark:hover:bg-neutral-800"
+                            aria-label={t("builder.design.tyCtaRemove")}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        </div>
+                      ))}
+                      {ctas.length < 3 && (
+                        <button
+                          type="button"
+                          onClick={() => setCtas([...ctas, { label: "", url: "" }])}
+                          className="inline-flex items-center gap-1.5 rounded-md border border-dashed border-neutral-300 px-2.5 py-1.5 text-xs font-medium text-neutral-500 hover:border-neutral-400 dark:border-neutral-700"
+                        >
+                          <Plus className="h-3.5 w-3.5" /> {t("builder.design.tyCtaAdd")}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Compartir */}
+                  <ToggleRow
+                    label={t("builder.design.tyShare")}
+                    checked={!!ty.share}
+                    onChange={(v) => patchTy({ share: v })}
+                  />
+
+                  {/* Cuenta regresiva de redirección */}
+                  <div>
+                    <label className="mb-1 block text-xs font-medium text-neutral-600 dark:text-neutral-300">
+                      {t("builder.design.tyCountdown")}
+                    </label>
+                    <input
+                      type="number"
+                      min={0}
+                      max={30}
+                      value={ty.redirectCountdown ?? 0}
+                      onChange={(e) => patchTy({ redirectCountdown: Math.max(0, Number(e.target.value) || 0) })}
+                      className="w-24 rounded-md border border-neutral-200 px-2.5 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-800"
+                    />
+                    <p className="mt-1 text-[11px] text-neutral-400 dark:text-neutral-500">
+                      {t("builder.design.tyCountdownHint")}
+                    </p>
+                  </div>
+
+                  {/* Cierre en modo chat */}
+                  {design.chat && (
+                    <div>
+                      <label className="mb-1.5 block text-xs font-medium text-neutral-600 dark:text-neutral-300">
+                        {t("builder.design.tyChatMode")}
+                      </label>
+                      <div className="grid grid-cols-2 gap-2">
+                        {(["bubble", "screen"] as const).map((m) => (
+                          <button
+                            key={m}
+                            type="button"
+                            onClick={() => patchTy({ chatMode: m })}
+                            className={`rounded-lg border px-2 py-2 text-xs font-medium transition-colors ${
+                              (ty.chatMode ?? "bubble") === m
+                                ? "border-[#8faf0e] bg-[#8faf0e0a] text-neutral-800 dark:text-neutral-100"
+                                : "border-neutral-200 text-neutral-500 hover:border-neutral-300 dark:border-neutral-700 dark:text-neutral-400"
+                            }`}
+                          >
+                            {t(`builder.design.tyChatMode.${m}`)}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               );
             })()}

@@ -286,6 +286,46 @@ export const DEFAULT_CHAT: ChatOptions = {
   enterToSend: true,
 };
 
+// ── Pantalla de agradecimiento (al completar) ────────────────────────────────
+// Íconos predefinidos; también se puede usar un emoji o una imagen (asset URL).
+export type ThankYouIcon = "check" | "heart" | "star" | "party" | "trophy" | "none";
+
+export const THANKYOU_ICONS: ThankYouIcon[] = ["check", "heart", "star", "party", "trophy", "none"];
+
+export interface ThankYouCta {
+  label: string;
+  url: string;
+}
+
+export interface ThankYouConfig {
+  title?: string; // encabezado arriba del mensaje (admite tokens {pregunta})
+  icon?: string; // ThankYouIcon | emoji | asset URL de imagen
+  confetti?: boolean; // lluvia de confeti al aparecer
+  layout?: "card" | "minimal" | "hero";
+  // Colores propios (opcionales; si faltan, hereda el tema de la encuesta)
+  bgColor?: string;
+  cardColor?: string;
+  textColor?: string;
+  iconColor?: string;
+  image?: string; // imagen/GIF arriba del mensaje (asset URL)
+  ctas?: ThankYouCta[]; // botones de acción
+  share?: boolean; // fila de "compartir"
+  shareText?: string;
+  redirectCountdown?: number; // seg. de cuenta regresiva antes de redirigir (0 = salto directo)
+  chatMode?: "bubble" | "screen"; // en modo chat: última burbuja o pantalla completa
+}
+
+export const DEFAULT_THANKYOU: ThankYouConfig = {
+  title: "",
+  icon: "check",
+  confetti: false,
+  layout: "card",
+  ctas: [],
+  share: false,
+  redirectCountdown: 0,
+  chatMode: "bubble",
+};
+
 export interface DesignSettings {
   fontFamily: string; // one of FONT_OPTIONS ids
   mode?: "light" | "dark"; // color scheme of the survey (default light)
@@ -307,6 +347,7 @@ export interface DesignSettings {
   pageTransition?: PageTransition; // screen transition in one-question-per-page
   chat?: boolean; // conversational (Typebot-style) chat skin for the respondent
   chatOptions?: ChatOptions; // customización del modo chat (skin, bot, comportamiento)
+  thankYou?: ThankYouConfig; // pantalla de agradecimiento (ícono, confeti, CTAs, colores…)
   backgroundColor?: string;
   backgroundImage?: string; // asset URL (relative /assets/…)
   backgroundOpacity: number; // 0..1
@@ -1463,6 +1504,7 @@ export function designToTheme(accent: string, design: DesignSettings): Record<st
     pageTransition: design.pageTransition ?? "none",
     chat: !!design.chat,
     chatOptions: design.chatOptions ?? null,
+    thankYou: design.thankYou ?? null,
     backgroundColor: design.backgroundColor ?? null,
     backgroundImage: design.backgroundImage ?? null,
     backgroundOpacity: design.backgroundOpacity ?? 1,
@@ -1497,6 +1539,10 @@ export function themeToDesign(theme: Record<string, any> | null | undefined): De
       e.chatOptions && typeof e.chatOptions === "object"
         ? { ...DEFAULT_CHAT, ...e.chatOptions }
         : { ...DEFAULT_CHAT },
+    thankYou:
+      e.thankYou && typeof e.thankYou === "object"
+        ? { ...DEFAULT_THANKYOU, ...e.thankYou }
+        : { ...DEFAULT_THANKYOU },
     backgroundColor: e.backgroundColor || theme?.cssVariables?.["--sjs-general-backcolor-dim"] || undefined,
     backgroundImage: e.backgroundImage || theme?.backgroundImage || undefined,
     backgroundOpacity: typeof e.backgroundOpacity === "number" ? e.backgroundOpacity : 1,

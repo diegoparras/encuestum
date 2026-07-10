@@ -31,6 +31,7 @@ import {
 } from "./AccessGate";
 import { Certificate } from "./Certificate";
 import { ChatSurveyView } from "./ChatSurveyView";
+import { ThankYouView } from "./ThankYouView";
 
 // Register the custom "videoresponse" question (webcam recorder) before any
 // Survey model parses JSON that uses it.
@@ -448,10 +449,13 @@ export default function SurveyView({ slug }: { slug: string }) {
           }
         );
         const body = await res.json().catch(() => null);
-        // Redirección al terminar: si hay una URL válida, tiene prioridad sobre
-        // cualquier pantalla de gracias. Mostramos "Redirigiendo…" y navegamos.
+        // Redirección al terminar: si hay una URL válida y NO hay cuenta
+        // regresiva configurada, saltamos directo (mostrando "Redirigiendo…").
+        // Con cuenta regresiva, dejamos que la pantalla de gracias la muestre.
         const redirectTo = safeRedirectUrl(data.redirect_url);
-        if (redirectTo) {
+        const tyCfg = themeToDesign(data.theme).thankYou;
+        const hasCountdown = !!(tyCfg?.redirectCountdown && tyCfg.redirectCountdown > 0);
+        if (redirectTo && !hasCountdown) {
           setRedirecting(true);
           setTimeout(() => {
             window.location.href = redirectTo;
@@ -489,6 +493,25 @@ export default function SurveyView({ slug }: { slug: string }) {
   useEffect(() => {
     loadFont(design.fontFamily);
   }, [design.fontFamily]);
+
+  // Tokens de personalización en la pantalla de gracias: {nombrePregunta} se
+  // reemplaza por la respuesta del participante (ej. "¡Gracias, {nombre}!").
+  const resolveTokens = React.useCallback(
+    (text: string) => {
+      if (!text || !model) return text || "";
+      return text.replace(/\{([^}]+)\}/g, (_m, key: string) => {
+        const name = key.trim();
+        try {
+          const q = (model as any).getQuestionByName?.(name);
+          const v = q?.displayValue ?? (model.data ? (model.data as any)[name] : undefined);
+          return v != null && v !== "" ? String(v) : "";
+        } catch {
+          return "";
+        }
+      });
+    },
+    [model]
+  );
 
   if (status === "loading") return <Centered>{t("public.loading")}</Centered>;
   if (status === "notfound")
@@ -540,15 +563,22 @@ export default function SurveyView({ slug }: { slug: string }) {
     );
   }
 
-  // Encuesta terminada (sin redirección): pantalla de gracias con el tema,
-  // usando el mensaje personalizado o el texto por defecto.
-  if (completed) {
+  // Encuesta terminada. Mensaje (con tokens resueltos) + pantalla de gracias
+  // rica. En modo chat con cierre "burbuja", el gracias lo muestra el propio
+  // chat (más abajo); acá sólo atajamos el modo "pantalla completa".
+  const ty = design.thankYou;
+  const finishMessage = resolveTokens(data?.thankyou_message || t("public.thankyou.default"));
+  const chatBubbleFinish = completed && !!design.chat && (ty?.chatMode ?? "bubble") === "bubble";
+  if (completed && !chatBubbleFinish) {
     return (
-      <ThankYouScreen
-        message={data?.thankyou_message || t("public.thankyou.default")}
+      <ThankYouView
+        config={ty}
+        message={finishMessage}
         accent={accent}
-        design={design}
+        dark={design.mode === "dark"}
         brandingHeader={brandingHeader}
+        redirectUrl={safeRedirectUrl(data?.redirect_url)}
+        resolveTokens={resolveTokens}
       />
     );
   }
@@ -647,6 +677,9 @@ export default function SurveyView({ slug }: { slug: string }) {
           accent={accent}
           dark={design.mode === "dark"}
           options={design.chatOptions}
+          finished={chatBubbleFinish}
+          finishMessage={finishMessage}
+          finishCtas={ty?.ctas}
         />
       ) : (
         <Survey model={model} />
