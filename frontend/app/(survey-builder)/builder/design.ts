@@ -4,7 +4,7 @@
 import "survey-core/i18n/spanish";
 import { surveyLocalization } from "survey-core";
 import { getApiUrl } from "@/utils/api";
-import { fontById } from "./model";
+import { fontById, readableForeground } from "./model";
 
 // Progress bar reads "Pregunta X de Y" (each page is one question) instead of
 // the default "Página X de Y".
@@ -39,6 +39,19 @@ export function loadFont(id: string): void {
   }
   link.setAttribute("data-encuestum-font", font.id);
   document.head.appendChild(link);
+}
+
+/** CSS that recolors the SurveyJS navigation buttons independently from the
+ *  accent. Scope with the `enc-scope` class on the survey wrapper. Empty when
+ *  no override is set (the accent keeps ruling). */
+export function buttonOverrideCss(color?: string | null): string {
+  if (!color) return "";
+  const fg = readableForeground(color);
+  return `
+.enc-scope .sd-btn { color: ${color}; border-color: ${color}; }
+.enc-scope .sd-btn--action { background-color: ${color}; color: ${fg}; border-color: ${color}; }
+.enc-scope .sd-btn--action:hover { background-color: ${color}; filter: brightness(0.92); }
+`;
 }
 
 /** Resolve an asset URL. Relative (/assets/…) → absolute against the API base. */

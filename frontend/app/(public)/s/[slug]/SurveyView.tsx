@@ -10,6 +10,7 @@ import { Award, Check, Music, Volume2, VolumeX } from "lucide-react";
 import { themeToDesign, type AudioSettings } from "../../../(survey-builder)/builder/model";
 import {
   absolutizeAssets,
+  buttonOverrideCss,
   loadFont,
   resolveAssetUrl,
 } from "../../../(survey-builder)/builder/design";
@@ -539,11 +540,11 @@ export default function SurveyView({ slug }: { slug: string }) {
 
   return (
     <div
-      className={`min-h-screen${design.glass ? " enc-glass" : ""}`}
+      className={`min-h-screen enc-scope${design.glass ? " enc-glass" : ""}`}
       style={wrapperStyle}
     >
       {/* Glass (frosted) blur behind the boxes + screen transitions. */}
-      <style>{ENC_SURFACE_CSS}</style>
+      <style>{ENC_SURFACE_CSS + buttonOverrideCss(design.buttonColor)}</style>
       {brandingHeader}
       {submitting && (
         <div className="fixed top-0 inset-x-0 h-1 animate-pulse z-50" style={{ backgroundColor: accent }} />

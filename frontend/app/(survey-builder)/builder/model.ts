@@ -39,6 +39,7 @@ export interface BuilderQuestion {
   description?: string;
   isRequired: boolean;
   placeholder?: string;
+  maxLength?: number; // text | comment: max characters allowed (0/undef = sin límite)
   choices?: Choice[]; // radiogroup | checkbox | dropdown
   rateMin?: number; // rating
   rateMax?: number; // rating
@@ -187,6 +188,10 @@ export interface DesignSettings {
   questionColor?: string; // hex color of the boxes (default white/dark by mode)
   questionOpacity?: number; // 0..1 opacity of the boxes (default 1)
   glass?: boolean; // frosted-glass blur behind the boxes
+  // Text typed inside inputs/textareas. Default: auto-readable on the box color
+  // (so a white glass box gets dark text even if the question titles are white).
+  inputTextColor?: string;
+  buttonColor?: string; // navigation buttons color (default: the accent)
   pageTransition?: PageTransition; // screen transition in one-question-per-page
   backgroundColor?: string;
   backgroundImage?: string; // asset URL (relative /assets/…)
@@ -640,6 +645,10 @@ function questionToElement(q: BuilderQuestion): Record<string, any> {
     el.validators = [{ type: "email" }];
   }
   if (q.placeholder) el.placeholder = q.placeholder;
+  // Character cap on free-text answers (SurveyJS shows a live counter).
+  if ((q.type === "text" || q.type === "comment") && q.maxLength && q.maxLength > 0) {
+    el.maxLength = Math.floor(q.maxLength);
+  }
   if (q.type === "imagepicker") {
     el.choices = (q.choices ?? [])
       .map((c) => ({ value: c.text, text: c.text, imageLink: c.imageUrl || undefined }))
@@ -829,6 +838,8 @@ function elementToQuestion(el: Record<string, any>, index: number): BuilderQuest
     description: el.description || undefined,
     isRequired: !!el.isRequired,
     placeholder: el.placeholder || undefined,
+    maxLength:
+      typeof el.maxLength === "number" && el.maxLength > 0 ? el.maxLength : undefined,
   };
 
   if (el.encVisibility && typeof el.encVisibility === "object" && el.encVisibility.questionName) {
@@ -1185,6 +1196,13 @@ export function designToTheme(accent: string, design: DesignSettings): Record<st
     v["--sjs-editorpanel-backcolor"] = inputOp >= 1 ? surfaceColor : rgba(surfaceColor, inputOp);
   }
 
+  // Text typed INSIDE inputs: independent from the question-title color. Default
+  // is auto-readable on the box surface (dark text on a light glass box, even if
+  // the titles are white over a dark background).
+  const inputText = design.inputTextColor || readableForeground(surfaceColor);
+  v["--sjs-font-editorfont-color"] = inputText;
+  v["--sjs-font-editorfont-placeholdercolor"] = rgba(inputText, 0.5);
+
   if (design.backgroundImage) {
     t.backgroundImage = design.backgroundImage;
     t.backgroundImageFit = "cover";
@@ -1199,6 +1217,8 @@ export function designToTheme(accent: string, design: DesignSettings): Record<st
     questionColor: design.questionColor ?? null,
     questionOpacity: op,
     glass: !!design.glass,
+    inputTextColor: design.inputTextColor ?? null,
+    buttonColor: design.buttonColor ?? null,
     pageTransition: design.pageTransition ?? "none",
     backgroundColor: design.backgroundColor ?? null,
     backgroundImage: design.backgroundImage ?? null,
@@ -1223,6 +1243,8 @@ export function themeToDesign(theme: Record<string, any> | null | undefined): De
     questionColor: e.questionColor || undefined,
     questionOpacity: typeof e.questionOpacity === "number" ? e.questionOpacity : 1,
     glass: !!e.glass,
+    inputTextColor: e.inputTextColor || undefined,
+    buttonColor: e.buttonColor || undefined,
     pageTransition: e.pageTransition || "none",
     backgroundColor: e.backgroundColor || theme?.cssVariables?.["--sjs-general-backcolor-dim"] || undefined,
     backgroundImage: e.backgroundImage || theme?.backgroundImage || undefined,

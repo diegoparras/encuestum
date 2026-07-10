@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { X, Type, Palette, Image as ImageIcon, Music, Check, Sparkles, Contrast, Sun, Moon, Search, Square, Wand2 } from "lucide-react";
+import { X, Type, Palette, Image as ImageIcon, Music, Check, Sparkles, Contrast, Sun, Moon, Search, Square, Wand2, MousePointerClick } from "lucide-react";
 import {
   ACCENT_PALETTE,
   AudioSettings,
@@ -447,6 +447,44 @@ export function DesignPanel({
               </p>
             </div>
 
+            {/* Color del texto de los cuadros (independiente del de las preguntas) */}
+            <div className="mt-4">
+              <div className="mb-1.5 text-xs text-neutral-600">
+                Color del texto de los cuadros
+              </div>
+              <div className="flex items-center gap-3">
+                <input
+                  type="color"
+                  value={
+                    design.inputTextColor && /^#[0-9a-f]{6}$/i.test(design.inputTextColor)
+                      ? design.inputTextColor
+                      : readableForeground(
+                          design.questionColor ||
+                            (design.mode === "dark" ? "#252b36" : "#ffffff")
+                        )
+                  }
+                  onChange={(e) => patch({ inputTextColor: e.target.value })}
+                  className="h-9 w-12 cursor-pointer rounded border border-neutral-200 bg-white p-0.5"
+                />
+                <span className="flex-1 text-xs text-neutral-500">
+                  {design.inputTextColor ?? "Automático (legible sobre el cuadro)"}
+                </span>
+                {design.inputTextColor && (
+                  <button
+                    type="button"
+                    onClick={() => patch({ inputTextColor: undefined })}
+                    className="rounded-md border border-neutral-200 px-2 py-1 text-xs font-medium text-neutral-600 hover:bg-neutral-50"
+                  >
+                    Automático
+                  </button>
+                )}
+              </div>
+              <p className="mt-1 text-[11px] leading-relaxed text-neutral-400">
+                Lo que se escribe dentro de los campos. No hereda el color del
+                texto de las preguntas.
+              </p>
+            </div>
+
             {/* Vidrio esmerilado (glass) */}
             <div className="mt-4">
               <ToggleRow
@@ -472,6 +510,40 @@ export function DesignPanel({
                 se vea el fondo. Ideal cuando usás una imagen de fondo.
               </p>
             </div>
+          </Section>
+
+          {/* Botones */}
+          <Section icon={<MousePointerClick className="w-4 h-4" />} title="Botones">
+            <div className="flex items-center gap-3">
+              <input
+                type="color"
+                value={
+                  design.buttonColor && /^#[0-9a-f]{6}$/i.test(design.buttonColor)
+                    ? design.buttonColor
+                    : /^#[0-9a-f]{6}$/i.test(accent)
+                      ? accent
+                      : "#e25a4e"
+                }
+                onChange={(e) => patch({ buttonColor: e.target.value })}
+                className="h-9 w-12 cursor-pointer rounded border border-neutral-200 bg-white p-0.5"
+              />
+              <span className="flex-1 text-xs text-neutral-500">
+                {design.buttonColor ?? "Automático (color de acento)"}
+              </span>
+              {design.buttonColor && (
+                <button
+                  type="button"
+                  onClick={() => patch({ buttonColor: undefined })}
+                  className="rounded-md border border-neutral-200 px-2 py-1 text-xs font-medium text-neutral-600 hover:bg-neutral-50"
+                >
+                  Automático
+                </button>
+              )}
+            </div>
+            <p className="mt-1 text-[11px] leading-relaxed text-neutral-400">
+              Color de los botones Siguiente / Anterior / Completar, independiente
+              del acento.
+            </p>
           </Section>
 
           {/* Transiciones */}

@@ -221,6 +221,28 @@ export function PropertiesPanel({
         </Field>
       )}
 
+      {(q.type === "text" || q.type === "comment") && (
+        <Field label="Máximo de caracteres (opcional)">
+          <input
+            type="number"
+            min={1}
+            value={q.maxLength ?? ""}
+            placeholder="Sin límite"
+            onChange={(e) =>
+              onQuestionChange({
+                maxLength: e.target.value
+                  ? Math.max(1, parseInt(e.target.value, 10) || 1)
+                  : undefined,
+              })
+            }
+            className="w-full rounded-md border border-neutral-200 px-2.5 py-2 text-sm outline-none focus:border-neutral-400"
+          />
+          <p className="mt-1 text-xs text-neutral-400">
+            Quien responde ve un contador y no puede pasarse.
+          </p>
+        </Field>
+      )}
+
       {q.type === "imagepicker" ? (
         <>
           <Field label="Opciones (imagen)">
