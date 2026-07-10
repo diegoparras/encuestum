@@ -39,7 +39,7 @@ async def lifespan(app: FastAPI):
     yield
 
 
-APP_VERSION = "1.1.0"
+APP_VERSION = "1.1.1"
 app = FastAPI(title="Encuestum", version=APP_VERSION, lifespan=lifespan)
 
 settings = get_settings()
