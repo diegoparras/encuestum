@@ -263,12 +263,12 @@ function TemplateGallery({
                     style={{ backgroundColor: tpl.accent }}
                   />
                   <span className="ml-auto rounded-full bg-neutral-100 dark:bg-neutral-800 px-2 py-0.5 text-[11px] font-medium text-neutral-500 dark:text-neutral-400">
-                    {tpl.category}
+                    {t(`tpl.cat.${tpl.category}`)}
                   </span>
                 </div>
-                <div className="font-medium text-neutral-900 dark:text-neutral-100">{tpl.name}</div>
+                <div className="font-medium text-neutral-900 dark:text-neutral-100">{t(`tpl.name.${tpl.id}`)}</div>
                 <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400 leading-snug">
-                  {tpl.description}
+                  {t(`tpl.desc.${tpl.id}`)}
                 </p>
                 {isLoading && (
                   <span className="mt-3 inline-flex items-center gap-1.5 text-xs font-medium text-neutral-500 dark:text-neutral-400">

@@ -3,6 +3,7 @@
 import React from "react";
 import { X, Sparkles } from "lucide-react";
 import type { UsageInfo } from "../aiApi";
+import { useI18n } from "@/lib/i18n";
 
 interface Props {
   usage: UsageInfo;
@@ -11,6 +12,7 @@ interface Props {
 
 // Muestra prolijo el consumo de una llamada a la IA (modelo, tokens y costo).
 export function UsageModal({ usage, onClose }: Props) {
+  const { t } = useI18n();
   const hasCost = usage.cost_usd !== null && usage.cost_usd !== undefined;
 
   return (
@@ -26,13 +28,13 @@ export function UsageModal({ usage, onClose }: Props) {
           <div className="flex items-center gap-2">
             <Sparkles className="h-5 w-5" style={{ color: "#8faf0e" }} />
             <h2 className="text-sm font-semibold text-neutral-900 dark:text-neutral-100">
-              Consumo de IA
+              {t("builder.usage.title")}
             </h2>
           </div>
           <button
             onClick={onClose}
             className="text-neutral-400 hover:text-neutral-700 dark:text-neutral-500 dark:hover:text-neutral-300"
-            aria-label="Cerrar"
+            aria-label={t("builder.usage.close")}
           >
             <X className="h-5 w-5" />
           </button>
@@ -40,26 +42,26 @@ export function UsageModal({ usage, onClose }: Props) {
 
         <div className="space-y-4 p-5">
           <div>
-            <p className="text-xs font-medium text-neutral-500 dark:text-neutral-400">Modelo</p>
+            <p className="text-xs font-medium text-neutral-500 dark:text-neutral-400">{t("builder.usage.model")}</p>
             <p className="mt-0.5 break-words font-mono text-sm text-neutral-900 dark:text-neutral-100">
               {usage.model || "—"}
             </p>
           </div>
 
           <div className="grid grid-cols-3 gap-2 text-center">
-            <TokenBox label="Prompt" value={usage.prompt_tokens} />
-            <TokenBox label="Respuesta" value={usage.completion_tokens} />
-            <TokenBox label="Total" value={usage.total_tokens} emphasis />
+            <TokenBox label={t("builder.usage.prompt")} value={usage.prompt_tokens} />
+            <TokenBox label={t("builder.usage.completion")} value={usage.completion_tokens} />
+            <TokenBox label={t("builder.usage.total")} value={usage.total_tokens} emphasis />
           </div>
 
           <div className="rounded-lg border border-neutral-200 bg-neutral-50 px-4 py-3 text-center dark:border-neutral-800 dark:bg-neutral-950">
-            <p className="text-xs font-medium text-neutral-500 dark:text-neutral-400">Costo estimado</p>
+            <p className="text-xs font-medium text-neutral-500 dark:text-neutral-400">{t("builder.usage.estCost")}</p>
             <p className="mt-0.5 text-lg font-bold text-neutral-900 dark:text-neutral-100">
               {hasCost ? (
                 <>≈ US$ {usage.cost_usd!.toFixed(4)}</>
               ) : (
                 <span className="text-sm font-medium text-neutral-400 dark:text-neutral-500">
-                  Sin precio configurado
+                  {t("builder.usage.noPrice")}
                 </span>
               )}
             </p>
@@ -72,7 +74,7 @@ export function UsageModal({ usage, onClose }: Props) {
             className="rounded-lg px-4 py-2 text-sm font-semibold text-[#1e2a06]"
             style={{ backgroundColor: "#8faf0e" }}
           >
-            Entendido
+            {t("builder.usage.gotIt")}
           </button>
         </div>
       </div>

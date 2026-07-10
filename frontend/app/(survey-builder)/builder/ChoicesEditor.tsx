@@ -18,6 +18,7 @@ import {
 import { CSS } from "@dnd-kit/utilities";
 import { GripVertical, X, Plus } from "lucide-react";
 import { Choice, newChoice } from "./model";
+import { useI18n } from "@/lib/i18n";
 
 interface Props {
   choices: Choice[];
@@ -25,6 +26,7 @@ interface Props {
 }
 
 export function ChoicesEditor({ choices, onChange }: Props) {
+  const { t } = useI18n();
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } })
   );
@@ -82,7 +84,7 @@ export function ChoicesEditor({ choices, onChange }: Props) {
         onClick={add}
         className="mt-2 inline-flex items-center gap-1.5 text-xs font-medium text-neutral-500 dark:text-neutral-400 hover:text-neutral-800 dark:hover:text-neutral-200"
       >
-        <Plus className="w-3.5 h-3.5" /> Agregar opción
+        <Plus className="w-3.5 h-3.5" /> {t("builder.addOption")}
       </button>
     </div>
   );
@@ -103,6 +105,7 @@ function ChoiceRow({
   canRemove: boolean;
   inputRef?: React.Ref<HTMLInputElement>;
 }) {
+  const { t } = useI18n();
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: choice.id });
   const style: React.CSSProperties = {
@@ -118,7 +121,7 @@ function ChoiceRow({
         className="shrink-0 text-neutral-300 dark:text-neutral-600 hover:text-neutral-500 dark:hover:text-neutral-400 cursor-grab active:cursor-grabbing touch-none"
         {...attributes}
         {...listeners}
-        aria-label="Reordenar opción"
+        aria-label={t("builder.reorderOption")}
       >
         <GripVertical className="w-3.5 h-3.5" />
       </button>
@@ -139,7 +142,7 @@ function ChoiceRow({
         onClick={onRemove}
         disabled={!canRemove}
         className="shrink-0 p-1 text-neutral-300 dark:text-neutral-600 hover:text-red-600 disabled:opacity-30 disabled:hover:text-neutral-300 dark:disabled:hover:text-neutral-600"
-        aria-label="Quitar opción"
+        aria-label={t("builder.removeOption")}
       >
         <X className="w-4 h-4" />
       </button>

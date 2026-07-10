@@ -3,6 +3,7 @@
 import React, { useRef, useState } from "react";
 import { Sparkles, Loader2, X, Upload, FileText } from "lucide-react";
 import { readableForeground } from "./model";
+import { useI18n } from "@/lib/i18n";
 
 interface Body {
   topic: string;
@@ -21,14 +22,15 @@ interface Props {
   onGenerate: (body: Body) => Promise<void>;
 }
 
-const TYPE_OPTIONS: { value: string; label: string }[] = [
-  { value: "radiogroup", label: "Opción única" },
-  { value: "checkbox", label: "Opción múltiple" },
-  { value: "comment", label: "Desarrollo (IA)" },
-  { value: "boolean", label: "Verdadero / Falso" },
+const TYPE_OPTIONS: { value: string }[] = [
+  { value: "radiogroup" },
+  { value: "checkbox" },
+  { value: "comment" },
+  { value: "boolean" },
 ];
 
 export function GenerateDialog({ open, accent, language, onClose, onGenerate }: Props) {
+  const { t } = useI18n();
   const [topic, setTopic] = useState("");
   const [count, setCount] = useState(5);
   const [difficulty, setDifficulty] = useState("media");
@@ -55,7 +57,7 @@ export function GenerateDialog({ open, accent, language, onClose, onGenerate }: 
       setContext((prev) => (prev.trim() ? `${prev.trim()}\n\n${text}` : text));
       setFileName(file.name);
     } catch {
-      setError("No se pudo leer el archivo.");
+      setError(t("builder.gen.readFileError"));
     }
   }
 
@@ -79,7 +81,7 @@ export function GenerateDialog({ open, accent, language, onClose, onGenerate }: 
       });
       onClose();
     } catch (e: any) {
-      setError(e?.message || "No se pudieron generar las preguntas.");
+      setError(e?.message || t("builder.gen.genericError"));
     } finally {
       setLoading(false);
     }
@@ -91,7 +93,7 @@ export function GenerateDialog({ open, accent, language, onClose, onGenerate }: 
         <div className="flex items-center justify-between px-5 py-4 border-b border-neutral-100 dark:border-neutral-800">
           <div className="flex items-center gap-2">
             <Sparkles className="w-5 h-5" style={{ color: accent }} />
-            <h2 className="text-sm font-semibold dark:text-neutral-100">Generar preguntas con IA</h2>
+            <h2 className="text-sm font-semibold dark:text-neutral-100">{t("builder.gen.title")}</h2>
           </div>
           <button onClick={onClose} className="text-neutral-400 hover:text-neutral-700 dark:text-neutral-500 dark:hover:text-neutral-300">
             <X className="w-5 h-5" />
@@ -101,12 +103,12 @@ export function GenerateDialog({ open, accent, language, onClose, onGenerate }: 
         <div className="p-5 space-y-4 max-h-[70vh] overflow-y-auto">
           <label className="block">
             <span className="block text-xs font-medium text-neutral-600 dark:text-neutral-300 mb-1.5">
-              Tema
+              {t("builder.gen.topic")}
             </span>
             <input
               value={topic}
               onChange={(e) => setTopic(e.target.value)}
-              placeholder="Ej. Revolución Francesa, fotosíntesis, bucles en Python…"
+              placeholder={t("builder.gen.topicPlaceholder")}
               className="w-full rounded-md border border-neutral-200 px-2.5 py-2 text-sm outline-none focus:border-neutral-400 dark:bg-neutral-800 dark:border-neutral-700 dark:text-neutral-100 dark:placeholder:text-neutral-500"
               autoFocus
             />
@@ -115,7 +117,7 @@ export function GenerateDialog({ open, accent, language, onClose, onGenerate }: 
           <div className="grid grid-cols-2 gap-3">
             <label className="block">
               <span className="block text-xs font-medium text-neutral-600 dark:text-neutral-300 mb-1.5">
-                Cantidad
+                {t("builder.gen.count")}
               </span>
               <input
                 type="number"
@@ -128,38 +130,38 @@ export function GenerateDialog({ open, accent, language, onClose, onGenerate }: 
             </label>
             <label className="block">
               <span className="block text-xs font-medium text-neutral-600 dark:text-neutral-300 mb-1.5">
-                Dificultad
+                {t("builder.gen.difficulty")}
               </span>
               <select
                 value={difficulty}
                 onChange={(e) => setDifficulty(e.target.value)}
                 className="w-full rounded-md border border-neutral-200 px-2.5 py-2 text-sm outline-none focus:border-neutral-400 bg-white dark:bg-neutral-800 dark:border-neutral-700 dark:text-neutral-100"
               >
-                <option value="fácil">Fácil</option>
-                <option value="media">Media</option>
-                <option value="difícil">Difícil</option>
+                <option value="fácil">{t("builder.gen.diff.easy")}</option>
+                <option value="media">{t("builder.gen.diff.medium")}</option>
+                <option value="difícil">{t("builder.gen.diff.hard")}</option>
               </select>
             </label>
           </div>
 
           <div>
             <span className="block text-xs font-medium text-neutral-600 dark:text-neutral-300 mb-1.5">
-              Tipos de pregunta
+              {t("builder.gen.types")}
             </span>
             <div className="flex flex-wrap gap-2">
-              {TYPE_OPTIONS.map((t) => {
-                const active = types.includes(t.value);
+              {TYPE_OPTIONS.map((t2) => {
+                const active = types.includes(t2.value);
                 return (
                   <button
-                    key={t.value}
+                    key={t2.value}
                     type="button"
-                    onClick={() => toggleType(t.value)}
+                    onClick={() => toggleType(t2.value)}
                     className={`rounded-full border px-3 py-1 text-xs font-medium transition-colors ${
                       active ? "text-white border-transparent" : "border-neutral-200 text-neutral-600 dark:border-neutral-700 dark:text-neutral-300"
                     }`}
                     style={active ? { backgroundColor: accent } : undefined}
                   >
-                    {t.label}
+                    {t(`builder.gen.type.${t2.value}`)}
                   </button>
                 );
               })}
@@ -169,7 +171,7 @@ export function GenerateDialog({ open, accent, language, onClose, onGenerate }: 
           <div>
             <div className="mb-1.5 flex items-center justify-between gap-2">
               <span className="text-xs font-medium text-neutral-600 dark:text-neutral-300">
-                Material de base (opcional)
+                {t("builder.gen.baseMaterial")}
               </span>
               <button
                 type="button"
@@ -177,7 +179,7 @@ export function GenerateDialog({ open, accent, language, onClose, onGenerate }: 
                 className="inline-flex items-center gap-1.5 rounded-md border border-neutral-200 px-2 py-1 text-xs font-medium text-neutral-600 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
               >
                 <Upload className="h-3.5 w-3.5" />
-                Subir documento (.md, .txt)
+                {t("builder.gen.uploadDoc")}
               </button>
               <input
                 ref={fileInputRef}
@@ -191,7 +193,7 @@ export function GenerateDialog({ open, accent, language, onClose, onGenerate }: 
               value={context}
               onChange={(e) => setContext(e.target.value)}
               rows={3}
-              placeholder="Pegá un texto y las preguntas se basarán en él"
+              placeholder={t("builder.gen.contextPlaceholder")}
               className="w-full rounded-md border border-neutral-200 px-2.5 py-2 text-sm outline-none focus:border-neutral-400 dark:bg-neutral-800 dark:border-neutral-700 dark:text-neutral-100 dark:placeholder:text-neutral-500"
             />
             {fileName && (
@@ -202,14 +204,14 @@ export function GenerateDialog({ open, accent, language, onClose, onGenerate }: 
                   type="button"
                   onClick={removeFile}
                   className="shrink-0 text-neutral-400 hover:text-neutral-700 dark:text-neutral-500 dark:hover:text-neutral-300"
-                  aria-label="Quitar archivo"
+                  aria-label={t("builder.gen.removeFile")}
                 >
                   <X className="h-3.5 w-3.5" />
                 </button>
               </div>
             )}
             <p className="mt-1 text-[11px] text-neutral-400 dark:text-neutral-500">
-              La IA generará preguntas basadas en este material.
+              {t("builder.gen.materialHint")}
             </p>
           </div>
 
@@ -221,7 +223,7 @@ export function GenerateDialog({ open, accent, language, onClose, onGenerate }: 
             onClick={onClose}
             className="rounded-lg border border-neutral-200 px-4 py-2 text-sm font-medium text-neutral-600 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
           >
-            Cancelar
+            {t("builder.gen.cancel")}
           </button>
           <button
             onClick={run}
@@ -230,7 +232,7 @@ export function GenerateDialog({ open, accent, language, onClose, onGenerate }: 
             style={{ backgroundColor: accent, color: readableForeground(accent) }}
           >
             {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Sparkles className="w-4 h-4" />}
-            Generar
+            {t("builder.gen.generate")}
           </button>
         </div>
       </div>

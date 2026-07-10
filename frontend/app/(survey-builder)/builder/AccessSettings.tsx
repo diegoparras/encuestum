@@ -10,6 +10,7 @@ import {
 } from "../surveyApi";
 import { readableForeground } from "./model";
 import { InviteesManager } from "./InviteesManager";
+import { useI18n } from "@/lib/i18n";
 
 interface Props {
   surveyId: string;
@@ -30,46 +31,17 @@ interface Props {
 
 const ACCESS_OPTIONS: {
   value: AccessMode;
-  label: string;
-  hint: string;
   icon: React.ComponentType<{ className?: string; style?: React.CSSProperties }>;
 }[] = [
-  {
-    value: "public",
-    label: "Pública",
-    hint: "Cualquiera con el link puede responder.",
-    icon: Globe,
-  },
-  {
-    value: "pin",
-    label: "Con clave (PIN)",
-    hint: "Una clave compartida para todos.",
-    icon: KeyRound,
-  },
-  {
-    value: "list",
-    label: "Lista de invitados",
-    hint: "Solo emails admitidos, cada uno con su código.",
-    icon: Users,
-  },
+  { value: "public", icon: Globe },
+  { value: "pin", icon: KeyRound },
+  { value: "list", icon: Users },
 ];
 
-const RESULTS_OPTIONS: { value: ResultsMode; label: string; hint: string }[] = [
-  {
-    value: "immediate",
-    label: "Inmediata",
-    hint: "Quien responde ve los resultados al terminar.",
-  },
-  {
-    value: "on_release",
-    label: "Al liberar",
-    hint: "Los resultados se muestran recién cuando los publicás.",
-  },
-  {
-    value: "never",
-    label: "Nunca",
-    hint: "Los resultados quedan solo para vos.",
-  },
+const RESULTS_OPTIONS: { value: ResultsMode }[] = [
+  { value: "immediate" },
+  { value: "on_release" },
+  { value: "never" },
 ];
 
 export function AccessSettings({
@@ -82,6 +54,7 @@ export function AccessSettings({
   notifyEmails,
   onChange,
 }: Props) {
+  const { t } = useI18n();
   const [pin, setPin] = useState(accessPin ?? "");
   const [emails, setEmails] = useState(notifyEmails ?? "");
   const [savingMode, setSavingMode] = useState(false);
@@ -99,7 +72,7 @@ export function AccessSettings({
     try {
       await surveyApi.update(surveyId, { access_mode: mode });
     } catch (e: any) {
-      toast.error(e?.message || "No se pudo cambiar el modo de acceso.");
+      toast.error(e?.message || t("builder.access.changeModeError"));
       onChange({ accessMode }); // revertir en pantalla
     } finally {
       setSavingMode(false);
@@ -113,9 +86,9 @@ export function AccessSettings({
     try {
       await surveyApi.update(surveyId, { access_pin: value || null });
       onChange({ accessPin: value || null });
-      toast.success("Clave actualizada.");
+      toast.success(t("builder.access.pinSaved"));
     } catch (e: any) {
-      toast.error(e?.message || "No se pudo guardar la clave.");
+      toast.error(e?.message || t("builder.access.pinError"));
     } finally {
       setSavingPin(false);
     }
@@ -129,10 +102,10 @@ export function AccessSettings({
       await surveyApi.update(surveyId, { notify_emails: value });
       onChange({ notifyEmails: value });
       toast.success(
-        value ? "Avisos por email actualizados." : "Avisos por email desactivados."
+        value ? t("builder.access.emailsSaved") : t("builder.access.emailsOff")
       );
     } catch (e: any) {
-      toast.error(e?.message || "No se pudo guardar los avisos.");
+      toast.error(e?.message || t("builder.access.emailsError"));
     } finally {
       setSavingEmails(false);
     }
@@ -145,7 +118,7 @@ export function AccessSettings({
     try {
       await surveyApi.update(surveyId, { results_mode: mode });
     } catch (e: any) {
-      toast.error(e?.message || "No se pudo cambiar la visibilidad de resultados.");
+      toast.error(e?.message || t("builder.access.resultsModeError"));
       onChange({ resultsMode }); // revertir en pantalla
     } finally {
       setSavingResults(false);
@@ -158,9 +131,9 @@ export function AccessSettings({
     try {
       const updated = await surveyApi.releaseResults(surveyId, next);
       onChange({ resultsReleased: updated.results_released });
-      toast.success(next ? "Resultados publicados." : "Resultados ocultados.");
+      toast.success(next ? t("builder.access.resultsPublished") : t("builder.access.resultsHidden"));
     } catch (e: any) {
-      toast.error(e?.message || "No se pudo cambiar la publicación de resultados.");
+      toast.error(e?.message || t("builder.access.releaseError"));
     } finally {
       setReleasing(false);
     }
@@ -169,7 +142,7 @@ export function AccessSettings({
   return (
     <div className="mt-5 border-t border-neutral-100 dark:border-neutral-800 pt-4">
       <div className="mb-4 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-neutral-400 dark:text-neutral-500">
-        Acceso
+        {t("builder.access.title")}
         {savingMode && <Loader2 className="h-3 w-3 animate-spin" />}
       </div>
 
@@ -195,10 +168,10 @@ export function AccessSettings({
               />
               <span className="min-w-0">
                 <span className="block text-sm font-medium text-neutral-800 dark:text-neutral-200">
-                  {opt.label}
+                  {t(`builder.access.opt.${opt.value}.label`)}
                 </span>
                 <span className="block text-[11px] leading-snug text-neutral-400 dark:text-neutral-500">
-                  {opt.hint}
+                  {t(`builder.access.opt.${opt.value}.hint`)}
                 </span>
               </span>
             </button>
@@ -210,14 +183,14 @@ export function AccessSettings({
       {accessMode === "pin" && (
         <label className="mt-3 block">
           <span className="mb-1.5 block text-xs font-medium text-neutral-600 dark:text-neutral-300">
-            Clave de acceso
+            {t("builder.access.pinLabel")}
           </span>
           <div className="flex items-center gap-2">
             <input
               value={pin}
               onChange={(e) => setPin(e.target.value)}
               onBlur={savePin}
-              placeholder="Ej. otoño2026"
+              placeholder={t("builder.access.pinPlaceholder")}
               className="w-full rounded-md border border-neutral-200 px-2.5 py-2 text-sm outline-none focus:border-neutral-400 dark:bg-neutral-800 dark:border-neutral-700 dark:text-neutral-100 dark:placeholder:text-neutral-500"
             />
             {savingPin && (
@@ -225,7 +198,7 @@ export function AccessSettings({
             )}
           </div>
           <span className="mt-1 block text-[11px] text-neutral-400 dark:text-neutral-500">
-            Compartila con quienes puedan responder.
+            {t("builder.access.pinHint")}
           </span>
         </label>
       )}
@@ -238,20 +211,20 @@ export function AccessSettings({
           className="mt-3 inline-flex w-full items-center justify-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold"
           style={{ backgroundColor: accent, color: accentFg }}
         >
-          <Settings2 className="h-4 w-4" /> Gestionar invitados
+          <Settings2 className="h-4 w-4" /> {t("builder.access.manageInvitees")}
         </button>
       )}
 
       {/* Visibilidad de resultados */}
       <div className="mt-5 border-t border-neutral-100 dark:border-neutral-800 pt-4">
         <div className="mb-3 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-neutral-400 dark:text-neutral-500">
-          Resultados
+          {t("builder.access.resultsTitle")}
           {savingResults && <Loader2 className="h-3 w-3 animate-spin" />}
         </div>
 
         <label className="block">
           <span className="mb-1.5 block text-xs font-medium text-neutral-600 dark:text-neutral-300">
-            Cuándo se ven los resultados
+            {t("builder.access.whenResults")}
           </span>
           <select
             value={resultsMode}
@@ -260,12 +233,12 @@ export function AccessSettings({
           >
             {RESULTS_OPTIONS.map((o) => (
               <option key={o.value} value={o.value}>
-                {o.label}
+                {t(`builder.access.results.${o.value}.label`)}
               </option>
             ))}
           </select>
           <span className="mt-1 block text-[11px] leading-snug text-neutral-400 dark:text-neutral-500">
-            {RESULTS_OPTIONS.find((o) => o.value === resultsMode)?.hint}
+            {t(`builder.access.results.${resultsMode}.hint`)}
           </span>
         </label>
 
@@ -290,14 +263,14 @@ export function AccessSettings({
             ) : (
               <Eye className="h-4 w-4" />
             )}
-            {resultsReleased ? "Ocultar resultados" : "Publicar resultados"}
+            {resultsReleased ? t("builder.access.hideResults") : t("builder.access.publishResults")}
           </button>
         )}
         {resultsMode === "on_release" && (
           <span className="mt-1.5 block text-[11px] text-neutral-400 dark:text-neutral-500">
             {resultsReleased
-              ? "Los resultados están publicados y visibles."
-              : "Los resultados aún no son visibles para quienes respondieron."}
+              ? t("builder.access.releasedVisible")
+              : t("builder.access.notReleased")}
           </span>
         )}
       </div>
@@ -305,23 +278,22 @@ export function AccessSettings({
       {/* Notificaciones por email */}
       <div className="mt-5 border-t border-neutral-100 dark:border-neutral-800 pt-4">
         <div className="mb-3 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-neutral-400 dark:text-neutral-500">
-          <Bell className="h-3 w-3" /> Notificaciones
+          <Bell className="h-3 w-3" /> {t("builder.access.notifications")}
           {savingEmails && <Loader2 className="h-3 w-3 animate-spin" />}
         </div>
         <label className="block">
           <span className="mb-1.5 block text-xs font-medium text-neutral-600 dark:text-neutral-300">
-            Avisarme por email cuando alguien responde
+            {t("builder.access.notifyLabel")}
           </span>
           <input
             value={emails}
             onChange={(e) => setEmails(e.target.value)}
             onBlur={saveEmails}
-            placeholder="vos@ejemplo.com, equipo@ejemplo.com"
+            placeholder={t("builder.access.notifyPlaceholder")}
             className="w-full rounded-md border border-neutral-200 px-2.5 py-2 text-sm outline-none focus:border-neutral-400 dark:bg-neutral-800 dark:border-neutral-700 dark:text-neutral-100 dark:placeholder:text-neutral-500"
           />
           <span className="mt-1 block text-[11px] leading-snug text-neutral-400 dark:text-neutral-500">
-            Emails separados por coma. Necesita SMTP configurado; si no, queda
-            registrado igual.
+            {t("builder.access.notifyHint")}
           </span>
         </label>
       </div>

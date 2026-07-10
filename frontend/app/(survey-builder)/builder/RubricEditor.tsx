@@ -3,6 +3,7 @@
 import React from "react";
 import { Plus, X } from "lucide-react";
 import { RubricItem, newRubricItem } from "./model";
+import { useI18n } from "@/lib/i18n";
 
 interface Props {
   rubric: RubricItem[];
@@ -10,6 +11,7 @@ interface Props {
 }
 
 export function RubricEditor({ rubric, onChange }: Props) {
+  const { t } = useI18n();
   const total = rubric.reduce((s, r) => s + (Number(r.points) || 0), 0);
 
   function update(id: string, patch: Partial<RubricItem>) {
@@ -24,7 +26,7 @@ export function RubricEditor({ rubric, onChange }: Props) {
             <input
               value={r.label}
               onChange={(e) => update(r.id, { label: e.target.value })}
-              placeholder="Criterio (ej. menciona X)"
+              placeholder={t("builder.rubric.criterionPlaceholder")}
               className="flex-1 rounded-md border border-neutral-200 px-2.5 py-1.5 text-sm outline-none focus:border-neutral-400 dark:bg-neutral-800 dark:border-neutral-700 dark:text-neutral-100 dark:placeholder:text-neutral-500"
             />
             <input
@@ -34,13 +36,13 @@ export function RubricEditor({ rubric, onChange }: Props) {
               step={0.5}
               onChange={(e) => update(r.id, { points: Number(e.target.value) })}
               className="w-16 rounded-md border border-neutral-200 px-2 py-1.5 text-sm outline-none focus:border-neutral-400 dark:bg-neutral-800 dark:border-neutral-700 dark:text-neutral-100 dark:placeholder:text-neutral-500"
-              title="Puntos"
+              title={t("builder.rubric.pointsTitle")}
             />
             <button
               type="button"
               onClick={() => onChange(rubric.filter((x) => x.id !== r.id))}
               className="p-1 text-neutral-300 dark:text-neutral-600 hover:text-red-600"
-              aria-label="Quitar criterio"
+              aria-label={t("builder.rubric.removeCriterion")}
             >
               <X className="w-4 h-4" />
             </button>
@@ -53,10 +55,10 @@ export function RubricEditor({ rubric, onChange }: Props) {
           onClick={() => onChange([...rubric, newRubricItem("", 1)])}
           className="inline-flex items-center gap-1.5 text-xs font-medium text-neutral-500 dark:text-neutral-400 hover:text-neutral-800 dark:hover:text-neutral-200"
         >
-          <Plus className="w-3.5 h-3.5" /> Agregar criterio
+          <Plus className="w-3.5 h-3.5" /> {t("builder.rubric.addCriterion")}
         </button>
         <span className="text-[11px] text-neutral-400 dark:text-neutral-500">
-          Total rúbrica: {total} pts
+          {t("builder.rubric.total", { total })}
         </span>
       </div>
     </div>

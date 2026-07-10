@@ -26,10 +26,10 @@ import {
 } from "lucide-react";
 import {
   BuilderQuestion,
-  QUESTION_TYPE_LABEL,
   QuestionType,
   readableForeground,
 } from "./model";
+import { useI18n } from "@/lib/i18n";
 
 const ICON: Record<QuestionType, React.ComponentType<{ className?: string }>> = {
   text: Type,
@@ -68,6 +68,7 @@ export function SortableQuestion({
   onDuplicate,
   onDelete,
 }: Props) {
+  const { t } = useI18n();
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: question.id });
 
@@ -115,7 +116,7 @@ export function SortableQuestion({
         {...attributes}
         {...listeners}
         onClick={(e) => e.stopPropagation()}
-        aria-label="Reordenar"
+        aria-label={t("builder.item.reorder")}
       >
         <GripVertical className="w-4 h-4" />
       </button>
@@ -133,20 +134,20 @@ export function SortableQuestion({
       {isSection ? (
         <div className="min-w-0 flex-1">
           <div className="text-[11px] font-semibold uppercase tracking-wide text-neutral-700 dark:text-neutral-300 truncate">
-            {question.title || "Sección"}
+            {question.title || t("builder.item.section")}
           </div>
         </div>
       ) : (
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5 min-w-0">
             <div className="text-sm font-medium text-neutral-800 dark:text-neutral-200 truncate">
-              {index + 1}. {question.title || "(sin título)"}
+              {index + 1}. {question.title || t("builder.item.untitled")}
             </div>
             {branchCount > 0 && (
               <span
                 className="shrink-0 inline-flex items-center gap-0.5 rounded-full px-1.5 py-0.5 text-[10px] font-semibold"
                 style={{ backgroundColor: `${accent}18`, color: accent }}
-                title={`${branchCount} salto${branchCount > 1 ? "s" : ""} configurado${branchCount > 1 ? "s" : ""}`}
+                title={t(branchCount > 1 ? "builder.item.jumpsPlural" : "builder.item.jumps", { n: branchCount })}
               >
                 <GitBranch className="w-3 h-3" />
                 {branchCount}
@@ -154,8 +155,8 @@ export function SortableQuestion({
             )}
           </div>
           <div className="text-[11px] text-neutral-400 dark:text-neutral-500">
-            {QUESTION_TYPE_LABEL[question.type]}
-            {question.isRequired ? " · obligatoria" : ""}
+            {t(`builder.qtype.${question.type}`)}
+            {question.isRequired ? ` · ${t("builder.item.required")}` : ""}
           </div>
         </div>
       )}
@@ -168,8 +169,8 @@ export function SortableQuestion({
             onDuplicate();
           }}
           className="p-1.5 text-neutral-400 dark:text-neutral-500 hover:text-neutral-700 dark:hover:text-neutral-300"
-          aria-label="Duplicar"
-          title="Duplicar"
+          aria-label={t("builder.item.duplicate")}
+          title={t("builder.item.duplicate")}
         >
           <Copy className="w-3.5 h-3.5" />
         </button>
@@ -180,8 +181,8 @@ export function SortableQuestion({
             onDelete();
           }}
           className="p-1.5 text-neutral-400 dark:text-neutral-500 hover:text-red-600"
-          aria-label="Eliminar"
-          title="Eliminar"
+          aria-label={t("builder.item.delete")}
+          title={t("builder.item.delete")}
         >
           <Trash2 className="w-3.5 h-3.5" />
         </button>

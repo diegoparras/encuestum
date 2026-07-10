@@ -21,6 +21,7 @@ import {
   uploadAsset,
 } from "@/utils/assets";
 import { resolveAssetUrl } from "./design";
+import { useI18n } from "@/lib/i18n";
 
 interface Props {
   kind: AssetKind;
@@ -33,13 +34,14 @@ interface Props {
  * Reusable control to pick, upload, preview and clear a media asset.
  * Always emits the relative URL returned by the API (never absolutized).
  */
-const KIND_LABELS: Record<AssetKind, { uploaded: string; accept: string }> = {
-  image: { uploaded: "Imagen subida", accept: "image/*" },
-  audio: { uploaded: "Audio subido", accept: "audio/*" },
-  video: { uploaded: "Video subido", accept: "video/*" },
+const KIND_ACCEPT: Record<AssetKind, string> = {
+  image: "image/*",
+  audio: "audio/*",
+  video: "video/*",
 };
 
 export function AssetPicker({ kind, value, onChange, label }: Props) {
+  const { t } = useI18n();
   const isImage = kind === "image";
   const [uploading, setUploading] = useState(false);
   const [libraryOpen, setLibraryOpen] = useState(false);
@@ -52,17 +54,17 @@ export function AssetPicker({ kind, value, onChange, label }: Props) {
       try {
         const asset = await uploadAsset(file);
         onChange(asset.url);
-        toast.success(KIND_LABELS[kind].uploaded);
+        toast.success(t(`builder.asset.uploaded.${kind}`));
       } catch (err) {
         toast.error(
-          err instanceof Error ? err.message : "No se pudo subir el archivo."
+          err instanceof Error ? err.message : t("builder.asset.uploadError")
         );
       } finally {
         setUploading(false);
         if (inputRef.current) inputRef.current.value = "";
       }
     },
-    [kind, onChange]
+    [kind, onChange, t]
   );
 
   return (
@@ -98,16 +100,16 @@ export function AssetPicker({ kind, value, onChange, label }: Props) {
             ) : (
               <Music className="w-4 h-4" />
             )}
-            {uploading ? "Subiendo…" : "Subir"}
+            {uploading ? t("builder.asset.uploading") : t("builder.asset.upload")}
           </button>
           <button
             type="button"
             onClick={() => setLibraryOpen(true)}
             disabled={uploading}
             className="inline-flex items-center justify-center gap-1.5 rounded-lg border border-neutral-200 px-3 py-2.5 text-xs font-medium text-neutral-600 hover:bg-neutral-50 transition-colors disabled:opacity-60 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
-            title="Elegir de la biblioteca"
+            title={t("builder.asset.chooseFromLibrary")}
           >
-            <Library className="w-4 h-4" /> Biblioteca
+            <Library className="w-4 h-4" /> {t("builder.asset.library")}
           </button>
         </div>
       )}
@@ -115,7 +117,7 @@ export function AssetPicker({ kind, value, onChange, label }: Props) {
       <input
         ref={inputRef}
         type="file"
-        accept={KIND_LABELS[kind].accept}
+        accept={KIND_ACCEPT[kind]}
         className="hidden"
         onChange={(e) => handleFile(e.target.files?.[0])}
       />
@@ -148,6 +150,7 @@ function Preview({
   onRemove: () => void;
   uploading: boolean;
 }) {
+  const { t } = useI18n();
   const src = resolveAssetUrl(value);
   return (
     <div className="rounded-lg border border-neutral-200 dark:border-neutral-800 p-2">
@@ -156,7 +159,7 @@ function Preview({
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
             src={src}
-            alt="Vista previa"
+            alt={t("builder.asset.previewAlt")}
             className="w-full h-full object-cover"
           />
         </div>
@@ -167,11 +170,11 @@ function Preview({
           className="w-full rounded-md bg-black"
           style={{ maxHeight: 200 }}
         >
-          Tu navegador no admite video.
+          {t("builder.asset.noVideo")}
         </video>
       ) : (
         <audio controls src={src} className="w-full">
-          Tu navegador no admite audio.
+          {t("builder.asset.noAudio")}
         </audio>
       )}
       <div className="mt-2 flex gap-2">
@@ -186,14 +189,14 @@ function Preview({
           ) : (
             <Upload className="w-3.5 h-3.5" />
           )}
-          Reemplazar
+          {t("builder.asset.replace")}
         </button>
         <button
           type="button"
           onClick={onRemove}
           className="inline-flex items-center justify-center gap-1.5 rounded-md border border-neutral-200 px-2.5 py-1.5 text-xs font-medium text-red-600 hover:bg-red-50 dark:border-neutral-700 dark:text-red-400 dark:hover:bg-red-950/40"
         >
-          <X className="w-3.5 h-3.5" /> Quitar
+          <X className="w-3.5 h-3.5" /> {t("builder.asset.remove")}
         </button>
       </div>
     </div>
@@ -211,6 +214,7 @@ function LibraryDialog({
   onClose: () => void;
   onPick: (url: string) => void;
 }) {
+  const { t } = useI18n();
   const [assets, setAssets] = useState<Asset[] | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -220,10 +224,10 @@ function LibraryDialog({
     listAssets(kind)
       .then(setAssets)
       .catch((err) => {
-        setError(err instanceof Error ? err.message : "No se pudo cargar.");
+        setError(err instanceof Error ? err.message : t("builder.asset.loadError"));
         setAssets([]);
       });
-  }, [kind]);
+  }, [kind, t]);
 
   useEffect(() => {
     reload();
@@ -241,23 +245,17 @@ function LibraryDialog({
     try {
       await deleteAsset(id);
       setAssets((prev) => (prev ? prev.filter((a) => a.id !== id) : prev));
-      toast.success("Archivo eliminado");
+      toast.success(t("builder.asset.deleted"));
     } catch (err) {
       toast.error(
-        err instanceof Error ? err.message : "No se pudo eliminar."
+        err instanceof Error ? err.message : t("builder.asset.deleteError")
       );
     }
   }
 
   const isImage = kind === "image";
-  const libraryTitle =
-    kind === "image"
-      ? "Biblioteca de imágenes"
-      : kind === "video"
-        ? "Biblioteca de video"
-        : "Biblioteca de audio";
-  const emptyLabel =
-    kind === "image" ? "imágenes" : kind === "video" ? "videos" : "audios";
+  const libraryTitle = t(`builder.asset.libTitle.${kind}`);
+  const emptyLabel = t(`builder.asset.empty.${kind}`);
 
   return (
     <div
@@ -285,7 +283,7 @@ function LibraryDialog({
           {assets === null && (
             <div className="grid place-items-center py-12 text-sm text-neutral-400 dark:text-neutral-500">
               <span className="inline-flex items-center gap-2">
-                <Loader2 className="w-4 h-4 animate-spin" /> Cargando…
+                <Loader2 className="w-4 h-4 animate-spin" /> {t("builder.asset.loading")}
               </span>
             </div>
           )}
@@ -298,8 +296,7 @@ function LibraryDialog({
 
           {assets !== null && !error && assets.length === 0 && (
             <div className="grid place-items-center py-12 text-center text-sm text-neutral-400 dark:text-neutral-500">
-              Todavía no subiste {emptyLabel}. Usá “Subir” para agregar el
-              primero.
+              {t("builder.asset.emptyMsg", { kind: emptyLabel })}
             </div>
           )}
 
@@ -335,7 +332,7 @@ function LibraryDialog({
                       type="button"
                       onClick={() => remove(a.id)}
                       className="absolute left-1 top-1 hidden rounded-md bg-white/90 p-1 text-red-600 shadow-sm hover:bg-white group-hover:block dark:bg-neutral-900/90 dark:text-red-400 dark:hover:bg-neutral-900"
-                      title="Eliminar de la biblioteca"
+                      title={t("builder.asset.deleteFromLibrary")}
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                     </button>
@@ -363,7 +360,7 @@ function LibraryDialog({
                     )}
                     <div className="min-w-0 flex-1">
                       <div className="truncate text-sm text-neutral-700 dark:text-neutral-300">
-                        {a.original_name ?? (kind === "video" ? "Video" : "Audio")}
+                        {a.original_name ?? (kind === "video" ? t("builder.asset.videoFallback") : t("builder.asset.audioFallback"))}
                       </div>
                       {kind === "video" ? (
                         <video
@@ -385,13 +382,13 @@ function LibraryDialog({
                       onClick={() => onPick(a.url)}
                       className="shrink-0 rounded-md border border-neutral-200 px-2.5 py-1.5 text-xs font-medium text-neutral-600 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
                     >
-                      {active ? "Elegido" : "Elegir"}
+                      {active ? t("builder.asset.chosen") : t("builder.asset.choose")}
                     </button>
                     <button
                       type="button"
                       onClick={() => remove(a.id)}
                       className="shrink-0 rounded-md p-1.5 text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/40"
-                      title="Eliminar de la biblioteca"
+                      title={t("builder.asset.deleteFromLibrary")}
                     >
                       <Trash2 className="w-4 h-4" />
                     </button>

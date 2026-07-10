@@ -2,6 +2,17 @@
 
 import React from "react";
 import dynamic from "next/dynamic";
+import { useI18n } from "@/lib/i18n";
+
+// Fallback de carga mientras se descarga el chunk perezoso de SurveyView.
+function SurveyLoading() {
+  const { t } = useI18n();
+  return (
+    <div className="min-h-screen flex items-center justify-center text-sm text-neutral-500">
+      {t("public.loading")}
+    </div>
+  );
+}
 
 // SurveyView arrastra SurveyJS (survey-core + survey-react-ui), que es pesado.
 // Lo diferimos a un chunk perezoso (ssr:false) para no cargarlo en el bundle
@@ -11,11 +22,7 @@ import dynamic from "next/dynamic";
 // import; no movemos ninguna lógica.
 const SurveyView = dynamic(() => import("./SurveyView"), {
   ssr: false,
-  loading: () => (
-    <div className="min-h-screen flex items-center justify-center text-sm text-neutral-500">
-      Cargando…
-    </div>
-  ),
+  loading: () => <SurveyLoading />,
 });
 
 export default function SurveyViewClient({ slug }: { slug: string }) {

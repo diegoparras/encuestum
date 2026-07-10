@@ -10,12 +10,12 @@ import {
   EvaluationSettings,
   FeedbackTone,
   LogicOperator,
-  QUESTION_TYPE_LABEL,
   RATE_PRESENTATIONS,
   Strictness,
   typeHasChoices,
   VisibilityRule,
 } from "./model";
+import { useI18n } from "@/lib/i18n";
 import { ChoicesEditor } from "./ChoicesEditor";
 import { ImageChoicesEditor } from "./ImageChoicesEditor";
 import { GradingSection } from "./GradingSection";
@@ -64,6 +64,7 @@ export function PropertiesPanel({
   onEvaluationChange,
   accent,
 }: Props) {
+  const { t } = useI18n();
   const toDateInput = (iso: string | null) => {
     if (!iso) return "";
     const d = new Date(iso);
@@ -73,34 +74,34 @@ export function PropertiesPanel({
   if (!question) {
     return (
       <div className="p-5">
-        <SectionTitle>Ajustes de la encuesta</SectionTitle>
-        <Field label="Descripción (opcional)">
+        <SectionTitle>{t("builder.props.surveySettings")}</SectionTitle>
+        <Field label={t("builder.props.descriptionOptional")}>
           <textarea
             value={description}
             onChange={(e) => onSurveyChange({ description: e.target.value })}
             rows={3}
-            placeholder="Un subtítulo o contexto para quien responde"
+            placeholder={t("builder.props.descriptionPlaceholder")}
             className="w-full rounded-md border border-neutral-200 px-2.5 py-2 text-sm outline-none focus:border-neutral-400 dark:bg-neutral-800 dark:border-neutral-700 dark:text-neutral-100 dark:placeholder:text-neutral-500"
           />
         </Field>
         <ToggleRow
-          label="Una pregunta por pantalla"
-          hint="Experiencia tipo Typeform"
+          label={t("builder.props.onePerPage")}
+          hint={t("builder.props.onePerPageHint")}
           checked={onePerPage}
           onChange={(v) => onSurveyChange({ onePerPage: v })}
         />
         {onePerPage && (
           <ToggleRow
-            label="Mostrar progreso"
-            hint="Muestra «Pregunta 1 de 3» arriba"
+            label={t("builder.props.showProgress")}
+            hint={t("builder.props.showProgressHint")}
             checked={showProgress}
             onChange={(v) => onSurveyChange({ showProgress: v })}
           />
         )}
 
         <div className="mt-5 border-t border-neutral-100 dark:border-neutral-800 pt-4">
-          <SectionTitle>Cierre automático</SectionTitle>
-          <Field label="Cerrar en una fecha (opcional)">
+          <SectionTitle>{t("builder.props.autoClose")}</SectionTitle>
+          <Field label={t("builder.props.closeOnDate")}>
             <input
               type="datetime-local"
               value={toDateInput(closesAt)}
@@ -112,12 +113,12 @@ export function PropertiesPanel({
               className="w-full rounded-md border border-neutral-200 px-2.5 py-2 text-sm outline-none focus:border-neutral-400 dark:bg-neutral-800 dark:border-neutral-700 dark:text-neutral-100 dark:placeholder:text-neutral-500"
             />
           </Field>
-          <Field label="Máximo de respuestas (opcional)">
+          <Field label={t("builder.props.maxResponses")}>
             <input
               type="number"
               min={1}
               value={maxResponses ?? ""}
-              placeholder="Sin límite"
+              placeholder={t("builder.props.noLimit")}
               onChange={(e) =>
                 onSurveyChange({
                   maxResponses: e.target.value ? Math.max(1, parseInt(e.target.value, 10) || 1) : null,
@@ -127,37 +128,35 @@ export function PropertiesPanel({
             />
           </Field>
           <p className="text-xs text-neutral-400 dark:text-neutral-500">
-            La encuesta deja de aceptar respuestas al llegar la fecha o el cupo.
+            {t("builder.props.autoCloseHint")}
           </p>
         </div>
 
         <div className="mt-5 border-t border-neutral-100 dark:border-neutral-800 pt-4">
-          <SectionTitle>Al terminar</SectionTitle>
-          <Field label="Mensaje de agradecimiento">
+          <SectionTitle>{t("builder.props.onFinish")}</SectionTitle>
+          <Field label={t("builder.props.thankYouMessage")}>
             <textarea
               value={thankyouMessage}
               onChange={(e) => onSurveyChange({ thankyouMessage: e.target.value })}
               rows={3}
-              placeholder="¡Gracias por responder!"
+              placeholder={t("builder.props.thankYouPlaceholder")}
               className="w-full rounded-md border border-neutral-200 px-2.5 py-2 text-sm outline-none focus:border-neutral-400 dark:bg-neutral-800 dark:border-neutral-700 dark:text-neutral-100 dark:placeholder:text-neutral-500"
             />
           </Field>
           <p className="-mt-2 mb-4 text-xs text-neutral-400 dark:text-neutral-500">
-            Se muestra al terminar. Si lo dejás vacío, se muestra el mensaje por
-            defecto.
+            {t("builder.props.thankYouHint")}
           </p>
-          <Field label="Redirigir al terminar (opcional)">
+          <Field label={t("builder.props.redirectOptional")}>
             <input
               type="url"
               value={redirectUrl}
               onChange={(e) => onSurveyChange({ redirectUrl: e.target.value })}
-              placeholder="https://tu-sitio.com/gracias"
+              placeholder={t("builder.props.redirectPlaceholder")}
               className="w-full rounded-md border border-neutral-200 px-2.5 py-2 text-sm outline-none focus:border-neutral-400 dark:bg-neutral-800 dark:border-neutral-700 dark:text-neutral-100 dark:placeholder:text-neutral-500"
             />
           </Field>
           <p className="-mt-2 text-xs text-neutral-400 dark:text-neutral-500">
-            Al enviar, se redirige a esta URL (ej. tu sitio o un agradecimiento
-            propio). Si está seteada, tiene prioridad sobre el mensaje.
+            {t("builder.props.redirectHint")}
           </p>
         </div>
 
@@ -168,8 +167,7 @@ export function PropertiesPanel({
         />
 
         <p className="mt-6 text-xs text-neutral-400 dark:text-neutral-500 leading-relaxed">
-          Seleccioná una pregunta de la izquierda para editar su contenido, o
-          agregá una nueva desde la paleta.
+          {t("builder.props.selectQuestionHint")}
         </p>
       </div>
     );
@@ -181,9 +179,9 @@ export function PropertiesPanel({
   if (q.type === "section") {
     return (
       <div className="p-5">
-        <SectionTitle>Sección</SectionTitle>
+        <SectionTitle>{t("builder.props.section")}</SectionTitle>
 
-        <Field label="Título de la sección">
+        <Field label={t("builder.props.sectionTitle")}>
           <input
             value={q.title}
             onChange={(e) => onQuestionChange({ title: e.target.value })}
@@ -191,20 +189,18 @@ export function PropertiesPanel({
           />
         </Field>
 
-        <Field label="Descripción (opcional)">
+        <Field label={t("builder.props.descriptionOptional")}>
           <textarea
             value={q.description ?? ""}
             onChange={(e) => onQuestionChange({ description: e.target.value })}
             rows={3}
-            placeholder="Un texto introductorio para esta sección"
+            placeholder={t("builder.props.sectionDescPlaceholder")}
             className="w-full rounded-md border border-neutral-200 px-2.5 py-2 text-sm outline-none focus:border-neutral-400 dark:bg-neutral-800 dark:border-neutral-700 dark:text-neutral-100 dark:placeholder:text-neutral-500"
           />
         </Field>
 
         <p className="rounded-lg border border-neutral-100 dark:border-neutral-800 bg-neutral-50/60 dark:bg-neutral-900/60 p-3 text-xs leading-relaxed text-neutral-500 dark:text-neutral-400">
-          Las preguntas debajo de esta sección quedan agrupadas. En modo normal,
-          cada sección es una página con botón Siguiente; en una-por-pantalla,
-          la sección muestra una portada.
+          {t("builder.props.sectionNote")}
         </p>
       </div>
     );
@@ -214,9 +210,9 @@ export function PropertiesPanel({
 
   return (
     <div className="p-5">
-      <SectionTitle>{QUESTION_TYPE_LABEL[q.type]}</SectionTitle>
+      <SectionTitle>{t(`builder.qtype.${q.type}`)}</SectionTitle>
 
-      <Field label="Pregunta">
+      <Field label={t("builder.props.question")}>
         <input
           value={q.title}
           onChange={(e) => onQuestionChange({ title: e.target.value })}
@@ -224,17 +220,17 @@ export function PropertiesPanel({
         />
       </Field>
 
-      <Field label="Descripción (opcional)">
+      <Field label={t("builder.props.descriptionOptional")}>
         <textarea
           value={q.description ?? ""}
           onChange={(e) => onQuestionChange({ description: e.target.value })}
           rows={2}
-          placeholder="Texto de ayuda debajo de la pregunta"
+          placeholder={t("builder.props.questionDescPlaceholder")}
           className="w-full rounded-md border border-neutral-200 px-2.5 py-2 text-sm outline-none focus:border-neutral-400 dark:bg-neutral-800 dark:border-neutral-700 dark:text-neutral-100 dark:placeholder:text-neutral-500"
         />
       </Field>
 
-      <Field label="Imagen de la pregunta (opcional)">
+      <Field label={t("builder.props.questionImage")}>
         <AssetPicker
           kind="image"
           value={q.imageUrl}
@@ -250,16 +246,16 @@ export function PropertiesPanel({
       {/* Estilo SOLO de esta pregunta (pisa el diseño general) */}
       <div className="mt-1 mb-4 rounded-lg border border-neutral-100 dark:border-neutral-800 bg-neutral-50/60 dark:bg-neutral-900/60 p-3">
         <p className="mb-2 text-[11px] font-semibold uppercase tracking-wide text-neutral-400 dark:text-neutral-500">
-          Estilo de esta pregunta
+          {t("builder.props.styleThisQuestion")}
         </p>
 
-        <Field label="Alineación">
+        <Field label={t("builder.props.alignment")}>
           <div className="grid grid-cols-3 gap-2">
             {(
               [
-                { value: undefined, label: "General" },
-                { value: "left", label: "Izquierda" },
-                { value: "center", label: "Centrado" },
+                { value: undefined, label: t("builder.props.alignGeneral") },
+                { value: "left", label: t("builder.props.alignLeft") },
+                { value: "center", label: t("builder.props.alignCenter") },
               ] as const
             ).map((opt) => {
               const active = q.align === opt.value;
@@ -282,15 +278,15 @@ export function PropertiesPanel({
         </Field>
 
         <ToggleRow
-          label="Transparencia personalizada"
-          hint="Pisa la opacidad del diseño solo acá"
+          label={t("builder.props.customTransparency")}
+          hint={t("builder.props.customTransparencyHint")}
           checked={q.boxOpacity != null}
           onChange={(v) => onQuestionChange({ boxOpacity: v ? 0 : undefined })}
         />
         {q.boxOpacity != null && (
           <div className="mt-2">
             <div className="mb-1 flex items-center justify-between text-xs text-neutral-600 dark:text-neutral-300">
-              <span>Opacidad del cuadro</span>
+              <span>{t("builder.props.boxOpacity")}</span>
               <span className="tabular-nums text-neutral-400 dark:text-neutral-500">
                 {Math.round((q.boxOpacity ?? 0) * 100)}%
               </span>
@@ -306,14 +302,14 @@ export function PropertiesPanel({
               className="w-full accent-[#8faf0e]"
             />
             <p className="mt-1 text-[11px] leading-relaxed text-neutral-400 dark:text-neutral-500">
-              0% = sin cuadro (ideal para escalas/NPS sobre una imagen de fondo).
+              {t("builder.props.boxOpacityHint")}
             </p>
           </div>
         )}
       </div>
 
       {showPlaceholder && (
-        <Field label="Texto de ejemplo (placeholder)">
+        <Field label={t("builder.props.placeholderExample")}>
           <input
             value={q.placeholder ?? ""}
             onChange={(e) => onQuestionChange({ placeholder: e.target.value })}
@@ -323,12 +319,12 @@ export function PropertiesPanel({
       )}
 
       {(q.type === "text" || q.type === "comment") && (
-        <Field label="Máximo de caracteres (opcional)">
+        <Field label={t("builder.props.maxChars")}>
           <input
             type="number"
             min={1}
             value={q.maxLength ?? ""}
-            placeholder="Sin límite"
+            placeholder={t("builder.props.noLimit")}
             onChange={(e) =>
               onQuestionChange({
                 maxLength: e.target.value
@@ -339,29 +335,29 @@ export function PropertiesPanel({
             className="w-full rounded-md border border-neutral-200 px-2.5 py-2 text-sm outline-none focus:border-neutral-400 dark:bg-neutral-800 dark:border-neutral-700 dark:text-neutral-100 dark:placeholder:text-neutral-500"
           />
           <p className="mt-1 text-xs text-neutral-400 dark:text-neutral-500">
-            Quien responde ve un contador y no puede pasarse.
+            {t("builder.props.maxCharsHint")}
           </p>
         </Field>
       )}
 
       {q.type === "imagepicker" ? (
         <>
-          <Field label="Opciones (imagen)">
+          <Field label={t("builder.props.optionsImage")}>
             <ImageChoicesEditor
               choices={q.choices ?? []}
               onChange={(choices) => onQuestionChange({ choices })}
             />
           </Field>
           <ToggleRow
-            label="Permitir varias"
-            hint="Quien responde puede elegir más de una imagen"
+            label={t("builder.props.allowMultiple")}
+            hint={t("builder.props.allowMultipleHint")}
             checked={!!q.multiSelect}
             onChange={(v) => onQuestionChange({ multiSelect: v })}
           />
         </>
       ) : (
         typeHasChoices(q.type) && (
-          <Field label="Opciones">
+          <Field label={t("builder.props.options")}>
             <ChoicesEditor
               choices={q.choices ?? []}
               onChange={(choices) => onQuestionChange({ choices })}
@@ -372,7 +368,7 @@ export function PropertiesPanel({
 
       {q.type === "rating" && (
         <>
-          <Field label="Presentación">
+          <Field label={t("builder.props.presentation")}>
             <div className="grid grid-cols-2 gap-2">
               {RATE_PRESENTATIONS.map((p) => {
                 const active = (q.ratePresentation ?? "numbers") === p.id;
@@ -387,14 +383,14 @@ export function PropertiesPanel({
                         : "border-neutral-200 dark:border-neutral-800 text-neutral-500 dark:text-neutral-400 hover:border-neutral-300 dark:hover:border-neutral-700"
                     }`}
                   >
-                    {p.label}
+                    {t(`builder.rate.${p.id}`)}
                   </button>
                 );
               })}
             </div>
           </Field>
           <div className="grid grid-cols-2 gap-3">
-            <Field label="Mínimo">
+            <Field label={t("builder.props.min")}>
               <input
                 type="number"
                 value={q.rateMin ?? 0}
@@ -404,7 +400,7 @@ export function PropertiesPanel({
                 className="w-full rounded-md border border-neutral-200 px-2.5 py-2 text-sm outline-none focus:border-neutral-400 dark:bg-neutral-800 dark:border-neutral-700 dark:text-neutral-100 dark:placeholder:text-neutral-500"
               />
             </Field>
-            <Field label="Máximo">
+            <Field label={t("builder.props.max")}>
               <input
                 type="number"
                 value={q.rateMax ?? 10}
@@ -415,7 +411,7 @@ export function PropertiesPanel({
               />
             </Field>
           </div>
-          <Field label="Etiqueta del mínimo">
+          <Field label={t("builder.props.minLabel")}>
             <input
               value={q.minRateDescription ?? ""}
               onChange={(e) =>
@@ -424,7 +420,7 @@ export function PropertiesPanel({
               className="w-full rounded-md border border-neutral-200 px-2.5 py-2 text-sm outline-none focus:border-neutral-400 dark:bg-neutral-800 dark:border-neutral-700 dark:text-neutral-100 dark:placeholder:text-neutral-500"
             />
           </Field>
-          <Field label="Etiqueta del máximo">
+          <Field label={t("builder.props.maxLabel")}>
             <input
               value={q.maxRateDescription ?? ""}
               onChange={(e) =>
@@ -438,14 +434,14 @@ export function PropertiesPanel({
 
       {q.type === "boolean" && (
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Etiqueta “Sí”">
+          <Field label={t("builder.props.labelYes")}>
             <input
               value={q.labelTrue ?? ""}
               onChange={(e) => onQuestionChange({ labelTrue: e.target.value })}
               className="w-full rounded-md border border-neutral-200 px-2.5 py-2 text-sm outline-none focus:border-neutral-400 dark:bg-neutral-800 dark:border-neutral-700 dark:text-neutral-100 dark:placeholder:text-neutral-500"
             />
           </Field>
-          <Field label="Etiqueta “No”">
+          <Field label={t("builder.props.labelNo")}>
             <input
               value={q.labelFalse ?? ""}
               onChange={(e) => onQuestionChange({ labelFalse: e.target.value })}
@@ -457,13 +453,13 @@ export function PropertiesPanel({
 
       {q.type === "matrix" && (
         <>
-          <Field label="Filas (cada una se responde por separado)">
+          <Field label={t("builder.props.matrixRows")}>
             <ChoicesEditor
               choices={q.matrixRows ?? []}
               onChange={(matrixRows) => onQuestionChange({ matrixRows })}
             />
           </Field>
-          <Field label="Columnas (opciones únicas por fila)">
+          <Field label={t("builder.props.matrixColumns")}>
             <ChoicesEditor
               choices={q.matrixColumns ?? []}
               onChange={(matrixColumns) => onQuestionChange({ matrixColumns })}
@@ -474,7 +470,7 @@ export function PropertiesPanel({
 
       {q.type === "date" && (
         <div className="grid grid-cols-2 gap-3">
-          <Field label="Fecha mínima (opcional)">
+          <Field label={t("builder.props.dateMin")}>
             <input
               type="date"
               value={q.dateMin ?? ""}
@@ -482,7 +478,7 @@ export function PropertiesPanel({
               className="w-full rounded-md border border-neutral-200 px-2.5 py-2 text-sm outline-none focus:border-neutral-400 dark:bg-neutral-800 dark:border-neutral-700 dark:text-neutral-100 dark:placeholder:text-neutral-500"
             />
           </Field>
-          <Field label="Fecha máxima (opcional)">
+          <Field label={t("builder.props.dateMax")}>
             <input
               type="date"
               value={q.dateMax ?? ""}
@@ -496,16 +492,16 @@ export function PropertiesPanel({
       {q.type === "fileupload" && (
         <>
           <ToggleRow
-            label="Permitir varios archivos"
-            hint="Quien responde puede adjuntar más de un archivo"
+            label={t("builder.props.allowMultipleFiles")}
+            hint={t("builder.props.allowMultipleFilesHint")}
             checked={!!q.fileMultiple}
             onChange={(v) => onQuestionChange({ fileMultiple: v })}
           />
-          <Field label="Tipos aceptados (opcional)">
+          <Field label={t("builder.props.acceptedTypes")}>
             <input
               value={q.fileAccept ?? ""}
               onChange={(e) => onQuestionChange({ fileAccept: e.target.value })}
-              placeholder="Ej. .pdf,.docx,.jpg (vacío = cualquiera)"
+              placeholder={t("builder.props.acceptedTypesPlaceholder")}
               className="w-full rounded-md border border-neutral-200 px-2.5 py-2 text-sm outline-none focus:border-neutral-400 dark:bg-neutral-800 dark:border-neutral-700 dark:text-neutral-100 dark:placeholder:text-neutral-500"
             />
           </Field>
@@ -513,8 +509,8 @@ export function PropertiesPanel({
       )}
 
       <ToggleRow
-        label="Obligatoria"
-        hint="No se puede enviar sin responder"
+        label={t("builder.props.required")}
+        hint={t("builder.props.requiredHint")}
         checked={q.isRequired}
         onChange={(v) => onQuestionChange({ isRequired: v })}
       />
@@ -537,9 +533,9 @@ export function PropertiesPanel({
 
       <details className="mt-4 group">
         <summary className="cursor-pointer text-xs font-medium text-neutral-400 dark:text-neutral-500 hover:text-neutral-600 dark:hover:text-neutral-300 select-none">
-          Avanzado
+          {t("builder.props.advanced")}
         </summary>
-        <Field label="Clave / variable (para exportar datos)">
+        <Field label={t("builder.props.keyVariable")}>
           <input
             value={q.name}
             onChange={(e) =>
@@ -555,14 +551,14 @@ export function PropertiesPanel({
   );
 }
 
-const OPERATOR_OPTIONS: { value: LogicOperator; label: string }[] = [
-  { value: "=", label: "es igual a" },
-  { value: "<>", label: "es distinto de" },
-  { value: "contains", label: "contiene" },
-  { value: ">", label: "es mayor que" },
-  { value: "<", label: "es menor que" },
-  { value: "empty", label: "está vacía" },
-  { value: "notempty", label: "fue respondida" },
+const OPERATOR_OPTIONS: { value: LogicOperator; key: string }[] = [
+  { value: "=", key: "builder.op.eq" },
+  { value: "<>", key: "builder.op.neq" },
+  { value: "contains", key: "builder.op.contains" },
+  { value: ">", key: "builder.op.gt" },
+  { value: "<", key: "builder.op.lt" },
+  { value: "empty", key: "builder.op.empty" },
+  { value: "notempty", key: "builder.op.notempty" },
 ];
 
 function VisibilitySection({
@@ -574,6 +570,7 @@ function VisibilitySection({
   questions: BuilderQuestion[];
   onQuestionChange: (patch: Partial<BuilderQuestion>) => void;
 }) {
+  const { t } = useI18n();
   // Other questions that can be referenced (exclude the current one).
   const others = questions.filter((x) => x.id !== question.id);
   const rule = question.visibilityRule;
@@ -607,21 +604,21 @@ function VisibilitySection({
   return (
     <div className="mt-4 rounded-xl border border-neutral-200 dark:border-neutral-800 p-3">
       <ToggleRow
-        label="Lógica de visibilidad"
-        hint="Mostrar esta pregunta sólo si…"
+        label={t("builder.props.visibilityLogic")}
+        hint={t("builder.props.visibilityHint")}
         checked={enabled}
         onChange={toggle}
       />
 
       {others.length === 0 && !enabled && (
         <p className="mt-1 text-[11px] text-neutral-400 dark:text-neutral-500">
-          Necesitás otra pregunta antes para condicionar esta.
+          {t("builder.props.needPriorQuestion")}
         </p>
       )}
 
       {enabled && rule && (
         <div className="mt-2 space-y-3">
-          <Field label="Pregunta">
+          <Field label={t("builder.props.question")}>
             <select
               value={rule.questionName}
               onChange={(e) => patchRule({ questionName: e.target.value })}
@@ -635,7 +632,7 @@ function VisibilitySection({
             </select>
           </Field>
 
-          <Field label="Condición">
+          <Field label={t("builder.props.condition")}>
             <select
               value={rule.operator}
               onChange={(e) =>
@@ -645,21 +642,21 @@ function VisibilitySection({
             >
               {OPERATOR_OPTIONS.map((o) => (
                 <option key={o.value} value={o.value}>
-                  {o.label}
+                  {t(o.key)}
                 </option>
               ))}
             </select>
           </Field>
 
           {needsValue && (
-            <Field label="Valor">
+            <Field label={t("builder.props.value")}>
               {referencedChoices.length > 0 ? (
                 <select
                   value={rule.value}
                   onChange={(e) => patchRule({ value: e.target.value })}
                   className="w-full rounded-md border border-neutral-200 px-2.5 py-1.5 text-sm outline-none focus:border-neutral-400 bg-white dark:bg-neutral-800 dark:border-neutral-700 dark:text-neutral-100 dark:placeholder:text-neutral-500"
                 >
-                  <option value="">Elegí una opción…</option>
+                  <option value="">{t("builder.props.chooseOption")}</option>
                   {referencedChoices.map((c) => (
                     <option key={c.id} value={c.text}>
                       {c.text}
@@ -670,7 +667,7 @@ function VisibilitySection({
                 <input
                   value={rule.value}
                   onChange={(e) => patchRule({ value: e.target.value })}
-                  placeholder="Valor a comparar"
+                  placeholder={t("builder.props.valueToCompare")}
                   className="w-full rounded-md border border-neutral-200 px-2.5 py-2 text-sm outline-none focus:border-neutral-400 dark:bg-neutral-800 dark:border-neutral-700 dark:text-neutral-100 dark:placeholder:text-neutral-500"
                 />
               )}
@@ -684,14 +681,14 @@ function VisibilitySection({
 
 // Operadores para las reglas de salto (misma semántica que la visibilidad,
 // pero con etiquetas pensadas para "si la respuesta…").
-const BRANCH_OPERATOR_OPTIONS: { value: LogicOperator; label: string }[] = [
-  { value: "=", label: "es igual a" },
-  { value: "<>", label: "es distinta de" },
-  { value: "contains", label: "contiene" },
-  { value: ">", label: "es mayor que" },
-  { value: "<", label: "es menor que" },
-  { value: "empty", label: "está vacía" },
-  { value: "notempty", label: "tiene algo" },
+const BRANCH_OPERATOR_OPTIONS: { value: LogicOperator; key: string }[] = [
+  { value: "=", key: "builder.bop.eq" },
+  { value: "<>", key: "builder.bop.neq" },
+  { value: "contains", key: "builder.bop.contains" },
+  { value: ">", key: "builder.bop.gt" },
+  { value: "<", key: "builder.bop.lt" },
+  { value: "empty", key: "builder.bop.empty" },
+  { value: "notempty", key: "builder.bop.notempty" },
 ];
 
 function branchRuleId(): string {
@@ -714,6 +711,7 @@ function BranchingSection({
   questions: BuilderQuestion[];
   onQuestionChange: (patch: Partial<BuilderQuestion>) => void;
 }) {
+  const { t } = useI18n();
   // Solo se puede saltar hacia adelante: preguntas posteriores a la actual
   // (las secciones no son destinos válidos, no existen como pregunta).
   const idx = questions.findIndex((x) => x.id === question.id);
@@ -749,10 +747,10 @@ function BranchingSection({
   return (
     <div className="mt-4 rounded-xl border border-neutral-200 dark:border-neutral-800 p-3">
       <div className="mb-1 inline-flex items-center gap-1.5 text-xs font-semibold text-neutral-600 dark:text-neutral-300">
-        <GitBranch className="h-3.5 w-3.5 text-neutral-400 dark:text-neutral-500" /> Bifurcación (saltos)
+        <GitBranch className="h-3.5 w-3.5 text-neutral-400 dark:text-neutral-500" /> {t("builder.branch.title")}
       </div>
       <p className="mb-2 text-[11px] leading-relaxed text-neutral-400 dark:text-neutral-500">
-        Según la respuesta, salta a una pregunta posterior o termina la encuesta.
+        {t("builder.branch.hint")}
       </p>
 
       {rules.map((rule) => {
@@ -766,7 +764,7 @@ function BranchingSection({
               <div className="min-w-0 flex-1 space-y-2">
                 <div className="flex items-center gap-2">
                   <span className="shrink-0 text-xs text-neutral-500 dark:text-neutral-400">
-                    Si la respuesta
+                    {t("builder.branch.ifAnswer")}
                   </span>
                   <select
                     value={rule.operator}
@@ -779,7 +777,7 @@ function BranchingSection({
                   >
                     {BRANCH_OPERATOR_OPTIONS.map((o) => (
                       <option key={o.value} value={o.value}>
-                        {o.label}
+                        {t(o.key)}
                       </option>
                     ))}
                   </select>
@@ -792,7 +790,7 @@ function BranchingSection({
                       onChange={(e) => patchRule(rule.id, { value: e.target.value })}
                       className="w-full rounded-md border border-neutral-200 bg-white px-2 py-1.5 text-sm outline-none focus:border-neutral-400 dark:bg-neutral-800 dark:border-neutral-700 dark:text-neutral-100 dark:placeholder:text-neutral-500"
                     >
-                      <option value="">Elegí una opción…</option>
+                      <option value="">{t("builder.props.chooseOption")}</option>
                       {currentChoices.map((c) => (
                         <option key={c.id} value={c.text}>
                           {c.text}
@@ -803,13 +801,13 @@ function BranchingSection({
                     <input
                       value={rule.value}
                       onChange={(e) => patchRule(rule.id, { value: e.target.value })}
-                      placeholder="Valor a comparar"
+                      placeholder={t("builder.props.valueToCompare")}
                       className="w-full rounded-md border border-neutral-200 px-2 py-1.5 text-sm outline-none focus:border-neutral-400 dark:bg-neutral-800 dark:border-neutral-700 dark:text-neutral-100 dark:placeholder:text-neutral-500"
                     />
                   ))}
 
                 <div className="flex items-center gap-2">
-                  <span className="shrink-0 text-xs text-neutral-500 dark:text-neutral-400">→ Ir a</span>
+                  <span className="shrink-0 text-xs text-neutral-500 dark:text-neutral-400">{t("builder.branch.goTo")}</span>
                   <select
                     value={rule.target}
                     onChange={(e) => patchRule(rule.id, { target: e.target.value })}
@@ -820,7 +818,7 @@ function BranchingSection({
                         {i + 1}. {x.title || x.name}
                       </option>
                     ))}
-                    <option value={BRANCH_END}>🏁 Terminar la encuesta</option>
+                    <option value={BRANCH_END}>{t("builder.branch.endSurvey")}</option>
                   </select>
                 </div>
               </div>
@@ -829,8 +827,8 @@ function BranchingSection({
                 type="button"
                 onClick={() => removeRule(rule.id)}
                 className="shrink-0 p-1 text-neutral-400 dark:text-neutral-500 hover:text-red-600"
-                aria-label="Eliminar salto"
-                title="Eliminar salto"
+                aria-label={t("builder.branch.removeJump")}
+                title={t("builder.branch.removeJump")}
               >
                 <Trash2 className="h-3.5 w-3.5" />
               </button>
@@ -844,13 +842,12 @@ function BranchingSection({
         onClick={addRule}
         className="mt-1 inline-flex items-center gap-1 rounded-md border border-dashed border-neutral-300 dark:border-neutral-700 px-2.5 py-1.5 text-xs font-medium text-neutral-500 dark:text-neutral-400 transition-colors hover:border-neutral-400 dark:hover:border-neutral-600 hover:text-neutral-700 dark:hover:text-neutral-300"
       >
-        <Plus className="h-3.5 w-3.5" /> Agregar salto
+        <Plus className="h-3.5 w-3.5" /> {t("builder.branch.addJump")}
       </button>
 
       {rules.length > 0 && (
         <p className="mt-2 text-[11px] leading-relaxed text-neutral-400 dark:text-neutral-500">
-          Los saltos se evalúan al responder. Tienen prioridad sobre el orden
-          normal.
+          {t("builder.branch.footer")}
         </p>
       )}
     </div>
@@ -866,11 +863,11 @@ function ExamSettings({
   onChange: (e: EvaluationSettings) => void;
   accent: string;
 }) {
+  const { t } = useI18n();
   if (!evaluation.enabled) {
     return (
       <div className="mt-6 rounded-xl border border-dashed border-neutral-200 dark:border-neutral-800 p-3 text-xs text-neutral-400 dark:text-neutral-500">
-        Activá <span className="font-medium">Examen</span> en la barra superior
-        para corregir respuestas con puntaje y feedback por IA.
+        {t("builder.exam.disabledPre")} <span className="font-medium">{t("builder.exam.disabledBold")}</span> {t("builder.exam.disabledPost")}
       </div>
     );
   }
@@ -884,23 +881,23 @@ function ExamSettings({
       style={{ borderColor: `${accent}44`, backgroundColor: `${accent}0a` }}
     >
       <div className="text-xs font-semibold mb-3" style={{ color: accent }}>
-        Modo evaluación
+        {t("builder.exam.evalMode")}
       </div>
 
-      <Field label="Cuándo ve el resultado quien responde">
+      <Field label={t("builder.exam.whenResult")}>
         <select
           value={evaluation.feedbackTiming}
           onChange={(e) => set({ feedbackTiming: e.target.value as any })}
           className="w-full rounded-md border border-neutral-200 px-2.5 py-1.5 text-sm outline-none focus:border-neutral-400 bg-white dark:bg-neutral-800 dark:border-neutral-700 dark:text-neutral-100 dark:placeholder:text-neutral-500"
         >
-          <option value="onComplete">Al finalizar (nota + feedback)</option>
-          <option value="immediate">Inmediato (pregunta a pregunta)</option>
-          <option value="never">Nunca (solo lo ve el profe)</option>
+          <option value="onComplete">{t("builder.exam.timing.onComplete")}</option>
+          <option value="immediate">{t("builder.exam.timing.immediate")}</option>
+          <option value="never">{t("builder.exam.timing.never")}</option>
         </select>
       </Field>
 
       <div className="grid grid-cols-2 gap-3">
-        <Field label="Nota para aprobar (%)">
+        <Field label={t("builder.exam.passingScore")}>
           <input
             type="number"
             min={0}
@@ -910,7 +907,7 @@ function ExamSettings({
             className="w-full rounded-md border border-neutral-200 px-2.5 py-1.5 text-sm outline-none focus:border-neutral-400 dark:bg-neutral-800 dark:border-neutral-700 dark:text-neutral-100 dark:placeholder:text-neutral-500"
           />
         </Field>
-        <Field label="Intentos máx.">
+        <Field label={t("builder.exam.maxAttempts")}>
           <input
             type="number"
             min={1}
@@ -923,23 +920,23 @@ function ExamSettings({
 
       <div className="mt-1 space-y-1.5">
         <ToggleRow
-          label="Mostrar la nota al que responde"
+          label={t("builder.exam.showScore")}
           checked={evaluation.showScoreToRespondent}
           onChange={(v) => set({ showScoreToRespondent: v })}
         />
         <ToggleRow
-          label="Doble corrección (2ª opinión)"
-          hint="Si discrepan, va a revisión humana"
+          label={t("builder.exam.doublePass")}
+          hint={t("builder.exam.doublePassHint")}
           checked={evaluation.doublePass}
           onChange={(v) => set({ doublePass: v })}
         />
         <ToggleRow
-          label="Barajar preguntas"
+          label={t("builder.exam.shuffleQuestions")}
           checked={evaluation.integrity.shuffleQuestions}
           onChange={(v) => setIntegrity({ shuffleQuestions: v })}
         />
         <ToggleRow
-          label="Barajar opciones"
+          label={t("builder.exam.shuffleChoices")}
           checked={evaluation.integrity.shuffleChoices}
           onChange={(v) => setIntegrity({ shuffleChoices: v })}
         />
@@ -968,6 +965,7 @@ function AiGradingSection({
   onChange: (e: EvaluationSettings) => void;
   accent: string;
 }) {
+  const { t } = useI18n();
   const ai = evaluation.aiCriteria;
   const setAi = (patch: Partial<AiCriteria>) =>
     onChange({ ...evaluation, aiCriteria: { ...evaluation.aiCriteria, ...patch } });
@@ -982,32 +980,32 @@ function AiGradingSection({
   return (
     <div className="mt-4 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 p-3">
       <div className="mb-1 inline-flex items-center gap-1.5 text-xs font-semibold text-neutral-700 dark:text-neutral-300">
-        <Sparkles className="h-3.5 w-3.5" style={{ color: accent }} /> Corrección con IA
+        <Sparkles className="h-3.5 w-3.5" style={{ color: accent }} /> {t("builder.ai.title")}
       </div>
 
       <ToggleRow
-        label="Usar criterios personalizados para la IA correctora"
+        label={t("builder.ai.useCustom")}
         checked={ai.enabled}
         onChange={(v) => setAi({ enabled: v })}
       />
 
       {ai.enabled && (
         <div className="mt-2 space-y-3">
-          <Field label="Nivel de exigencia">
+          <Field label={t("builder.ai.strictnessLabel")}>
             <select
               value={ai.strictness}
               onChange={(e) => setAi({ strictness: e.target.value as Strictness })}
               className="w-full rounded-md border border-neutral-200 px-2.5 py-1.5 text-sm outline-none focus:border-neutral-400 bg-white dark:bg-neutral-800 dark:border-neutral-700 dark:text-neutral-100 dark:placeholder:text-neutral-500"
             >
-              <option value="indulgente">Indulgente</option>
-              <option value="equilibrado">Equilibrado</option>
-              <option value="estricto">Estricto</option>
+              <option value="indulgente">{t("builder.ai.strictness.indulgente")}</option>
+              <option value="equilibrado">{t("builder.ai.strictness.equilibrado")}</option>
+              <option value="estricto">{t("builder.ai.strictness.estricto")}</option>
             </select>
           </Field>
 
           <div>
             <span className="mb-1.5 block text-xs font-medium text-neutral-600 dark:text-neutral-300">
-              Qué priorizar
+              {t("builder.ai.prioritize")}
             </span>
             <div className="flex flex-wrap gap-2">
               {FOCUS_SUGGESTIONS.map((f) => {
@@ -1024,31 +1022,31 @@ function AiGradingSection({
                     }`}
                     style={active ? { backgroundColor: accent } : undefined}
                   >
-                    {f}
+                    {t(`builder.focus.${f}`)}
                   </button>
                 );
               })}
             </div>
           </div>
 
-          <Field label="Tono del feedback">
+          <Field label={t("builder.ai.tone")}>
             <select
               value={ai.tone}
               onChange={(e) => setAi({ tone: e.target.value as FeedbackTone })}
               className="w-full rounded-md border border-neutral-200 px-2.5 py-1.5 text-sm outline-none focus:border-neutral-400 bg-white dark:bg-neutral-800 dark:border-neutral-700 dark:text-neutral-100 dark:placeholder:text-neutral-500"
             >
-              <option value="motivador">Motivador</option>
-              <option value="neutral">Neutral</option>
-              <option value="directo">Directo</option>
+              <option value="motivador">{t("builder.ai.tone.motivador")}</option>
+              <option value="neutral">{t("builder.ai.tone.neutral")}</option>
+              <option value="directo">{t("builder.ai.tone.directo")}</option>
             </select>
           </Field>
 
-          <Field label="Instrucciones">
+          <Field label={t("builder.ai.instructions")}>
             <textarea
               value={ai.instructions}
               onChange={(e) => setAi({ instructions: e.target.value })}
               rows={3}
-              placeholder="Ej. Penalizá respuestas sin ejemplos concretos"
+              placeholder={t("builder.ai.instructionsPlaceholder")}
               className="w-full rounded-md border border-neutral-200 px-2.5 py-2 text-sm outline-none focus:border-neutral-400 dark:bg-neutral-800 dark:border-neutral-700 dark:text-neutral-100 dark:placeholder:text-neutral-500"
             />
           </Field>
@@ -1056,8 +1054,7 @@ function AiGradingSection({
       )}
 
       <p className="mt-2 text-[11px] leading-relaxed text-neutral-400 dark:text-neutral-500">
-        Estos criterios guían a la IA que corrige las respuestas abiertas; no
-        anulan las reglas de seguridad.
+        {t("builder.ai.footer")}
       </p>
     </div>
   );
@@ -1070,23 +1067,24 @@ function VideoSection({
   videoUrl?: string;
   onChange: (url: string | undefined) => void;
 }) {
+  const { t } = useI18n();
   return (
     <div className="mb-4 rounded-xl border border-neutral-200 dark:border-neutral-800 p-3">
       <div className="mb-2.5 inline-flex items-center gap-1.5 text-xs font-semibold text-neutral-600 dark:text-neutral-300">
-        <Film className="w-3.5 h-3.5 text-neutral-400 dark:text-neutral-500" /> Video (opcional)
+        <Film className="w-3.5 h-3.5 text-neutral-400 dark:text-neutral-500" /> {t("builder.video.title")}
       </div>
 
-      <Field label="URL (YouTube, Vimeo o mp4)">
+      <Field label={t("builder.video.urlLabel")}>
         <input
           value={videoUrl ?? ""}
           onChange={(e) => onChange(e.target.value.trim() || undefined)}
-          placeholder="https://youtu.be/…"
+          placeholder={t("builder.video.urlPlaceholder")}
           className="w-full rounded-md border border-neutral-200 px-2.5 py-2 text-sm outline-none focus:border-neutral-400 dark:bg-neutral-800 dark:border-neutral-700 dark:text-neutral-100 dark:placeholder:text-neutral-500"
         />
       </Field>
 
       <div className="mb-1 text-xs font-medium text-neutral-600 dark:text-neutral-300">
-        …o subí tu propio video
+        {t("builder.video.orUpload")}
       </div>
       <AssetPicker
         kind="video"

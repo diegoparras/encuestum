@@ -281,6 +281,7 @@ import { dict as integrationsDict } from "./i18n-dicts/integrations";
 import { dict as aiDict } from "./i18n-dicts/ai";
 import { dict as adminDict } from "./i18n-dicts/admin";
 import { dict as publicDict } from "./i18n-dicts/public";
+import { dict as templatesDict } from "./i18n-dicts/templates";
 
 const EXTRA_DICTS = [
   authDict,
@@ -293,6 +294,7 @@ const EXTRA_DICTS = [
   aiDict,
   adminDict,
   publicDict,
+  templatesDict,
 ];
 
 const DICTS: Record<Lang, Dict> = Object.fromEntries(

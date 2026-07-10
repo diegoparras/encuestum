@@ -19,6 +19,7 @@ import { CSS } from "@dnd-kit/utilities";
 import { GripVertical, X, Plus } from "lucide-react";
 import { Choice, newChoice } from "./model";
 import { AssetPicker } from "./AssetPicker";
+import { useI18n } from "@/lib/i18n";
 
 interface Props {
   choices: Choice[];
@@ -31,6 +32,7 @@ interface Props {
  * reordered by drag and removed.
  */
 export function ImageChoicesEditor({ choices, onChange }: Props) {
+  const { t } = useI18n();
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } })
   );
@@ -87,7 +89,7 @@ export function ImageChoicesEditor({ choices, onChange }: Props) {
         onClick={add}
         className="mt-2 inline-flex items-center gap-1.5 text-xs font-medium text-neutral-500 dark:text-neutral-400 hover:text-neutral-800 dark:hover:text-neutral-200"
       >
-        <Plus className="w-3.5 h-3.5" /> Agregar opción
+        <Plus className="w-3.5 h-3.5" /> {t("builder.addOption")}
       </button>
     </div>
   );
@@ -106,6 +108,7 @@ function ImageChoiceRow({
   onRemove: () => void;
   canRemove: boolean;
 }) {
+  const { t } = useI18n();
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } =
     useSortable({ id: choice.id });
   const style: React.CSSProperties = {
@@ -125,7 +128,7 @@ function ImageChoiceRow({
         className="mt-2 shrink-0 text-neutral-300 dark:text-neutral-600 hover:text-neutral-500 dark:hover:text-neutral-400 cursor-grab active:cursor-grabbing touch-none"
         {...attributes}
         {...listeners}
-        aria-label="Reordenar opción"
+        aria-label={t("builder.reorderOption")}
       >
         <GripVertical className="w-3.5 h-3.5" />
       </button>
@@ -139,7 +142,7 @@ function ImageChoiceRow({
       <input
         value={choice.text}
         onChange={(e) => onText(e.target.value)}
-        placeholder="Etiqueta (opcional)"
+        placeholder={t("builder.imageLabelPlaceholder")}
         className="mt-1.5 flex-1 rounded-md border border-neutral-200 px-2.5 py-1.5 text-sm outline-none focus:border-neutral-400 dark:bg-neutral-800 dark:border-neutral-700 dark:text-neutral-100 dark:placeholder:text-neutral-500"
       />
       <button
@@ -147,7 +150,7 @@ function ImageChoiceRow({
         onClick={onRemove}
         disabled={!canRemove}
         className="mt-1.5 shrink-0 p-1 text-neutral-300 dark:text-neutral-600 hover:text-red-600 disabled:opacity-30 disabled:hover:text-neutral-300 dark:disabled:hover:text-neutral-600"
-        aria-label="Quitar opción"
+        aria-label={t("builder.removeOption")}
       >
         <X className="w-4 h-4" />
       </button>

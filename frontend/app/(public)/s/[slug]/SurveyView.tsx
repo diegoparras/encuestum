@@ -21,6 +21,7 @@ import {
   resolveAssetUrl,
 } from "../../../(survey-builder)/builder/design";
 import { orgBranding } from "@/utils/auth";
+import { useI18n } from "@/lib/i18n";
 import { uploadRespondentFile } from "./uploadFile";
 import { registerVideoResponseQuestion } from "./VideoResponseQuestion";
 import {
@@ -126,6 +127,12 @@ function trackVisit(slug: string, event: "view" | "progress", question?: string)
 }
 
 export default function SurveyView({ slug }: { slug: string }) {
+  const { t } = useI18n();
+  // El modelo de SurveyJS se construye en un useMemo que NO debe rehacerse al
+  // cambiar de idioma (perdería respuestas). Leemos `t` por ref para usarlo en
+  // los callbacks del modelo sin meterlo en las dependencias.
+  const tRef = useRef(t);
+  tRef.current = t;
   const [status, setStatus] = useState<Status>("loading");
   const [data, setData] = useState<PublicSurvey | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -297,7 +304,7 @@ export default function SurveyView({ slug }: { slug: string }) {
         options.callback("success", uploaded);
       } catch {
         options.callback("error");
-        toast.error("No se pudo subir el archivo. Probá de nuevo.");
+        toast.error(tRef.current("public.upload.fileError"));
       }
     });
 
@@ -405,7 +412,12 @@ export default function SurveyView({ slug }: { slug: string }) {
           const ok = g.verdict === "correct";
           const partial = g.verdict === "partial";
           toast[ok ? "success" : partial ? "message" : "error"](
-            `${g.awarded}/${g.points} · ${g.feedback || (ok ? "¡Correcto!" : "Revisá tu respuesta")}`
+            `${g.awarded}/${g.points} · ${
+              g.feedback ||
+              (ok
+                ? tRef.current("public.answer.correct")
+                : tRef.current("public.answer.review"))
+            }`
           );
         } catch {
           /* ignore live-grading hiccups */
@@ -477,21 +489,19 @@ export default function SurveyView({ slug }: { slug: string }) {
     loadFont(design.fontFamily);
   }, [design.fontFamily]);
 
-  if (status === "loading") return <Centered>Cargando…</Centered>;
+  if (status === "loading") return <Centered>{t("public.loading")}</Centered>;
   if (status === "notfound")
     return (
       <Centered>
-        <h1 className="text-xl font-semibold">Encuesta no disponible</h1>
-        <p className="text-sm opacity-70 mt-2">
-          Puede que no exista o que todavía no esté publicada.
-        </p>
+        <h1 className="text-xl font-semibold">{t("public.notfound.title")}</h1>
+        <p className="text-sm opacity-70 mt-2">{t("public.notfound.body")}</p>
       </Centered>
     );
   if (status === "error" || !model)
     return (
       <Centered>
-        <h1 className="text-xl font-semibold">Algo salió mal</h1>
-        <p className="text-sm opacity-70 mt-2">Volvé a intentar en un momento.</p>
+        <h1 className="text-xl font-semibold">{t("public.error.title")}</h1>
+        <p className="text-sm opacity-70 mt-2">{t("public.error.body")}</p>
       </Centered>
     );
 
@@ -502,9 +512,9 @@ export default function SurveyView({ slug }: { slug: string }) {
       <Centered>
         {data.title && <h1 className="text-xl font-semibold">{data.title}</h1>}
         <p className="mt-3 text-base text-neutral-700">
-          {data.closed_reason || "Esta encuesta está cerrada."}
+          {data.closed_reason || t("public.closed.default")}
         </p>
-        <p className="mt-2 text-sm text-neutral-400">Gracias por tu interés.</p>
+        <p className="mt-2 text-sm text-neutral-400">{t("public.closed.thanks")}</p>
       </Centered>
     );
   }
@@ -512,7 +522,7 @@ export default function SurveyView({ slug }: { slug: string }) {
   if (redirecting) {
     return (
       <Centered>
-        <p className="text-sm opacity-70">Redirigiendo…</p>
+        <p className="text-sm opacity-70">{t("public.redirecting")}</p>
       </Centered>
     );
   }
@@ -534,7 +544,7 @@ export default function SurveyView({ slug }: { slug: string }) {
   if (completed) {
     return (
       <ThankYouScreen
-        message={data?.thankyou_message || "¡Gracias por responder! 🙌"}
+        message={data?.thankyou_message || t("public.thankyou.default")}
         accent={accent}
         design={design}
         brandingHeader={brandingHeader}
@@ -706,6 +716,7 @@ const ENC_SURFACE_CSS = `
 // respect that: if autoplay is on we start muted and let the respondent unmute,
 // otherwise we show a play button. Loop/volume come from the survey design.
 function AudioPlayer({ audio, accent }: { audio: AudioSettings; accent: string }) {
+  const { t } = useI18n();
   const ref = useRef<HTMLAudioElement | null>(null);
   // El estado se sincroniza con los EVENTOS reales del <audio> (play/pause/
   // ended/volumechange), así los botones nunca quedan desfasados del sonido.
@@ -759,7 +770,7 @@ function AudioPlayer({ audio, accent }: { audio: AudioSettings; accent: string }
         el.pause();
       }
     } catch {
-      toast.error("No se pudo reproducir la música.");
+      toast.error(t("public.audio.playError"));
     }
   }
 
@@ -783,8 +794,8 @@ function AudioPlayer({ audio, accent }: { audio: AudioSettings; accent: string }
         onClick={toggle}
         className={`grid h-10 w-10 sm:h-8 sm:w-8 place-items-center rounded-full text-white${active ? " animate-pulse" : ""}`}
         style={{ backgroundColor: accent, opacity: active ? 1 : 0.85 }}
-        aria-label={active ? "Pausar música" : "Reproducir música"}
-        title={active ? "Pausar música" : "Reproducir música"}
+        aria-label={active ? t("public.audio.pause") : t("public.audio.play")}
+        title={active ? t("public.audio.pause") : t("public.audio.play")}
       >
         <Music className="h-4 w-4" />
       </button>
@@ -793,8 +804,8 @@ function AudioPlayer({ audio, accent }: { audio: AudioSettings; accent: string }
           type="button"
           onClick={toggleMute}
           className="grid h-10 w-10 sm:h-8 sm:w-8 place-items-center rounded-full text-neutral-500 hover:bg-neutral-100"
-          aria-label={muted ? "Activar sonido" : "Silenciar"}
-          title={muted ? "Activar sonido" : "Silenciar"}
+          aria-label={muted ? t("public.audio.unmute") : t("public.audio.mute")}
+          title={muted ? t("public.audio.unmute") : t("public.audio.mute")}
         >
           {muted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
         </button>
@@ -816,6 +827,7 @@ function ResultsScreen({
   apiBase: () => string;
   certCreds: { email: string; code: string } | null;
 }) {
+  const { t } = useI18n();
   const pct = Math.round(results.percent ?? 0);
   const showScore = results.total !== undefined;
   const passed = results.passed;
@@ -831,8 +843,8 @@ function ResultsScreen({
         <div className="bg-white rounded-2xl shadow-sm ring-1 ring-black/5 p-6 sm:p-8 text-center">
           <h1 className="text-lg font-semibold text-neutral-800">
             {results.needs_review
-              ? "¡Recibimos tus respuestas!"
-              : "Resultado de tu evaluación"}
+              ? t("public.received")
+              : t("public.results.title")}
           </h1>
 
           {showScore ? (
@@ -850,7 +862,10 @@ function ResultsScreen({
                 </div>
               </div>
               <p className="mt-3 text-sm text-neutral-500">
-                {results.total} / {results.max} puntos
+                {t("public.results.points", {
+                  total: results.total ?? 0,
+                  max: results.max ?? 0,
+                })}
               </p>
               {passed !== null && passed !== undefined && (
                 <span
@@ -858,19 +873,19 @@ function ResultsScreen({
                     passed ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"
                   }`}
                 >
-                  {passed ? "Aprobado" : "No aprobado"}
+                  {passed ? t("public.results.passed") : t("public.results.failed")}
                 </span>
               )}
             </>
           ) : (
             <p className="mt-4 text-sm text-neutral-500">
-              Tus respuestas fueron enviadas. Recibirás tu corrección pronto.
+              {t("public.results.sentNoScore")}
             </p>
           )}
 
           {results.needs_review && (
             <p className="mt-4 text-xs text-amber-600">
-              Algunas respuestas serán revisadas por una persona.
+              {t("public.results.needsReview")}
             </p>
           )}
 
@@ -882,7 +897,7 @@ function ResultsScreen({
               className="mt-6 inline-flex w-full sm:w-auto min-h-[44px] items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold text-white transition"
               style={{ backgroundColor: accent }}
             >
-              <Award className="h-4 w-4" /> Ver certificado
+              <Award className="h-4 w-4" /> {t("public.results.viewCert")}
             </button>
           )}
         </div>

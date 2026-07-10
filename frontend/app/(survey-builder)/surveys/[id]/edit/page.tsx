@@ -23,6 +23,7 @@ import {
 } from "../../../surveyApi";
 import { useAsyncData } from "@/lib/useAsyncData";
 import { LoadError } from "@/components/LoadError";
+import { useI18n } from "@/lib/i18n";
 import { AccessSettings } from "../../../builder/AccessSettings";
 import { UsageModal } from "../../../builder/UsageModal";
 import {
@@ -55,15 +56,21 @@ const LivePreview = dynamic(
   () => import("../../../builder/LivePreview").then((m) => m.LivePreview),
   {
     ssr: false,
-    loading: () => (
-      <div className="flex h-full items-center justify-center text-sm text-neutral-400 dark:text-neutral-500">
-        <Loader2 className="w-4 h-4 animate-spin mr-2" /> Cargando vista previa…
-      </div>
-    ),
+    loading: () => <PreviewLoading />,
   }
 );
 
+function PreviewLoading() {
+  const { t } = useI18n();
+  return (
+    <div className="flex h-full items-center justify-center text-sm text-neutral-400 dark:text-neutral-500">
+      <Loader2 className="w-4 h-4 animate-spin mr-2" /> {t("builder.page.loadingPreview")}
+    </div>
+  );
+}
+
 export default function SurveyEditorPage() {
+  const { t } = useI18n();
   const { id } = useParams<{ id: string }>();
 
   const [state, setState] = useState<BuilderState | null>(null);
@@ -291,7 +298,7 @@ export default function SurveyEditorPage() {
       // El autosave no spamea toasts: deja el indicador rojo y reintenta con
       // el próximo cambio. El aviso ruidoso queda para el guardado manual.
       setAutoStatus("error");
-      if (!opts.silent) alert(e?.message || "No se pudo guardar.");
+      if (!opts.silent) alert(e?.message || t("builder.page.saveError"));
     } finally {
       savingRef.current = false;
       setSaving(false);
@@ -329,7 +336,7 @@ export default function SurveyEditorPage() {
           : await surveyApi.publish(id);
       setStatus(updated.status);
     } catch (e: any) {
-      alert(e?.message || "No se pudo cambiar el estado.");
+      alert(e?.message || t("builder.page.statusError"));
     } finally {
       setPublishing(false);
     }
@@ -353,7 +360,7 @@ export default function SurveyEditorPage() {
           href="/surveys"
           className="inline-flex items-center gap-1 text-sm text-neutral-500 dark:text-neutral-400 hover:text-neutral-900 dark:hover:text-neutral-100"
         >
-          <ArrowLeft className="w-4 h-4" /> Encuestas
+          <ArrowLeft className="w-4 h-4" /> {t("builder.page.surveys")}
         </Link>
         <div className="mt-6">
           <LoadError message={loadError} onRetry={reload} />
@@ -366,7 +373,7 @@ export default function SurveyEditorPage() {
     return (
       <div className="h-screen grid place-items-center text-neutral-400 dark:text-neutral-500 text-sm">
         <span className="inline-flex items-center gap-2">
-          <Loader2 className="w-4 h-4 animate-spin" /> Cargando editor…
+          <Loader2 className="w-4 h-4 animate-spin" /> {t("builder.page.loadingEditor")}
         </span>
       </div>
     );
@@ -388,7 +395,7 @@ export default function SurveyEditorPage() {
         <input
           value={state.title}
           onChange={(e) => mutate((prev) => ({ ...prev, title: e.target.value }))}
-          placeholder="Título de la encuesta"
+          placeholder={t("builder.page.titlePlaceholder")}
           className="min-w-0 flex-1 text-sm font-semibold bg-transparent outline-none border-b border-transparent focus:border-neutral-300 dark:focus:border-neutral-600 py-1"
         />
 
@@ -398,9 +405,9 @@ export default function SurveyEditorPage() {
           <Link
             href={`/surveys/${id}`}
             className="inline-flex items-center gap-1.5 rounded-lg border border-neutral-200 dark:border-neutral-800 px-2.5 py-1.5 text-xs font-medium text-neutral-600 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800"
-            title="Respuestas y JSON avanzado"
+            title={t("builder.page.responsesTitle")}
           >
-            <ListChecks className="w-4 h-4" /> Respuestas
+            <ListChecks className="w-4 h-4" /> {t("builder.page.responses")}
           </Link>
 
           <button
@@ -415,25 +422,25 @@ export default function SurveyEditorPage() {
                 ? { backgroundColor: state.accent, color: accentFg }
                 : undefined
             }
-            title="Modo evaluación (examen con corrección)"
+            title={t("builder.page.examTitle")}
           >
-            <GraduationCap className="w-4 h-4" /> Examen
+            <GraduationCap className="w-4 h-4" /> {t("builder.page.exam")}
           </button>
 
           <button
             onClick={() => setGenOpen(true)}
             className="inline-flex items-center gap-1.5 rounded-lg border border-neutral-200 dark:border-neutral-800 px-2.5 py-1.5 text-xs font-medium text-neutral-600 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800"
-            title="Generar preguntas con IA"
+            title={t("builder.page.aiTitle")}
           >
-            <Sparkles className="w-4 h-4" /> IA
+            <Sparkles className="w-4 h-4" /> {t("builder.page.ai")}
           </button>
 
           <button
             onClick={() => setDesignOpen(true)}
             className="inline-flex items-center gap-1.5 rounded-lg border border-neutral-200 dark:border-neutral-800 px-2.5 py-1.5 text-xs font-medium text-neutral-600 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800"
-            title="Tipografía, imágenes y música"
+            title={t("builder.page.designTitle")}
           >
-            <Palette className="w-4 h-4" /> Diseño
+            <Palette className="w-4 h-4" /> {t("builder.page.design")}
           </button>
 
           <AccentPicker
@@ -448,25 +455,25 @@ export default function SurveyEditorPage() {
               rel="noreferrer"
               className="inline-flex items-center gap-1.5 rounded-lg border border-neutral-200 dark:border-neutral-800 px-2.5 py-1.5 text-xs font-medium text-neutral-600 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800"
             >
-              Ver <ExternalLink className="w-3.5 h-3.5" />
+              {t("builder.page.view")} <ExternalLink className="w-3.5 h-3.5" />
             </a>
           )}
 
           {/* Indicador de autosave: guardando / guardado / sin guardar */}
           {autoStatus === "saving" ? (
             <span className="inline-flex items-center gap-1 text-[11px] text-neutral-400 dark:text-neutral-500">
-              <Loader2 className="w-3 h-3 animate-spin" /> Guardando…
+              <Loader2 className="w-3 h-3 animate-spin" /> {t("builder.page.saving")}
             </span>
           ) : autoStatus === "saved" ? (
             <span className="inline-flex items-center gap-1 text-[11px] text-neutral-400 dark:text-neutral-500">
-              <Check className="w-3 h-3" /> Guardado
+              <Check className="w-3 h-3" /> {t("builder.page.saved")}
             </span>
           ) : autoStatus === "error" ? (
             <span
               className="inline-flex items-center gap-1 text-[11px] font-medium text-red-600"
-              title="No se pudo guardar automáticamente; se reintenta con el próximo cambio."
+              title={t("builder.page.unsavedTitle")}
             >
-              Sin guardar
+              {t("builder.page.unsaved")}
             </span>
           ) : null}
 
@@ -482,7 +489,7 @@ export default function SurveyEditorPage() {
             ) : (
               <Save className="w-4 h-4" />
             )}
-            {savedTick ? "Guardado" : dirty ? "Guardar" : "Al día"}
+            {savedTick ? t("builder.page.saved") : dirty ? t("builder.page.save") : t("builder.page.upToDate")}
           </button>
 
           <button
@@ -498,17 +505,16 @@ export default function SurveyEditorPage() {
             ) : (
               <Send className="w-4 h-4" />
             )}
-            {isPublished ? "Cerrar" : "Publicar"}
+            {isPublished ? t("builder.page.close") : t("builder.page.publish")}
           </button>
         </div>
       </header>
 
       {state.passthrough.length > 0 && (
         <div className="shrink-0 bg-amber-50 dark:bg-amber-950/40 border-b border-amber-200 dark:border-amber-900 px-4 py-2 text-xs text-amber-800 dark:text-amber-300">
-          Esta encuesta tiene {state.passthrough.length} elemento(s) avanzado(s)
-          que no se editan visualmente. Se conservan intactos; ajustalos desde{" "}
+          {t("builder.page.passthroughPre", { n: state.passthrough.length })}{" "}
           <Link href={`/surveys/${id}`} className="underline font-medium">
-            JSON avanzado
+            {t("builder.page.passthroughLink")}
           </Link>
           .
         </div>
@@ -609,15 +615,16 @@ export default function SurveyEditorPage() {
 }
 
 function StatusBadge({ status }: { status: "draft" | "published" | "closed" }) {
+  const { t } = useI18n();
   const map = {
-    draft: { label: "Borrador", cls: "bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300" },
-    published: { label: "Publicada", cls: "bg-green-100 text-green-700 dark:bg-green-950/40" },
-    closed: { label: "Cerrada", cls: "bg-amber-100 text-amber-700 dark:bg-amber-950/40" },
+    draft: { key: "builder.page.status.draft", cls: "bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300" },
+    published: { key: "builder.page.status.published", cls: "bg-green-100 text-green-700 dark:bg-green-950/40" },
+    closed: { key: "builder.page.status.closed", cls: "bg-amber-100 text-amber-700 dark:bg-amber-950/40" },
   } as const;
-  const { label, cls } = map[status];
+  const { key, cls } = map[status];
   return (
     <span className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-medium ${cls}`}>
-      {label}
+      {t(key)}
     </span>
   );
 }

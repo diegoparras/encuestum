@@ -15,6 +15,7 @@ import {
 import { toast } from "sonner";
 import { surveyApi, type Invitee } from "../surveyApi";
 import { readableForeground } from "./model";
+import { useI18n } from "@/lib/i18n";
 
 interface Props {
   open: boolean;
@@ -62,6 +63,7 @@ function parseCsv(text: string): { email: string; name?: string }[] {
 }
 
 export function InviteesManager({ open, surveyId, accent, onClose }: Props) {
+  const { t } = useI18n();
   const [invitees, setInvitees] = useState<Invitee[]>([]);
   const [loading, setLoading] = useState(false);
   const [raw, setRaw] = useState("");
@@ -77,11 +79,11 @@ export function InviteesManager({ open, surveyId, accent, onClose }: Props) {
       const list = await surveyApi.listInvitees(surveyId);
       setInvitees(list);
     } catch (e: any) {
-      toast.error(e?.message || "No se pudieron cargar los invitados.");
+      toast.error(e?.message || t("builder.inv.loadError"));
     } finally {
       setLoading(false);
     }
-  }, [surveyId]);
+  }, [surveyId, t]);
 
   useEffect(() => {
     if (open) load();
@@ -91,7 +93,7 @@ export function InviteesManager({ open, surveyId, accent, onClose }: Props) {
 
   async function add(pairs: { email: string; name?: string }[]) {
     if (pairs.length === 0) {
-      toast.error("No se encontraron emails válidos.");
+      toast.error(t("builder.inv.noValidEmails"));
       return;
     }
     setAdding(true);
@@ -103,11 +105,13 @@ export function InviteesManager({ open, surveyId, accent, onClose }: Props) {
       const dup = pairs.length - created.length;
       toast.success(
         created.length > 0
-          ? `Se agregaron ${created.length} invitado(s)${dup > 0 ? ` (${dup} ya existían)` : ""}.`
-          : "Esos invitados ya estaban en la lista."
+          ? dup > 0
+            ? t("builder.inv.addedWithDup", { created: created.length, dup })
+            : t("builder.inv.added", { created: created.length })
+          : t("builder.inv.alreadyThere")
       );
     } catch (e: any) {
-      toast.error(e?.message || "No se pudieron agregar los invitados.");
+      toast.error(e?.message || t("builder.inv.addError"));
     } finally {
       setAdding(false);
     }
@@ -125,7 +129,7 @@ export function InviteesManager({ open, surveyId, accent, onClose }: Props) {
       const text = await file.text();
       await add(parseCsv(text));
     } catch {
-      toast.error("No se pudo leer el archivo CSV.");
+      toast.error(t("builder.inv.readCsvError"));
     }
   }
 
@@ -135,7 +139,7 @@ export function InviteesManager({ open, surveyId, accent, onClose }: Props) {
       await surveyApi.deleteInvitee(surveyId, iid);
       setInvitees((cur) => cur.filter((x) => x.id !== iid));
     } catch (e: any) {
-      toast.error(e?.message || "No se pudo eliminar el invitado.");
+      toast.error(e?.message || t("builder.inv.deleteError"));
     } finally {
       setDeletingId(null);
     }
@@ -146,9 +150,9 @@ export function InviteesManager({ open, surveyId, accent, onClose }: Props) {
     try {
       const { sent, total } = await surveyApi.sendInviteeLinks(surveyId);
       await load();
-      toast.success(`Se enviaron ${sent} de ${total} link(s) por email.`);
+      toast.success(t("builder.inv.sentLinks", { sent, total }));
     } catch (e: any) {
-      toast.error(e?.message || "No se pudieron enviar los links.");
+      toast.error(e?.message || t("builder.inv.sendError"));
     } finally {
       setSending(false);
     }
@@ -157,7 +161,7 @@ export function InviteesManager({ open, surveyId, accent, onClose }: Props) {
   // Genera el CSV en el cliente (email, nombre, código) y lo descarga vía Blob.
   function downloadCsv() {
     if (invitees.length === 0) {
-      toast.error("No hay invitados para exportar.");
+      toast.error(t("builder.inv.noExport"));
       return;
     }
     const escape = (v: string) => `"${v.replace(/"/g, '""')}"`;
@@ -186,15 +190,15 @@ export function InviteesManager({ open, surveyId, accent, onClose }: Props) {
         <div className="flex items-center justify-between border-b border-neutral-100 dark:border-neutral-800 px-5 py-4">
           <div className="flex items-center gap-2">
             <Users className="h-5 w-5" style={{ color: accent }} />
-            <h2 className="text-sm font-semibold dark:text-neutral-100">Invitados</h2>
+            <h2 className="text-sm font-semibold dark:text-neutral-100">{t("builder.inv.title")}</h2>
             <span className="text-xs text-neutral-400 dark:text-neutral-500">
-              {invitees.length} en total · {sentCount} enviados · {usedCount} usados
+              {t("builder.inv.summary", { total: invitees.length, sent: sentCount, used: usedCount })}
             </span>
           </div>
           <button
             onClick={onClose}
             className="text-neutral-400 hover:text-neutral-700 dark:text-neutral-500 dark:hover:text-neutral-300"
-            aria-label="Cerrar"
+            aria-label={t("builder.inv.close")}
           >
             <X className="h-5 w-5" />
           </button>
@@ -204,13 +208,13 @@ export function InviteesManager({ open, surveyId, accent, onClose }: Props) {
           {/* Alta de invitados */}
           <div className="rounded-xl border border-neutral-200 dark:border-neutral-800 p-3">
             <div className="mb-2 text-xs font-semibold text-neutral-600 dark:text-neutral-300">
-              Agregar invitados
+              {t("builder.inv.addInvitees")}
             </div>
             <textarea
               value={raw}
               onChange={(e) => setRaw(e.target.value)}
               rows={3}
-              placeholder="Pegá los emails, uno por línea o separados por coma…"
+              placeholder={t("builder.inv.pastePlaceholder")}
               className="w-full rounded-md border border-neutral-200 px-2.5 py-2 text-sm outline-none focus:border-neutral-400 dark:bg-neutral-800 dark:border-neutral-700 dark:text-neutral-100 dark:placeholder:text-neutral-500"
             />
             <div className="mt-2 flex flex-wrap items-center gap-2">
@@ -225,14 +229,14 @@ export function InviteesManager({ open, surveyId, accent, onClose }: Props) {
                 ) : (
                   <Mail className="h-4 w-4" />
                 )}
-                Agregar
+                {t("builder.inv.add")}
               </button>
               <button
                 onClick={() => fileInputRef.current?.click()}
                 disabled={adding}
                 className="inline-flex items-center gap-1.5 rounded-lg border border-neutral-200 px-3 py-1.5 text-xs font-medium text-neutral-600 hover:bg-neutral-50 disabled:opacity-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
               >
-                <Upload className="h-4 w-4" /> Subir CSV
+                <Upload className="h-4 w-4" /> {t("builder.inv.uploadCsv")}
               </button>
               <input
                 ref={fileInputRef}
@@ -242,7 +246,7 @@ export function InviteesManager({ open, surveyId, accent, onClose }: Props) {
                 className="hidden"
               />
               <span className="text-[11px] text-neutral-400 dark:text-neutral-500">
-                CSV: 1ª columna email, 2ª nombre (opcional).
+                {t("builder.inv.csvHint")}
               </span>
             </div>
           </div>
@@ -259,14 +263,14 @@ export function InviteesManager({ open, surveyId, accent, onClose }: Props) {
               ) : (
                 <Send className="h-4 w-4" />
               )}
-              Enviar links por email
+              {t("builder.inv.sendLinks")}
             </button>
             <button
               onClick={downloadCsv}
               disabled={invitees.length === 0}
               className="inline-flex items-center gap-1.5 rounded-lg border border-neutral-200 px-3 py-1.5 text-xs font-medium text-neutral-700 hover:bg-neutral-50 disabled:opacity-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
             >
-              <Download className="h-4 w-4" /> Descargar CSV
+              <Download className="h-4 w-4" /> {t("builder.inv.downloadCsv")}
             </button>
           </div>
 
@@ -275,22 +279,22 @@ export function InviteesManager({ open, surveyId, accent, onClose }: Props) {
             {loading ? (
               <div className="grid place-items-center py-10 text-sm text-neutral-400 dark:text-neutral-500">
                 <span className="inline-flex items-center gap-2">
-                  <Loader2 className="h-4 w-4 animate-spin" /> Cargando…
+                  <Loader2 className="h-4 w-4 animate-spin" /> {t("builder.inv.loading")}
                 </span>
               </div>
             ) : invitees.length === 0 ? (
               <div className="grid place-items-center py-10 text-sm text-neutral-400 dark:text-neutral-500">
-                Todavía no agregaste invitados.
+                {t("builder.inv.empty")}
               </div>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-left text-sm">
                   <thead>
                     <tr className="border-b border-neutral-100 dark:border-neutral-800 text-[11px] uppercase tracking-wide text-neutral-400 dark:text-neutral-500">
-                      <th className="px-3 py-2 font-semibold">Email</th>
-                      <th className="px-3 py-2 font-semibold">Nombre</th>
-                      <th className="px-3 py-2 font-semibold">Código</th>
-                      <th className="px-3 py-2 font-semibold">Estado</th>
+                      <th className="px-3 py-2 font-semibold">{t("builder.inv.colEmail")}</th>
+                      <th className="px-3 py-2 font-semibold">{t("builder.inv.colName")}</th>
+                      <th className="px-3 py-2 font-semibold">{t("builder.inv.colCode")}</th>
+                      <th className="px-3 py-2 font-semibold">{t("builder.inv.colStatus")}</th>
                       <th className="px-3 py-2" />
                     </tr>
                   </thead>
@@ -305,15 +309,15 @@ export function InviteesManager({ open, surveyId, accent, onClose }: Props) {
                         <td className="px-3 py-2">
                           {i.used_at ? (
                             <span className="inline-flex items-center gap-1 rounded-full bg-green-100 dark:bg-green-950/40 px-2 py-0.5 text-[11px] font-medium text-green-700 dark:text-green-300">
-                              <CheckCircle2 className="h-3 w-3" /> Usado
+                              <CheckCircle2 className="h-3 w-3" /> {t("builder.inv.statusUsed")}
                             </span>
                           ) : i.sent_at ? (
                             <span className="inline-flex items-center rounded-full bg-blue-100 dark:bg-blue-950/40 px-2 py-0.5 text-[11px] font-medium text-blue-700 dark:text-blue-300">
-                              Enviado
+                              {t("builder.inv.statusSent")}
                             </span>
                           ) : (
                             <span className="inline-flex items-center rounded-full bg-neutral-100 dark:bg-neutral-800 px-2 py-0.5 text-[11px] font-medium text-neutral-500 dark:text-neutral-400">
-                              Pendiente
+                              {t("builder.inv.statusPending")}
                             </span>
                           )}
                         </td>
@@ -322,8 +326,8 @@ export function InviteesManager({ open, surveyId, accent, onClose }: Props) {
                             onClick={() => remove(i.id)}
                             disabled={deletingId === i.id}
                             className="text-neutral-300 hover:text-red-600 disabled:opacity-50 dark:text-neutral-600 dark:hover:text-red-400"
-                            aria-label="Eliminar invitado"
-                            title="Eliminar"
+                            aria-label={t("builder.inv.deleteInvitee")}
+                            title={t("builder.inv.delete")}
                           >
                             {deletingId === i.id ? (
                               <Loader2 className="h-4 w-4 animate-spin" />

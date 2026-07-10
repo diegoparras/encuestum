@@ -21,6 +21,7 @@ import {
 import { loadFont } from "./design";
 import { AssetPicker } from "./AssetPicker";
 import { Switch } from "@/components/ui/switch";
+import { useI18n } from "@/lib/i18n";
 
 interface Props {
   open: boolean;
@@ -58,6 +59,7 @@ export function DesignPanel({
   accent,
   onAccentChange,
 }: Props) {
+  const { t } = useI18n();
   // Buscador de tipografías: query en vivo + versión con debounce (~150ms).
   const [fontQuery, setFontQuery] = useState("");
   const [debouncedFontQuery, setDebouncedFontQuery] = useState("");
@@ -124,7 +126,7 @@ export function DesignPanel({
       <div className="relative flex h-full w-full max-w-md flex-col bg-white dark:bg-neutral-900 shadow-2xl">
         <div className="flex items-center justify-between border-b border-neutral-200 dark:border-neutral-800 px-5 py-4">
           <h2 className="inline-flex items-center gap-2 text-sm font-semibold text-neutral-800 dark:text-neutral-100">
-            <Palette className="w-4 h-4" style={{ color: accent }} /> Diseño
+            <Palette className="w-4 h-4" style={{ color: accent }} /> {t("builder.design.title")}
           </h2>
           <button
             type="button"
@@ -137,7 +139,7 @@ export function DesignPanel({
 
         <div className="flex-1 overflow-y-auto px-5 py-5">
           {/* Temas */}
-          <Section icon={<Sparkles className="w-4 h-4" />} title="Temas">
+          <Section icon={<Sparkles className="w-4 h-4" />} title={t("builder.design.themes")}>
             <div className="grid grid-cols-2 gap-2">
               {THEME_PRESETS.map((preset) => {
                 const active =
@@ -159,7 +161,7 @@ export function DesignPanel({
           </Section>
 
           {/* Tipografía */}
-          <Section icon={<Type className="w-4 h-4" />} title="Tipografía">
+          <Section icon={<Type className="w-4 h-4" />} title={t("builder.design.typography")}>
             {/* Buscador de Google Fonts */}
             <div className="relative mb-3">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400 dark:text-neutral-500" />
@@ -167,7 +169,7 @@ export function DesignPanel({
                 type="text"
                 value={fontQuery}
                 onChange={(e) => setFontQuery(e.target.value)}
-                placeholder="Buscar en Google Fonts…"
+                placeholder={t("builder.design.fontSearchPlaceholder")}
                 className="w-full rounded-lg border border-neutral-200 py-2 pl-9 pr-3 text-sm text-neutral-800 placeholder:text-neutral-400 focus:border-[#8faf0e] focus:outline-none focus:ring-1 focus:ring-[#8faf0e] dark:bg-neutral-800 dark:border-neutral-700 dark:text-neutral-100 dark:placeholder:text-neutral-500"
               />
             </div>
@@ -177,19 +179,19 @@ export function DesignPanel({
                 {/* Chip "Actual" cuando la fuente aplicada no está en los resultados */}
                 {!filteredFonts.some((f) => f.id === design.fontFamily) && (
                   <div className="mb-2 inline-flex max-w-full items-center gap-1.5 rounded-full border border-[#8faf0e] bg-[#8faf0e0a] px-2.5 py-1 text-xs text-neutral-700 dark:text-neutral-300">
-                    <span className="text-neutral-400 dark:text-neutral-500">Actual:</span>
+                    <span className="text-neutral-400 dark:text-neutral-500">{t("builder.design.current")}</span>
                     <span
                       className="truncate"
                       style={{ fontFamily: fontCssFamily(design.fontFamily) }}
                     >
-                      {fontById(design.fontFamily).label}
+                      {design.fontFamily === "system" ? t("builder.font.system") : fontById(design.fontFamily).label}
                     </span>
                   </div>
                 )}
 
                 {filteredFonts.length === 0 ? (
                   <p className="py-6 text-center text-sm text-neutral-400 dark:text-neutral-500">
-                    Sin resultados para “{debouncedFontQuery}”.
+                    {t("builder.design.noFontResults", { q: debouncedFontQuery })}
                   </p>
                 ) : (
                   <ul className="max-h-[320px] space-y-1 overflow-y-auto pr-1">
@@ -210,10 +212,10 @@ export function DesignPanel({
                               className="truncate text-base text-neutral-800 dark:text-neutral-100"
                               style={{ fontFamily: f.css }}
                             >
-                              {f.label}
+                              {f.id === "system" ? t("builder.font.system") : f.label}
                             </span>
                             <span className="ml-auto shrink-0 text-[10px] uppercase tracking-wide text-neutral-400 dark:text-neutral-500">
-                              {f.category}
+                              {t(`builder.fontcat.${f.category}`)}
                             </span>
                             {active && (
                               <span className="grid h-4 w-4 shrink-0 place-items-center rounded-full bg-[#8faf0e] text-[#1e2a06]">
@@ -246,10 +248,10 @@ export function DesignPanel({
                         className="truncate text-base text-neutral-800 dark:text-neutral-100"
                         style={{ fontFamily: fontCssFamily(f.id) }}
                       >
-                        {f.label}
+                        {f.id === "system" ? t("builder.font.system") : f.label}
                       </div>
                       <div className="mt-0.5 text-[10px] uppercase tracking-wide text-neutral-400 dark:text-neutral-500">
-                        {f.category}
+                        {t(`builder.fontcat.${f.category}`)}
                       </div>
                       {active && (
                         <span className="absolute right-2 top-2 grid h-4 w-4 place-items-center rounded-full bg-[#8faf0e] text-[#1e2a06]">
@@ -264,7 +266,7 @@ export function DesignPanel({
           </Section>
 
           {/* Color de acento */}
-          <Section icon={<Palette className="w-4 h-4" />} title="Color de acento">
+          <Section icon={<Palette className="w-4 h-4" />} title={t("builder.design.accentColor")}>
             <div className="grid grid-cols-5 gap-2">
               {ACCENT_PALETTE.map((c) => {
                 const active = c.value.toLowerCase() === accent.toLowerCase();
@@ -272,7 +274,7 @@ export function DesignPanel({
                   <button
                     key={c.value}
                     type="button"
-                    title={c.name}
+                    title={t(`builder.accent.${c.value}`)}
                     onClick={() => onAccentChange(c.value)}
                     className="relative aspect-square rounded-lg ring-1 ring-black/5 dark:ring-white/10 transition-transform hover:scale-105"
                     style={{ backgroundColor: c.value }}
@@ -293,14 +295,14 @@ export function DesignPanel({
                 value={/^#[0-9a-f]{6}$/i.test(accent) ? accent : "#8faf0e"}
                 onChange={(e) => onAccentChange(e.target.value)}
                 className="h-8 w-10 cursor-pointer rounded border border-neutral-200 bg-white p-0.5 dark:border-neutral-700 dark:bg-neutral-800"
-                title="Color personalizado"
+                title={t("builder.design.customColor")}
               />
-              <span className="text-xs text-neutral-500 dark:text-neutral-400">Personalizado</span>
+              <span className="text-xs text-neutral-500 dark:text-neutral-400">{t("builder.design.custom")}</span>
             </div>
           </Section>
 
           {/* Color de fondo */}
-          <Section icon={<Palette className="w-4 h-4" />} title="Color de fondo">
+          <Section icon={<Palette className="w-4 h-4" />} title={t("builder.design.bgColor")}>
             <div className="flex items-center gap-3">
               <input
                 type="color"
@@ -313,7 +315,7 @@ export function DesignPanel({
                 className="h-9 w-12 cursor-pointer rounded border border-neutral-200 bg-white p-0.5 dark:border-neutral-700 dark:bg-neutral-800"
               />
               <span className="flex-1 text-xs text-neutral-500 dark:text-neutral-400">
-                {design.backgroundColor ?? "Sin color (predeterminado)"}
+                {design.backgroundColor ?? t("builder.design.noColorDefault")}
               </span>
               {design.backgroundColor && (
                 <button
@@ -321,14 +323,14 @@ export function DesignPanel({
                   onClick={() => patch({ backgroundColor: undefined })}
                   className="rounded-md border border-neutral-200 px-2 py-1 text-xs font-medium text-neutral-600 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
                 >
-                  Sin color
+                  {t("builder.design.noColor")}
                 </button>
               )}
             </div>
           </Section>
 
           {/* Modo y legibilidad */}
-          <Section icon={<Contrast className="w-4 h-4" />} title="Modo y legibilidad">
+          <Section icon={<Contrast className="w-4 h-4" />} title={t("builder.design.modeReadability")}>
             {/* Claro / Oscuro */}
             <div className="grid grid-cols-2 gap-2">
               {(["light", "dark"] as const).map((m) => {
@@ -349,7 +351,7 @@ export function DesignPanel({
                     ) : (
                       <Moon className="w-4 h-4" />
                     )}
-                    {m === "light" ? "Claro" : "Oscuro"}
+                    {m === "light" ? t("builder.design.light") : t("builder.design.dark")}
                   </button>
                 );
               })}
@@ -358,7 +360,7 @@ export function DesignPanel({
             {/* Color del texto de las preguntas */}
             <div className="mt-4">
               <div className="mb-1.5 text-xs text-neutral-600 dark:text-neutral-300">
-                Color del texto de las preguntas
+                {t("builder.design.questionTextColor")}
               </div>
               <div className="flex items-center gap-3">
                 <input
@@ -374,7 +376,7 @@ export function DesignPanel({
                   className="h-9 w-12 cursor-pointer rounded border border-neutral-200 bg-white p-0.5 dark:border-neutral-700 dark:bg-neutral-800"
                 />
                 <span className="flex-1 text-xs text-neutral-500 dark:text-neutral-400">
-                  {design.textColor ?? "Automático según el modo"}
+                  {design.textColor ?? t("builder.design.autoByMode")}
                 </span>
                 {design.textColor && (
                   <button
@@ -382,7 +384,7 @@ export function DesignPanel({
                     onClick={() => patch({ textColor: undefined })}
                     className="rounded-md border border-neutral-200 px-2 py-1 text-xs font-medium text-neutral-600 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
                   >
-                    Automático
+                    {t("builder.design.auto")}
                   </button>
                 )}
               </div>
@@ -391,11 +393,11 @@ export function DesignPanel({
           </Section>
 
           {/* Cuadros de las preguntas */}
-          <Section icon={<Square className="w-4 h-4" />} title="Cuadros de las preguntas">
+          <Section icon={<Square className="w-4 h-4" />} title={t("builder.design.questionBoxes")}>
             {/* Color de los cuadros */}
             <div>
               <div className="mb-1.5 text-xs text-neutral-600 dark:text-neutral-300">
-                Color de los cuadros
+                {t("builder.design.boxColor")}
               </div>
               <div className="flex items-center gap-3">
                 <input
@@ -411,7 +413,7 @@ export function DesignPanel({
                   className="h-9 w-12 cursor-pointer rounded border border-neutral-200 bg-white p-0.5 dark:border-neutral-700 dark:bg-neutral-800"
                 />
                 <span className="flex-1 text-xs text-neutral-500 dark:text-neutral-400">
-                  {design.questionColor ?? "Automático según el modo"}
+                  {design.questionColor ?? t("builder.design.autoByMode")}
                 </span>
                 {design.questionColor && (
                   <button
@@ -419,7 +421,7 @@ export function DesignPanel({
                     onClick={() => patch({ questionColor: undefined })}
                     className="rounded-md border border-neutral-200 px-2 py-1 text-xs font-medium text-neutral-600 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
                   >
-                    Automático
+                    {t("builder.design.auto")}
                   </button>
                 )}
               </div>
@@ -428,7 +430,7 @@ export function DesignPanel({
             {/* Opacidad de los cuadros */}
             <div className="mt-4">
               <div className="mb-1 flex items-center justify-between text-xs text-neutral-600 dark:text-neutral-300">
-                <span>Opacidad</span>
+                <span>{t("builder.design.opacity")}</span>
                 <span className="tabular-nums text-neutral-400 dark:text-neutral-500">
                   {Math.round((design.questionOpacity ?? 1) * 100)}%
                 </span>
@@ -444,14 +446,14 @@ export function DesignPanel({
                 className="w-full accent-[#8faf0e]"
               />
               <p className="mt-1 text-[11px] leading-relaxed text-neutral-400 dark:text-neutral-500">
-                Bajala para ver el fondo a través de los cuadros (efecto vidrio).
+                {t("builder.design.opacityHint")}
               </p>
             </div>
 
             {/* Color del texto de los cuadros (independiente del de las preguntas) */}
             <div className="mt-4">
               <div className="mb-1.5 text-xs text-neutral-600 dark:text-neutral-300">
-                Color del texto de los cuadros
+                {t("builder.design.boxTextColor")}
               </div>
               <div className="flex items-center gap-3">
                 <input
@@ -468,7 +470,7 @@ export function DesignPanel({
                   className="h-9 w-12 cursor-pointer rounded border border-neutral-200 bg-white p-0.5 dark:border-neutral-700 dark:bg-neutral-800"
                 />
                 <span className="flex-1 text-xs text-neutral-500 dark:text-neutral-400">
-                  {design.inputTextColor ?? "Automático (legible sobre el cuadro)"}
+                  {design.inputTextColor ?? t("builder.design.autoReadable")}
                 </span>
                 {design.inputTextColor && (
                   <button
@@ -476,58 +478,54 @@ export function DesignPanel({
                     onClick={() => patch({ inputTextColor: undefined })}
                     className="rounded-md border border-neutral-200 px-2 py-1 text-xs font-medium text-neutral-600 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
                   >
-                    Automático
+                    {t("builder.design.auto")}
                   </button>
                 )}
               </div>
               <p className="mt-1 text-[11px] leading-relaxed text-neutral-400 dark:text-neutral-500">
-                Lo que se escribe dentro de los campos. No hereda el color del
-                texto de las preguntas.
+                {t("builder.design.boxTextHint")}
               </p>
             </div>
 
             {/* Vidrio esmerilado (glass) */}
             <div className="mt-4">
               <ToggleRow
-                label="Vidrio esmerilado"
+                label={t("builder.design.glass")}
                 checked={!!design.glass}
                 onChange={(v) => patch({ glass: v })}
               />
               <p className="mt-1 text-[11px] leading-relaxed text-neutral-400 dark:text-neutral-500">
-                Desenfoca lo que hay detrás de los cuadros. Combínalo con opacidad
-                &lt; 100% y una imagen de fondo.
+                {t("builder.design.glassHint")}
               </p>
             </div>
 
             {/* Preguntas transparentes (atajo de opacidad 0) */}
             <div className="mt-4">
               <ToggleRow
-                label="Preguntas transparentes"
+                label={t("builder.design.transparentQuestions")}
                 checked={!!design.transparentQuestions}
                 onChange={(v) => patch({ transparentQuestions: v })}
               />
               <p className="mt-1 text-[11px] leading-relaxed text-neutral-400 dark:text-neutral-500">
-                Atajo de opacidad 0: saca la franja detrás de las preguntas para que
-                se vea el fondo. Ideal cuando usás una imagen de fondo.
+                {t("builder.design.transparentHint")}
               </p>
             </div>
 
             {/* Contenedor por pregunta (separador) */}
             <div className="mt-4">
               <ToggleRow
-                label="Contenedor por pregunta"
+                label={t("builder.design.questionContainer")}
                 checked={!!design.questionSeparator}
                 onChange={(v) => patch({ questionSeparator: v })}
               />
               <p className="mt-1 text-[11px] leading-relaxed text-neutral-400 dark:text-neutral-500">
-                Dibuja un marco sutil alrededor de cada pregunta, separándolas.
-                Queda genial con cuadros transparentes o glass.
+                {t("builder.design.questionContainerHint")}
               </p>
             </div>
           </Section>
 
           {/* Botones */}
-          <Section icon={<MousePointerClick className="w-4 h-4" />} title="Botones">
+          <Section icon={<MousePointerClick className="w-4 h-4" />} title={t("builder.design.buttons")}>
             <div className="flex items-center gap-3">
               <input
                 type="color"
@@ -542,7 +540,7 @@ export function DesignPanel({
                 className="h-9 w-12 cursor-pointer rounded border border-neutral-200 bg-white p-0.5 dark:border-neutral-700 dark:bg-neutral-800"
               />
               <span className="flex-1 text-xs text-neutral-500 dark:text-neutral-400">
-                {design.buttonColor ?? "Automático (color de acento)"}
+                {design.buttonColor ?? t("builder.design.autoAccent")}
               </span>
               {design.buttonColor && (
                 <button
@@ -550,33 +548,32 @@ export function DesignPanel({
                   onClick={() => patch({ buttonColor: undefined })}
                   className="rounded-md border border-neutral-200 px-2 py-1 text-xs font-medium text-neutral-600 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
                 >
-                  Automático
+                  {t("builder.design.auto")}
                 </button>
               )}
             </div>
             <p className="mt-1 text-[11px] leading-relaxed text-neutral-400 dark:text-neutral-500">
-              Color de los botones Siguiente / Anterior / Completar, independiente
-              del acento.
+              {t("builder.design.buttonsHint")}
             </p>
             <div className="mt-4">
               <ToggleRow
-                label="Sombra en los botones"
+                label={t("builder.design.buttonShadow")}
                 checked={!!design.buttonShadow}
                 onChange={(v) => patch({ buttonShadow: v })}
               />
               <p className="mt-1 text-[11px] leading-relaxed text-neutral-400 dark:text-neutral-500">
-                Les da profundidad — se nota más sobre fondos con imagen.
+                {t("builder.design.buttonShadowHint")}
               </p>
             </div>
           </Section>
 
           {/* Alineación */}
-          <Section icon={<AlignCenter className="w-4 h-4" />} title="Alineación">
+          <Section icon={<AlignCenter className="w-4 h-4" />} title={t("builder.design.alignment")}>
             <div className="grid grid-cols-2 gap-2">
               {(
                 [
-                  { value: "left", label: "Izquierda", icon: AlignLeft },
-                  { value: "center", label: "Centrado", icon: AlignCenter },
+                  { value: "left", label: t("builder.design.alignLeft"), icon: AlignLeft },
+                  { value: "center", label: t("builder.design.alignCenter"), icon: AlignCenter },
                 ] as const
               ).map((opt) => {
                 const active = (design.alignment ?? "left") === opt.value;
@@ -599,12 +596,12 @@ export function DesignPanel({
               })}
             </div>
             <p className="mt-2 text-[11px] leading-relaxed text-neutral-400 dark:text-neutral-500">
-              Centra el título, las preguntas y los botones.
+              {t("builder.design.alignmentHint")}
             </p>
           </Section>
 
           {/* Transiciones */}
-          <Section icon={<Wand2 className="w-4 h-4" />} title="Transiciones">
+          <Section icon={<Wand2 className="w-4 h-4" />} title={t("builder.design.transitions")}>
             <div className="grid grid-cols-2 gap-2">
               {PAGE_TRANSITIONS.map((opt) => {
                 const active = (design.pageTransition ?? "none") === opt.id;
@@ -619,18 +616,18 @@ export function DesignPanel({
                         : "border-neutral-200 text-neutral-500 hover:border-neutral-300 dark:border-neutral-700 dark:text-neutral-400 dark:hover:border-neutral-600"
                     }`}
                   >
-                    {opt.label}
+                    {t(`builder.transition.${opt.id}`)}
                   </button>
                 );
               })}
             </div>
             <p className="mt-2 text-[11px] leading-relaxed text-neutral-400 dark:text-neutral-500">
-              Se ven cuando usás una pregunta por pantalla.
+              {t("builder.design.transitionsHint")}
             </p>
           </Section>
 
           {/* Imagen de fondo */}
-          <Section icon={<ImageIcon className="w-4 h-4" />} title="Imagen de fondo">
+          <Section icon={<ImageIcon className="w-4 h-4" />} title={t("builder.design.bgImage")}>
             <AssetPicker
               kind="image"
               value={design.backgroundImage}
@@ -639,7 +636,7 @@ export function DesignPanel({
             {design.backgroundImage && (
               <div className="mt-3">
                 <div className="mb-1 flex items-center justify-between text-xs text-neutral-600 dark:text-neutral-300">
-                  <span>Opacidad</span>
+                  <span>{t("builder.design.opacity")}</span>
                   <span className="tabular-nums text-neutral-400 dark:text-neutral-500">
                     {Math.round((design.backgroundOpacity ?? 1) * 100)}%
                   </span>
@@ -659,7 +656,7 @@ export function DesignPanel({
           </Section>
 
           {/* Portada */}
-          <Section icon={<ImageIcon className="w-4 h-4" />} title="Portada (cover)">
+          <Section icon={<ImageIcon className="w-4 h-4" />} title={t("builder.design.cover")}>
             <AssetPicker
               kind="image"
               value={design.coverImage}
@@ -668,7 +665,7 @@ export function DesignPanel({
           </Section>
 
           {/* Logo */}
-          <Section icon={<ImageIcon className="w-4 h-4" />} title="Logo">
+          <Section icon={<ImageIcon className="w-4 h-4" />} title={t("builder.design.logo")}>
             <AssetPicker
               kind="image"
               value={design.logo}
@@ -677,7 +674,7 @@ export function DesignPanel({
           </Section>
 
           {/* Música de fondo */}
-          <Section icon={<Music className="w-4 h-4" />} title="Música de fondo">
+          <Section icon={<Music className="w-4 h-4" />} title={t("builder.design.music")}>
             <AssetPicker
               kind="audio"
               value={audio?.url || undefined}
@@ -690,18 +687,18 @@ export function DesignPanel({
             {audio?.url && (
               <div className="mt-3 space-y-3">
                 <ToggleRow
-                  label="Repetir en bucle"
+                  label={t("builder.design.loop")}
                   checked={audio.loop}
                   onChange={(v) => patchAudio({ loop: v })}
                 />
                 <ToggleRow
-                  label="Reproducir automáticamente"
+                  label={t("builder.design.autoplay")}
                   checked={audio.autoplay}
                   onChange={(v) => patchAudio({ autoplay: v })}
                 />
                 <div>
                   <div className="mb-1 flex items-center justify-between text-xs text-neutral-600 dark:text-neutral-300">
-                    <span>Volumen</span>
+                    <span>{t("builder.design.volume")}</span>
                     <span className="tabular-nums text-neutral-400 dark:text-neutral-500">
                       {Math.round((audio.volume ?? 0.6) * 100)}%
                     </span>
@@ -718,8 +715,7 @@ export function DesignPanel({
                   />
                 </div>
                 <p className="text-[11px] leading-relaxed text-neutral-400 dark:text-neutral-500">
-                  Los navegadores pueden requerir un toque para reproducir con
-                  sonido.
+                  {t("builder.design.musicHint")}
                 </p>
               </div>
             )}
@@ -739,6 +735,7 @@ function ThemeCard({
   active: boolean;
   onClick: () => void;
 }) {
+  const { t } = useI18n();
   return (
     <button
       type="button"
@@ -764,7 +761,7 @@ function ThemeCard({
             color: readableForeground(preset.backgroundColor),
           }}
         >
-          {preset.name}
+          {t(`builder.theme.${preset.id}`)}
         </span>
       </div>
       {active && (

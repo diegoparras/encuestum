@@ -36,6 +36,7 @@ import {
 } from "lucide-react";
 import { BuilderQuestion, QUESTION_TYPES, QuestionType } from "./model";
 import { SortableQuestion } from "./SortableQuestion";
+import { useI18n } from "@/lib/i18n";
 
 const PALETTE_ICON: Record<QuestionType, React.ComponentType<{ className?: string }>> = {
   text: Type,
@@ -76,6 +77,7 @@ export function QuestionListPanel({
   onDuplicate,
   onDelete,
 }: Props) {
+  const { t } = useI18n();
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
@@ -95,7 +97,7 @@ export function QuestionListPanel({
       {/* Palette */}
       <div className="px-4 pt-4 pb-3 border-b border-neutral-200 dark:border-neutral-800">
         <div className="text-[11px] font-semibold uppercase tracking-wide text-neutral-400 dark:text-neutral-500 mb-2">
-          Añadir pregunta
+          {t("builder.list.addQuestion")}
         </div>
         <div className="grid grid-cols-2 gap-1.5">
           {QUESTION_TYPES.map((qt) => {
@@ -112,10 +114,10 @@ export function QuestionListPanel({
                 </span>
                 <span className="min-w-0">
                   <span className="block text-xs font-medium text-neutral-800 dark:text-neutral-200 truncate">
-                    {qt.label}
+                    {t(`builder.qtype.${qt.type}`)}
                   </span>
                   <span className="block text-[10px] text-neutral-400 dark:text-neutral-500 truncate">
-                    {qt.hint}
+                    {t(`builder.qhint.${qt.type}`)}
                   </span>
                 </span>
               </button>
@@ -127,7 +129,7 @@ export function QuestionListPanel({
       {/* Question list */}
       <div className="flex-1 overflow-y-auto px-4 py-3">
         <div className="text-[11px] font-semibold uppercase tracking-wide text-neutral-400 dark:text-neutral-500 mb-2">
-          Preguntas ({questions.length})
+          {t("builder.list.questions", { n: questions.length })}
         </div>
 
         {questions.length === 0 ? (
@@ -137,7 +139,7 @@ export function QuestionListPanel({
             className="w-full rounded-xl border border-dashed border-neutral-300 dark:border-neutral-700 py-10 text-center text-sm text-neutral-400 dark:text-neutral-500 hover:text-neutral-600 dark:hover:text-neutral-400 hover:border-neutral-400 dark:hover:border-neutral-600 transition-colors"
           >
             <Plus className="w-5 h-5 mx-auto mb-1" />
-            Agregá tu primera pregunta
+            {t("builder.list.addFirst")}
           </button>
         ) : (
           <DndContext

@@ -9,6 +9,7 @@ import { Monitor, Smartphone } from "lucide-react";
 import { DesignSettings, DEFAULT_DESIGN, designToTheme, perQuestionStyleCss } from "./model";
 import { absolutizeAssets, buttonOverrideCss, cardsCss, ENC_ALIGN_CSS, loadFont, resolveAssetUrl } from "./design";
 import { registerVideoResponseQuestion } from "../../(public)/s/[slug]/VideoResponseQuestion";
+import { useI18n } from "@/lib/i18n";
 
 // Register the custom video-response question so the preview can render it.
 registerVideoResponseQuestion();
@@ -26,6 +27,7 @@ type Device = "desktop" | "mobile";
 // accent changes. Rebuilding is intentional — it guarantees the preview always
 // matches the saved definition exactly, including validation and theming.
 export function LivePreview({ schema, accent, design, language }: Props) {
+  const { t } = useI18n();
   const [device, setDevice] = useState<Device>("desktop");
   const d = design ?? DEFAULT_DESIGN;
 
@@ -67,20 +69,20 @@ export function LivePreview({ schema, accent, design, language }: Props) {
     <div className="flex h-full flex-col">
       <div className="flex items-center justify-between px-4 py-2.5 border-b border-neutral-200 dark:border-neutral-800">
         <span className="text-[11px] font-semibold uppercase tracking-wide text-neutral-400 dark:text-neutral-500">
-          Vista previa
+          {t("builder.preview.label")}
         </span>
         <div className="flex items-center gap-1 rounded-lg bg-neutral-100 dark:bg-neutral-800 p-0.5">
           <DeviceButton
             active={device === "desktop"}
             onClick={() => setDevice("desktop")}
-            label="Escritorio"
+            label={t("builder.preview.desktop")}
           >
             <Monitor className="w-4 h-4" />
           </DeviceButton>
           <DeviceButton
             active={device === "mobile"}
             onClick={() => setDevice("mobile")}
-            label="Móvil"
+            label={t("builder.preview.mobile")}
           >
             <Smartphone className="w-4 h-4" />
           </DeviceButton>
@@ -91,9 +93,9 @@ export function LivePreview({ schema, accent, design, language }: Props) {
         {isEmpty ? (
           <div className="h-full grid place-items-center text-center text-sm text-neutral-400 dark:text-neutral-500">
             <div>
-              <p>Tu encuesta está vacía.</p>
+              <p>{t("builder.preview.empty1")}</p>
               <p className="text-xs mt-1">
-                Agregá preguntas desde la paleta para verlas acá.
+                {t("builder.preview.empty2")}
               </p>
             </div>
           </div>

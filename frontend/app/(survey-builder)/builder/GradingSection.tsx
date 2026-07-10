@@ -5,6 +5,7 @@ import { Switch } from "@/components/ui/switch";
 import { BuilderQuestion, Choice } from "./model";
 import { RubricEditor } from "./RubricEditor";
 import { resolveAssetUrl } from "./design";
+import { useI18n } from "@/lib/i18n";
 
 interface Props {
   question: BuilderQuestion;
@@ -15,6 +16,7 @@ interface Props {
 const OPEN_TYPES = new Set(["text", "email", "comment"]);
 
 export function GradingSection({ question: q, accent, onChange }: Props) {
+  const { t } = useI18n();
   const isOpen = OPEN_TYPES.has(q.type);
   const grader = q.grader ?? (isOpen ? "llm" : "auto");
   const choiceTexts = (q.choices ?? []).map((c) => c.text).filter((t) => t.trim());
@@ -26,7 +28,7 @@ export function GradingSection({ question: q, accent, onChange }: Props) {
     >
       <div className="flex items-center justify-between">
         <div className="text-xs font-semibold" style={{ color: accent }}>
-          Evaluación
+          {t("builder.grade.title")}
         </div>
         <Switch
           checked={!!q.gradable}
@@ -39,7 +41,7 @@ export function GradingSection({ question: q, accent, onChange }: Props) {
       {q.gradable && (
         <div className="mt-3 space-y-3">
           <div className="flex items-center gap-3">
-            <label className="text-xs font-medium text-neutral-600 dark:text-neutral-300">Puntos</label>
+            <label className="text-xs font-medium text-neutral-600 dark:text-neutral-300">{t("builder.grade.points")}</label>
             <input
               type="number"
               min={0}
@@ -53,7 +55,7 @@ export function GradingSection({ question: q, accent, onChange }: Props) {
           {isOpen && (
             <div>
               <div className="text-xs font-medium text-neutral-600 dark:text-neutral-300 mb-1.5">
-                Cómo se corrige
+                {t("builder.grade.howGraded")}
               </div>
               <div className="flex gap-1 rounded-lg bg-neutral-100 dark:bg-neutral-800 p-0.5 text-xs">
                 <GraderTab
@@ -61,14 +63,14 @@ export function GradingSection({ question: q, accent, onChange }: Props) {
                   onClick={() => onChange({ grader: "llm" })}
                   accent={accent}
                 >
-                  IA (rúbrica)
+                  {t("builder.grade.ai")}
                 </GraderTab>
                 <GraderTab
                   active={grader === "auto"}
                   onClick={() => onChange({ grader: "auto" })}
                   accent={accent}
                 >
-                  Exacta
+                  {t("builder.grade.exact")}
                 </GraderTab>
               </div>
             </div>
@@ -111,7 +113,7 @@ export function GradingSection({ question: q, accent, onChange }: Props) {
             ))}
 
           {q.type === "boolean" && (
-            <Field label="Respuesta correcta">
+            <Field label={t("builder.grade.correctAnswer")}>
               <div className="flex gap-2">
                 <PillButton
                   active={q.correctBool === true}
@@ -133,7 +135,7 @@ export function GradingSection({ question: q, accent, onChange }: Props) {
 
           {q.type === "rating" && (
             <div className="grid grid-cols-2 gap-3">
-              <Field label="Valor correcto">
+              <Field label={t("builder.grade.correctValue")}>
                 <input
                   type="number"
                   value={q.correctNumber ?? ""}
@@ -146,7 +148,7 @@ export function GradingSection({ question: q, accent, onChange }: Props) {
                   className="w-full rounded-md border border-neutral-200 px-2.5 py-1.5 text-sm outline-none focus:border-neutral-400 dark:bg-neutral-800 dark:border-neutral-700 dark:text-neutral-100 dark:placeholder:text-neutral-500"
                 />
               </Field>
-              <Field label="Tolerancia (±)">
+              <Field label={t("builder.grade.tolerance")}>
                 <input
                   type="number"
                   min={0}
@@ -161,7 +163,7 @@ export function GradingSection({ question: q, accent, onChange }: Props) {
 
           {isOpen && grader === "auto" && (
             <>
-              <Field label="Respuestas aceptadas (una por línea)">
+              <Field label={t("builder.grade.acceptedAnswers")}>
                 <textarea
                   value={(q.correctText ?? []).join("\n")}
                   onChange={(e) =>
@@ -177,7 +179,7 @@ export function GradingSection({ question: q, accent, onChange }: Props) {
                 />
               </Field>
               <ToggleRow
-                label="Distingue mayúsculas"
+                label={t("builder.grade.caseSensitive")}
                 checked={!!q.caseSensitive}
                 onChange={(v) => onChange({ caseSensitive: v })}
               />
@@ -186,16 +188,16 @@ export function GradingSection({ question: q, accent, onChange }: Props) {
 
           {isOpen && grader === "llm" && (
             <>
-              <Field label="Respuesta modelo">
+              <Field label={t("builder.grade.modelAnswer")}>
                 <textarea
                   value={q.modelAnswer ?? ""}
                   onChange={(e) => onChange({ modelAnswer: e.target.value })}
                   rows={3}
-                  placeholder="La respuesta ideal contra la que se corrige"
+                  placeholder={t("builder.grade.modelAnswerPlaceholder")}
                   className="w-full rounded-md border border-neutral-200 px-2.5 py-2 text-sm outline-none focus:border-neutral-400 dark:bg-neutral-800 dark:border-neutral-700 dark:text-neutral-100 dark:placeholder:text-neutral-500"
                 />
               </Field>
-              <Field label="Conceptos clave (separados por coma)">
+              <Field label={t("builder.grade.keyConcepts")}>
                 <input
                   value={(q.keyConcepts ?? []).join(", ")}
                   onChange={(e) =>
@@ -209,7 +211,7 @@ export function GradingSection({ question: q, accent, onChange }: Props) {
                   className="w-full rounded-md border border-neutral-200 px-2.5 py-1.5 text-sm outline-none focus:border-neutral-400 dark:bg-neutral-800 dark:border-neutral-700 dark:text-neutral-100 dark:placeholder:text-neutral-500"
                 />
               </Field>
-              <Field label="Rúbrica">
+              <Field label={t("builder.grade.rubric")}>
                 <RubricEditor
                   rubric={q.rubric ?? []}
                   onChange={(rubric) => onChange({ rubric })}
@@ -232,10 +234,11 @@ function SingleCorrect({
   value?: string;
   onChange: (v: string) => void;
 }) {
+  const { t } = useI18n();
   if (!choices.length)
-    return <Hint>Agregá opciones para marcar la correcta.</Hint>;
+    return <Hint>{t("builder.grade.addOptionsSingle")}</Hint>;
   return (
-    <Field label="Opción correcta">
+    <Field label={t("builder.grade.correctOption")}>
       <div className="space-y-1">
         {choices.map((c) => (
           <label key={c} className="flex items-center gap-2 text-sm cursor-pointer">
@@ -265,13 +268,14 @@ function MultiCorrect({
   onChange: (v: string[]) => void;
   onPartial: (v: boolean) => void;
 }) {
+  const { t } = useI18n();
   if (!choices.length)
-    return <Hint>Agregá opciones para marcar las correctas.</Hint>;
+    return <Hint>{t("builder.grade.addOptionsMulti")}</Hint>;
   function toggle(c: string) {
     onChange(value.includes(c) ? value.filter((x) => x !== c) : [...value, c]);
   }
   return (
-    <Field label="Opciones correctas">
+    <Field label={t("builder.grade.correctOptions")}>
       <div className="space-y-1">
         {choices.map((c) => (
           <label key={c} className="flex items-center gap-2 text-sm cursor-pointer">
@@ -286,7 +290,7 @@ function MultiCorrect({
       </div>
       <div className="mt-2">
         <ToggleRow
-          label="Crédito parcial"
+          label={t("builder.grade.partialCredit")}
           checked={partial}
           onChange={onPartial}
         />
@@ -327,10 +331,11 @@ function ImageSingleCorrect({
   value?: string;
   onChange: (v: string) => void;
 }) {
+  const { t } = useI18n();
   if (!choices.length)
-    return <Hint>Agregá opciones para marcar la correcta.</Hint>;
+    return <Hint>{t("builder.grade.addOptionsSingle")}</Hint>;
   return (
-    <Field label="Imagen correcta">
+    <Field label={t("builder.grade.correctImage")}>
       <div className="space-y-1">
         {choices.map((c, i) => {
           const key = choiceKey(c, i);
@@ -367,13 +372,14 @@ function ImageMultiCorrect({
   onChange: (v: string[]) => void;
   onPartial: (v: boolean) => void;
 }) {
+  const { t } = useI18n();
   if (!choices.length)
-    return <Hint>Agregá opciones para marcar las correctas.</Hint>;
+    return <Hint>{t("builder.grade.addOptionsMulti")}</Hint>;
   function toggle(key: string) {
     onChange(value.includes(key) ? value.filter((x) => x !== key) : [...value, key]);
   }
   return (
-    <Field label="Imágenes correctas">
+    <Field label={t("builder.grade.correctImages")}>
       <div className="space-y-1">
         {choices.map((c, i) => {
           const key = choiceKey(c, i);
@@ -394,7 +400,7 @@ function ImageMultiCorrect({
         })}
       </div>
       <div className="mt-2">
-        <ToggleRow label="Crédito parcial" checked={partial} onChange={onPartial} />
+        <ToggleRow label={t("builder.grade.partialCredit")} checked={partial} onChange={onPartial} />
       </div>
     </Field>
   );

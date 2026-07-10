@@ -23,6 +23,7 @@ import {
   Loader2,
 } from "lucide-react";
 import { toast } from "sonner";
+import { useI18n } from "@/lib/i18n";
 import { uploadRespondentFile } from "./uploadFile";
 
 // ---------------------------------------------------------------------------
@@ -111,6 +112,7 @@ function formatTime(totalSeconds: number): string {
 }
 
 function VideoRecorder({ question }: { question: QuestionVideoResponseModel }) {
+  const { t } = useI18n();
   // Valor ya guardado (URL pública o object URL de vista previa).
   const savedValue = typeof question.value === "string" ? question.value : "";
 
@@ -195,7 +197,7 @@ function VideoRecorder({ question }: { question: QuestionVideoResponseModel }) {
       !navigator.mediaDevices ||
       typeof navigator.mediaDevices.getUserMedia !== "function"
     ) {
-      setErrorMsg("Tu navegador no permite grabar video. Podés subir un archivo.");
+      setErrorMsg(t("public.video.noSupport"));
       setState("denied");
       return;
     }
@@ -208,7 +210,7 @@ function VideoRecorder({ question }: { question: QuestionVideoResponseModel }) {
       setState("preview");
     } catch {
       stopStream();
-      setErrorMsg("No pudimos acceder a la cámara. Podés subir un archivo.");
+      setErrorMsg(t("public.video.noCamera"));
       setState("denied");
     }
   }
@@ -237,7 +239,7 @@ function VideoRecorder({ question }: { question: QuestionVideoResponseModel }) {
     } catch (err) {
       console.error("[encuestum] MediaRecorder no disponible:", err);
       stopStream();
-      setErrorMsg("Tu navegador no pudo iniciar la grabación. Podés subir un archivo.");
+      setErrorMsg(t("public.video.startFailed"));
       setState("denied");
       return;
     }
@@ -251,7 +253,7 @@ function VideoRecorder({ question }: { question: QuestionVideoResponseModel }) {
       console.error("[encuestum] error de MediaRecorder:", e?.error || e);
       clearTimer();
       stopStream();
-      setErrorMsg("Falló la grabación. Probá de nuevo o subí un archivo.");
+      setErrorMsg(t("public.video.recordFailed"));
       setState("error");
     };
     recorder.onstop = () => {
@@ -262,7 +264,7 @@ function VideoRecorder({ question }: { question: QuestionVideoResponseModel }) {
       stopStream();
       if (blob.size === 0) {
         console.error("[encuestum] grabación vacía (0 bytes)");
-        setErrorMsg("No se capturó video. Probá de nuevo o subí un archivo.");
+        setErrorMsg(t("public.video.noCapture"));
         setState("error");
         return;
       }
@@ -284,7 +286,7 @@ function VideoRecorder({ question }: { question: QuestionVideoResponseModel }) {
     } catch (err) {
       console.error("[encuestum] recorder.start falló:", err);
       stopStream();
-      setErrorMsg("No se pudo iniciar la grabación. Podés subir un archivo.");
+      setErrorMsg(t("public.video.startFailed2"));
       setState("denied");
       return;
     }
@@ -360,9 +362,9 @@ function VideoRecorder({ question }: { question: QuestionVideoResponseModel }) {
       setRecordedUrl(null);
       setState("done");
     } catch {
-      setErrorMsg("No se pudo subir. Reintentar");
+      setErrorMsg(t("public.video.uploadFailedShort"));
       setState("error");
-      toast.error("No se pudo subir el video. Probá de nuevo.");
+      toast.error(t("public.video.uploadToast"));
     }
   }
 
@@ -452,7 +454,7 @@ function VideoRecorder({ question }: { question: QuestionVideoResponseModel }) {
         />
         {isPreviewOnly && (
           <p className="text-xs" style={hintStyle}>
-            Vista previa (no se sube en el editor)
+            {t("public.video.previewNote")}
           </p>
         )}
         <div className="flex flex-wrap items-center justify-center gap-2">
@@ -463,7 +465,7 @@ function VideoRecorder({ question }: { question: QuestionVideoResponseModel }) {
             style={{ backgroundColor: ACCENT }}
           >
             <RotateCcw className="h-4 w-4" />
-            Grabar de nuevo
+            {t("public.video.recordAgain")}
           </button>
           <button
             type="button"
@@ -472,7 +474,7 @@ function VideoRecorder({ question }: { question: QuestionVideoResponseModel }) {
             style={ghostBtnStyle}
           >
             <Trash2 className="h-4 w-4" />
-            Quitar
+            {t("public.video.remove")}
           </button>
         </div>
       </div>
@@ -492,7 +494,9 @@ function VideoRecorder({ question }: { question: QuestionVideoResponseModel }) {
           className="w-full max-h-56 sm:max-h-72 md:max-h-80 rounded-lg bg-black"
         />
         <p className="text-xs" style={hintStyle}>
-          Acomodate y tocá <strong>Grabar</strong> cuando estés listo.
+          {t("public.video.previewHintPre")}
+          <strong>{t("public.video.record")}</strong>
+          {t("public.video.previewHintPost")}
         </p>
         <div className="flex flex-wrap items-center justify-center gap-2">
           <button
@@ -502,7 +506,7 @@ function VideoRecorder({ question }: { question: QuestionVideoResponseModel }) {
             style={{ backgroundColor: REC_RED }}
           >
             <Circle className="h-4 w-4" fill="currentColor" />
-            Grabar
+            {t("public.video.record")}
           </button>
           <button
             type="button"
@@ -511,7 +515,7 @@ function VideoRecorder({ question }: { question: QuestionVideoResponseModel }) {
             style={ghostBtnStyle}
           >
             <Trash2 className="h-4 w-4" />
-            Cancelar
+            {t("public.video.cancel")}
           </button>
         </div>
       </div>
@@ -550,7 +554,7 @@ function VideoRecorder({ question }: { question: QuestionVideoResponseModel }) {
           style={{ backgroundColor: REC_RED }}
         >
           <Square className="h-4 w-4" fill="currentColor" />
-          Detener
+          {t("public.video.stop")}
         </button>
       </div>
     );
@@ -577,7 +581,7 @@ function VideoRecorder({ question }: { question: QuestionVideoResponseModel }) {
             style={{ backgroundColor: ACCENT }}
           >
             <Upload className="h-4 w-4" />
-            Usar este video
+            {t("public.video.useVideo")}
           </button>
           <button
             type="button"
@@ -586,7 +590,7 @@ function VideoRecorder({ question }: { question: QuestionVideoResponseModel }) {
             style={ghostBtnStyle}
           >
             <RotateCcw className="h-4 w-4" />
-            Descartar
+            {t("public.video.discard")}
           </button>
         </div>
       </div>
@@ -602,7 +606,7 @@ function VideoRecorder({ question }: { question: QuestionVideoResponseModel }) {
           style={{ color: "var(--sjs-general-forecolor, #525252)" }}
         >
           <Loader2 className="h-5 w-5 animate-spin" style={{ color: ACCENT }} />
-          Subiendo…
+          {t("public.video.uploading")}
         </div>
       </div>
     );
@@ -613,7 +617,7 @@ function VideoRecorder({ question }: { question: QuestionVideoResponseModel }) {
     return (
       <div className={boxClass} style={surfaceStyle}>
         <p className="text-sm" style={ghostBtnStyle}>
-          {errorMsg || "No se pudo subir."}
+          {errorMsg || t("public.video.uploadFailed")}
         </p>
         <div className="flex flex-wrap items-center justify-center gap-2">
           {blobRef.current && (
@@ -624,7 +628,7 @@ function VideoRecorder({ question }: { question: QuestionVideoResponseModel }) {
               style={{ backgroundColor: ACCENT }}
             >
               <RotateCcw className="h-4 w-4" />
-              Reintentar
+              {t("public.video.retry")}
             </button>
           )}
           <button
@@ -634,7 +638,7 @@ function VideoRecorder({ question }: { question: QuestionVideoResponseModel }) {
             style={ghostBtnStyle}
           >
             <Trash2 className="h-4 w-4" />
-            Descartar
+            {t("public.video.discard")}
           </button>
         </div>
       </div>
@@ -646,15 +650,14 @@ function VideoRecorder({ question }: { question: QuestionVideoResponseModel }) {
     return (
       <div className={boxClass} style={surfaceStyle}>
         <p className="text-center text-sm" style={ghostBtnStyle}>
-          {errorMsg ||
-            "No pudimos acceder a la cámara. Podés subir un archivo."}
+          {errorMsg || t("public.video.noCamera")}
         </p>
         <label
           className="inline-flex min-h-[44px] cursor-pointer items-center gap-2 rounded-lg border px-4 py-2 text-sm font-medium hover:opacity-80"
           style={ghostBtnStyle}
         >
           <Upload className="h-4 w-4" />
-          Subir archivo
+          {t("public.video.uploadFile")}
           <input
             type="file"
             accept="video/*"
@@ -677,14 +680,14 @@ function VideoRecorder({ question }: { question: QuestionVideoResponseModel }) {
           style={{ backgroundColor: ACCENT }}
         >
           <Video className="h-4 w-4" />
-          Grabar video
+          {t("public.video.recordVideo")}
         </button>
         <label
           className="inline-flex min-h-[44px] cursor-pointer items-center gap-2 rounded-lg border px-5 py-2.5 text-sm font-medium hover:opacity-80"
           style={ghostBtnStyle}
         >
           <Upload className="h-4 w-4" />
-          Subir archivo
+          {t("public.video.uploadFile")}
           <input
             type="file"
             accept="video/*"
@@ -695,7 +698,7 @@ function VideoRecorder({ question }: { question: QuestionVideoResponseModel }) {
       </div>
       <p className="flex items-center gap-1.5 text-xs" style={hintStyle}>
         <Circle className="h-3 w-3" style={{ color: REC_RED }} fill="currentColor" />
-        Grabá hasta {MAX_SECONDS / 60} minutos con tu webcam
+        {t("public.video.recordHint", { min: MAX_SECONDS / 60 })}
       </p>
     </div>
   );

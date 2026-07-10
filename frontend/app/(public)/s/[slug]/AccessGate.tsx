@@ -2,6 +2,7 @@
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Lock, Mail, KeyRound } from "lucide-react";
+import { useI18n } from "@/lib/i18n";
 import type { DesignSettings } from "../../../(survey-builder)/builder/model";
 
 // Palette derived from the survey design so the gate and the result screens
@@ -155,6 +156,7 @@ export function AccessGate({
   apiBase: () => string;
   onGranted: (token: string, survey: Record<string, any>) => void;
 }) {
+  const { t } = useI18n();
   const c = gatePalette(design);
   const magic = useMagicLinkParams();
   const [pin, setPin] = useState("");
@@ -178,16 +180,16 @@ export function AccessGate({
       );
       const body = await res.json().catch(() => null);
       if (!res.ok) {
-        setError((body && body.detail) || "No pudimos validar tu acceso.");
+        setError((body && body.detail) || t("public.access.error.validate"));
         return;
       }
       if (body?.access_token && body?.survey) {
         onGranted(body.access_token as string, body.survey as Record<string, any>);
       } else {
-        setError("Respuesta inesperada del servidor.");
+        setError(t("public.access.error.unexpected"));
       }
     } catch {
-      setError("No pudimos conectar. Probá de nuevo.");
+      setError(t("public.access.error.connect"));
     } finally {
       setLoading(false);
     }
@@ -207,13 +209,13 @@ export function AccessGate({
     e.preventDefault();
     if (accessMode === "pin") {
       if (!pin.trim()) {
-        setError("Ingresá la clave de acceso.");
+        setError(t("public.access.error.needPin"));
         return;
       }
       void attempt({ pin: pin.trim() });
     } else {
       if (!email.trim() || !code.trim()) {
-        setError("Ingresá tu email y tu código.");
+        setError(t("public.access.error.needEmailCode"));
         return;
       }
       void attempt({ email: email.trim(), code: code.trim() });
@@ -230,15 +232,15 @@ export function AccessGate({
       </div>
       <p className="mb-6 text-center text-sm" style={{ color: c.muted }}>
         {accessMode === "pin"
-          ? "Esta encuesta es privada. Ingresá la clave para continuar."
-          : "Esta encuesta es privada. Ingresá tu email y el código que recibiste."}
+          ? t("public.access.prompt.pin")
+          : t("public.access.prompt.list")}
       </p>
 
       <form onSubmit={submit} className="space-y-4">
         {accessMode === "pin" ? (
           <GateInput
             id="gate-pin"
-            label="Clave de acceso"
+            label={t("public.access.pinLabel")}
             type="password"
             value={pin}
             onChange={setPin}
@@ -250,18 +252,18 @@ export function AccessGate({
           <>
             <GateInput
               id="gate-email"
-              label="Email"
+              label={t("public.access.emailLabel")}
               type="email"
               value={email}
               onChange={setEmail}
               icon={<Mail className="h-4 w-4" />}
-              placeholder="tucorreo@ejemplo.com"
+              placeholder={t("public.access.emailPlaceholder")}
               autoFocus={!magic.email}
               design={design}
             />
             <GateInput
               id="gate-code"
-              label="Código"
+              label={t("public.access.codeLabel")}
               value={code}
               onChange={setCode}
               icon={<KeyRound className="h-4 w-4" />}
@@ -285,7 +287,7 @@ export function AccessGate({
           className="w-full min-h-[44px] rounded-lg px-4 py-2.5 text-sm font-semibold text-white transition disabled:opacity-60"
           style={{ backgroundColor: accent }}
         >
-          {loading ? "Verificando…" : "Entrar"}
+          {loading ? t("public.access.verifying") : t("public.access.enter")}
         </button>
       </form>
     </GateShell>
@@ -313,6 +315,7 @@ export function ResultCheck({
   apiBase: () => string;
   onGraded: (result: any, creds: { email: string; code: string }) => void;
 }) {
+  const { t } = useI18n();
   const c = gatePalette(design);
   const [email, setEmail] = useState(prefill?.email || "");
   const [code, setCode] = useState(prefill?.code || "");
@@ -323,7 +326,7 @@ export function ResultCheck({
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     if (!email.trim() || !code.trim()) {
-      setError("Ingresá tu email y tu código.");
+      setError(t("public.access.error.needEmailCode"));
       return;
     }
     setLoading(true);
@@ -340,18 +343,18 @@ export function ResultCheck({
       );
       const body = await res.json().catch(() => null);
       if (!res.ok) {
-        setError((body && body.detail) || "No pudimos validar tus datos.");
+        setError((body && body.detail) || t("public.result.error.validate"));
         return;
       }
       if (body?.status === "graded" && body.result) {
         onGraded(body.result, { email: email.trim(), code: code.trim() });
       } else if (body?.status === "pending") {
-        setPending(body.detail || "Tus resultados todavía no están publicados.");
+        setPending(body.detail || t("public.result.pendingDefault"));
       } else {
-        setError("Respuesta inesperada del servidor.");
+        setError(t("public.access.error.unexpected"));
       }
     } catch {
-      setError("No pudimos conectar. Probá de nuevo.");
+      setError(t("public.access.error.connect"));
     } finally {
       setLoading(false);
     }
@@ -361,17 +364,17 @@ export function ResultCheck({
     <form onSubmit={submit} className="space-y-4">
       <GateInput
         id="result-email"
-        label="Email"
+        label={t("public.access.emailLabel")}
         type="email"
         value={email}
         onChange={setEmail}
         icon={<Mail className="h-4 w-4" />}
-        placeholder="tucorreo@ejemplo.com"
+        placeholder={t("public.access.emailPlaceholder")}
         design={design}
       />
       <GateInput
         id="result-code"
-        label="Código"
+        label={t("public.access.codeLabel")}
         value={code}
         onChange={setCode}
         icon={<KeyRound className="h-4 w-4" />}
@@ -401,7 +404,7 @@ export function ResultCheck({
         className="w-full min-h-[44px] rounded-lg px-4 py-2.5 text-sm font-semibold text-white transition disabled:opacity-60"
         style={{ backgroundColor: accent }}
       >
-        {loading ? "Consultando…" : "Ver mi resultado"}
+        {loading ? t("public.result.checking") : t("public.result.view")}
       </button>
     </form>
   );
@@ -430,23 +433,22 @@ export function PostSubmitScreen({
   apiBase: () => string;
   onGraded: (result: any, creds: { email: string; code: string }) => void;
 }) {
+  const { t } = useI18n();
   const c = gatePalette(design);
   const [showCheck, setShowCheck] = useState(false);
 
   return (
     <GateShell design={design} brandingHeader={brandingHeader} title={title}>
       <h2 className="mb-2 text-center text-lg font-semibold" style={{ color: c.text }}>
-        ¡Recibimos tus respuestas!
+        {t("public.received")}
       </h2>
       {pending ? (
         <p className="mb-5 text-center text-sm" style={{ color: c.muted }}>
-          Tus resultados estarán disponibles cuando el organizador los publique.
-          Volvé con tu código.
+          {t("public.postSubmit.pending")}
         </p>
       ) : (
         <p className="mb-5 text-center text-sm" style={{ color: c.muted }}>
-          Gracias por participar. Podés consultar tu resultado con tu email y tu
-          código.
+          {t("public.postSubmit.thanks")}
         </p>
       )}
 
@@ -466,7 +468,7 @@ export function PostSubmitScreen({
           className="w-full min-h-[44px] rounded-lg px-4 py-2.5 text-sm font-semibold text-white transition"
           style={{ backgroundColor: accent }}
         >
-          Ver mi resultado
+          {t("public.result.view")}
         </button>
       )}
     </GateShell>
