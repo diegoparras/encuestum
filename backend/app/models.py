@@ -374,3 +374,34 @@ class SurveyInvitee(SQLModel, table=True):
     created_at: datetime = Field(
         sa_column=Column(DateTime(timezone=True), nullable=False, default=_utcnow)
     )
+
+
+class SurveyVisit(SQLModel, table=True):
+    """One row per visitor per survey (anonymous funnel tracking): view →
+    started → completed, plus the last question seen (drop-off point)."""
+
+    __tablename__ = "survey_visits"
+    __table_args__ = (UniqueConstraint("survey_id", "visitor_id", name="uq_visit_survey_visitor"),)
+
+    id: uuid.UUID = Field(primary_key=True, default_factory=uuid.uuid4)
+    survey_id: uuid.UUID = Field(
+        sa_column=Column(
+            ForeignKey("surveys.id", ondelete="CASCADE"), index=True, nullable=False
+        )
+    )
+    visitor_id: str = Field(sa_column=Column(String, nullable=False, index=True))
+    started: bool = Field(
+        sa_column=Column(Boolean, nullable=False, server_default="0"), default=False
+    )
+    completed: bool = Field(
+        sa_column=Column(Boolean, nullable=False, server_default="0"), default=False
+    )
+    last_question: Optional[str] = Field(sa_column=Column(String), default=None)
+    created_at: datetime = Field(
+        sa_column=Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    )
+    last_seen_at: datetime = Field(
+        sa_column=Column(
+            DateTime(timezone=True), nullable=False, default=_utcnow, onupdate=_utcnow
+        )
+    )

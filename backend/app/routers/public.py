@@ -1,11 +1,14 @@
 import logging
+from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request
+from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from app.db import get_session
-from app.models import Survey, SurveyResponse, SurveyInvitee
+from app.models import Survey, SurveyResponse, SurveyInvitee, SurveyVisit
+from app.ratelimit import rate_limit
 from app.schemas import (
     GradeQuestionRequest,
     PublicSurvey,
@@ -144,10 +147,52 @@ async def get_public_survey(
     return _public_payload(s, available, reason, gated)
 
 
+# ── Funnel tracking (anonymous): view → start → drop-off point ───────────────
+class TrackRequest(BaseModel):
+    visitor_id: str = Field(min_length=8, max_length=64)
+    event: str = "view"  # view | progress
+    question: Optional[str] = Field(default=None, max_length=200)
+
+
+@router.post("/{slug}/track", status_code=204)
+async def track_visit(
+    slug: str,
+    payload: TrackRequest,
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+):
+    await rate_limit(request, f"track:{slug}", limit=120, window_s=60)
+    s = await _visible(slug, session)
+    visit = (
+        await session.scalars(
+            select(SurveyVisit).where(
+                SurveyVisit.survey_id == s.id, SurveyVisit.visitor_id == payload.visitor_id
+            )
+        )
+    ).first()
+    if visit is None:
+        visit = SurveyVisit(survey_id=s.id, visitor_id=payload.visitor_id)
+    if payload.event == "progress":
+        visit.started = True
+        if payload.question:
+            visit.last_question = payload.question[:200]
+    visit.last_seen_at = _utcnow()
+    session.add(visit)
+    try:
+        await session.commit()
+    except Exception:  # noqa: BLE001 — carrera del upsert: otro request lo creó
+        await session.rollback()
+
+
 @router.post("/{slug}/access")
 async def survey_access(
-    slug: str, payload: SurveyAccessRequest, session: AsyncSession = Depends(get_session)
+    slug: str,
+    payload: SurveyAccessRequest,
+    request: Request,
+    session: AsyncSession = Depends(get_session),
 ):
+    # Frena fuerza bruta de PIN / códigos de invitado.
+    await rate_limit(request, f"access:{slug}", limit=10, window_s=60)
     s = await _visible(slug, session)
     available, reason = await _availability(s, session)
     if not available:
@@ -178,7 +223,14 @@ async def survey_access(
 
 
 @router.post("/{slug}/submit", status_code=201)
-async def submit(slug: str, payload: SubmitResponseRequest, session: AsyncSession = Depends(get_session)):
+async def submit(
+    slug: str,
+    payload: SubmitResponseRequest,
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+):
+    # Anti-spam: tope de envíos por IP por encuesta.
+    await rate_limit(request, f"submit:{slug}", limit=15, window_s=60)
     s = await _visible(slug, session)
     available, reason = await _availability(s, session)
     if not available:
@@ -197,6 +249,24 @@ async def submit(slug: str, payload: SubmitResponseRequest, session: AsyncSessio
         respondent_email=resp_email, respondent_code=resp_code,
     )
     session.add(r)
+
+    # Funnel: si el cliente mandó su visitor_id, cerramos su visita como completa.
+    visitor_id = (payload.meta or {}).get("visitor_id")
+    if isinstance(visitor_id, str) and visitor_id:
+        visit = (
+            await session.scalars(
+                select(SurveyVisit).where(
+                    SurveyVisit.survey_id == s.id, SurveyVisit.visitor_id == visitor_id
+                )
+            )
+        ).first()
+        if visit is None:
+            visit = SurveyVisit(survey_id=s.id, visitor_id=visitor_id)
+        visit.started = True
+        visit.completed = True
+        visit.last_seen_at = _utcnow()
+        session.add(visit)
+
     await session.commit()
 
     evaluation = s.evaluation or {}
@@ -251,10 +321,14 @@ async def submit(slug: str, payload: SubmitResponseRequest, session: AsyncSessio
 
 @router.post("/{slug}/result")
 async def lookup_result(
-    slug: str, payload: ResultLookupRequest, session: AsyncSession = Depends(get_session)
+    slug: str,
+    payload: ResultLookupRequest,
+    request: Request,
+    session: AsyncSession = Depends(get_session),
 ):
     """A respondent (email-list access) comes back with their code to see their
     correction — once the owner has released results (or immediately)."""
+    await rate_limit(request, f"result:{slug}", limit=10, window_s=300)
     s = await _visible(slug, session)
     if getattr(s, "access_mode", "public") != "list":
         raise HTTPException(status_code=404, detail="Esta encuesta no permite consultar resultados")
@@ -284,10 +358,14 @@ async def lookup_result(
 
 @router.post("/{slug}/certificate")
 async def certificate(
-    slug: str, payload: ResultLookupRequest, session: AsyncSession = Depends(get_session)
+    slug: str,
+    payload: ResultLookupRequest,
+    request: Request,
+    session: AsyncSession = Depends(get_session),
 ):
     """Certificate data for a respondent who passed an assessment (email-list
     access). The frontend renders a printable certificate from this."""
+    await rate_limit(request, f"cert:{slug}", limit=10, window_s=300)
     from app.models import Organization
     s = await _visible(slug, session)
     if getattr(s, "access_mode", "public") != "list":

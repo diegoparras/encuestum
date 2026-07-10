@@ -208,6 +208,59 @@ async def get_response(
     return ResponseItem.from_model(r)
 
 
+@router.get("/{sid}/funnel")
+async def funnel(
+    sid: uuid.UUID,
+    ctx: OrgContext = Depends(current_context),
+    session: AsyncSession = Depends(get_session),
+):
+    """Embudo: vistas → comenzaron → completaron, con el punto de abandono por
+    pregunta (última pregunta vista por quienes no terminaron)."""
+    from app.models import SurveyVisit
+    s = await _survey_or_404(sid, ctx.org.id, session)
+    visits = (
+        await session.scalars(select(SurveyVisit).where(SurveyVisit.survey_id == sid))
+    ).all()
+    views = len(visits)
+    starts = sum(1 for v in visits if v.started)
+    completions = sum(1 for v in visits if v.completed)
+
+    # Abandonos: última pregunta vista de las visitas que empezaron y no terminaron.
+    dropoff: dict[str, int] = {}
+    for v in visits:
+        if v.started and not v.completed and v.last_question:
+            dropoff[v.last_question] = dropoff.get(v.last_question, 0) + 1
+
+    # Títulos para mostrar (nombre → título).
+    titles: dict[str, str] = {}
+    for page in (s.json_schema or {}).get("pages", []) or []:
+        for el in page.get("elements", []) or []:
+            if el.get("name"):
+                titles[el["name"]] = el.get("title") or el["name"]
+
+    responses = int(
+        await session.scalar(
+            select(func.count(SurveyResponse.id)).where(SurveyResponse.survey_id == sid)
+        )
+        or 0
+    )
+    return {
+        "views": views,
+        "starts": starts,
+        "completions": completions,
+        "responses": responses,
+        "start_rate": round(starts / views * 100, 1) if views else None,
+        "completion_rate": round(completions / starts * 100, 1) if starts else None,
+        "dropoff": sorted(
+            (
+                {"question": q, "title": titles.get(q, q), "count": n}
+                for q, n in dropoff.items()
+            ),
+            key=lambda x: -x["count"],
+        ),
+    }
+
+
 @router.get("/{sid}/summary")
 async def response_summary(
     sid: uuid.UUID,
