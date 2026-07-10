@@ -393,7 +393,11 @@ export default function SurveyView({ slug }: { slug: string }) {
             {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ name: options.name, answer: options.value }),
+              body: JSON.stringify({
+                name: options.name,
+                answer: options.value,
+                ...(accessToken ? { access_token: accessToken } : {}),
+              }),
             }
           );
           if (!res.ok) return; // not gradable → ignore

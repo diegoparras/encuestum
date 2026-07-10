@@ -135,6 +135,7 @@ class ResultLookupRequest(BaseModel):
 class GradeQuestionRequest(BaseModel):
     name: str
     answer: Any = None
+    access_token: Optional[str] = None
 
 
 class ResponseItem(BaseModel):

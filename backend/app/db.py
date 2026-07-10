@@ -4,7 +4,6 @@ import os
 from collections.abc import AsyncGenerator
 
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
-from sqlmodel import SQLModel
 
 from app import models  # noqa: F401 — ensure tables are registered
 
@@ -34,7 +33,3 @@ async def get_session() -> AsyncGenerator[AsyncSession, None]:
     async with _session_maker() as session:
         yield session
 
-
-async def create_db_and_tables() -> None:
-    async with engine.begin() as conn:
-        await conn.run_sync(SQLModel.metadata.create_all)

@@ -47,10 +47,6 @@ def _model() -> str:
     return os.getenv("ENCUESTUM_LLM_MODEL") or os.getenv("OPENAI_MODEL") or "openai/gpt-4o-mini"
 
 
-def is_configured() -> bool:
-    return bool(_api_key())
-
-
 async def structured(
     *,
     system: str,
@@ -76,6 +72,14 @@ async def structured(
         key, base_url, model = _api_key(), _base_url(), _model()
     if not key:
         raise LLMNotConfigured("No LLM API key configured")
+
+    # SSRF guard: el base_url del proveedor viene de config del usuario.
+    from app.net_guard import assert_public_url, UnsafeUrlError
+
+    try:
+        assert_public_url(base_url)
+    except UnsafeUrlError as exc:
+        raise LLMError(f"Base URL del proveedor no permitida: {exc}")
 
     schema = schema_model.model_json_schema()
     sys_prompt = (

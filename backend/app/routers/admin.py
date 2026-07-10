@@ -8,7 +8,7 @@ from sqlalchemy import delete, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, Field
 
 from app.db import get_session
 from app.deps import OrgContext, current_context
@@ -28,6 +28,14 @@ async def _survey_or_404(sid: uuid.UUID, org_id: uuid.UUID, session: AsyncSessio
     if not s or s.org_id != org_id:
         raise HTTPException(status_code=404, detail="Survey not found")
     return s
+
+
+def _require_admin(ctx: OrgContext) -> None:
+    """Operaciones destructivas / de exportación de PII: solo admin u owner."""
+    from app.models import ROLE_ADMIN, ROLE_RANK
+
+    if ROLE_RANK.get(ctx.role, 0) < ROLE_RANK[ROLE_ADMIN]:
+        raise HTTPException(status_code=403, detail="Requiere rol admin en la organización")
 
 
 @router.post("", response_model=SurveyDetail)
@@ -102,6 +110,12 @@ async def update_survey(
         raise HTTPException(status_code=400, detail="access_mode inválido (public|pin|list)")
     if payload.results_mode is not None and payload.results_mode not in {"immediate", "on_release", "never"}:
         raise HTTPException(status_code=400, detail="results_mode inválido (immediate|on_release|never)")
+    if payload.redirect_url:
+        u = payload.redirect_url.strip()
+        if not (u.startswith("http://") or u.startswith("https://")):
+            raise HTTPException(status_code=400, detail="La URL de redirección debe empezar con http:// o https://")
+    if payload.access_mode == "pin" and payload.access_pin is not None and len(payload.access_pin.strip()) < 4:
+        raise HTTPException(status_code=400, detail="La clave (PIN) debe tener al menos 4 caracteres")
     data = payload.model_dump(exclude_unset=True)
     # org_id / created_by are never client-settable.
     data.pop("org_id", None)
@@ -171,6 +185,7 @@ async def delete_survey(
     ctx: OrgContext = Depends(current_context),
     session: AsyncSession = Depends(get_session),
 ):
+    _require_admin(ctx)
     s = await _survey_or_404(sid, ctx.org.id, session)
     await session.execute(delete(SurveyResponse).where(SurveyResponse.survey_id == sid))
     await session.delete(s)
@@ -286,6 +301,7 @@ async def delete_response(
     session: AsyncSession = Depends(get_session),
 ):
     """Delete a single response (e.g. a respondent's data-removal request)."""
+    _require_admin(ctx)
     await _survey_or_404(sid, ctx.org.id, session)
     r = await session.get(SurveyResponse, rid)
     if r and r.survey_id == sid:
@@ -300,6 +316,7 @@ async def export_responses(
     ctx: OrgContext = Depends(current_context),
     session: AsyncSession = Depends(get_session),
 ):
+    _require_admin(ctx)
     s = await _survey_or_404(sid, ctx.org.id, session)
     responses = (
         await session.scalars(
@@ -331,7 +348,7 @@ class InviteeIn(BaseModel):
 
 
 class InviteesBulkRequest(BaseModel):
-    invitees: List[InviteeIn]
+    invitees: List[InviteeIn] = Field(max_length=5000)
 
 
 class InviteeOut(BaseModel):
@@ -372,6 +389,7 @@ async def add_invitees(
     ctx: OrgContext = Depends(current_context),
     session: AsyncSession = Depends(get_session),
 ):
+    _require_admin(ctx)
     await _survey_or_404(sid, ctx.org.id, session)
     existing = {
         i.email
@@ -401,6 +419,7 @@ async def delete_invitee(
     ctx: OrgContext = Depends(current_context),
     session: AsyncSession = Depends(get_session),
 ):
+    _require_admin(ctx)
     await _survey_or_404(sid, ctx.org.id, session)
     inv = await session.get(SurveyInvitee, iid)
     if inv and inv.survey_id == sid:
@@ -417,6 +436,7 @@ async def send_invitee_links(
     session: AsyncSession = Depends(get_session),
 ):
     """Email each invitee a magic link (survey URL with their email+code)."""
+    _require_admin(ctx)
     from app.config import get_settings
     s = await _survey_or_404(sid, ctx.org.id, session)
     if not get_settings().smtp_configured:
@@ -453,6 +473,7 @@ async def release_results(
     ctx: OrgContext = Depends(current_context),
     session: AsyncSession = Depends(get_session),
 ):
+    _require_admin(ctx)
     s = await _survey_or_404(sid, ctx.org.id, session)
     s.results_released = released
     session.add(s)

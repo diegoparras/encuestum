@@ -9,7 +9,7 @@ from sqlmodel import select
 
 from app.config import get_settings
 from app.db import get_session
-from app.models import Membership, Organization, User, ROLE_RANK
+from app.models import Membership, Organization, User
 from app.security import read_session_token
 
 
@@ -77,11 +77,19 @@ async def current_context(
 
 
 def is_superadmin(user: User) -> bool:
-    """Non-raising super-admin check (for conditional permissions)."""
+    """Non-raising super-admin check (for conditional permissions).
+
+    The `is_superadmin` DB column always grants it. The env-configured email is a
+    convenience that ONLY applies to a **verified** account — otherwise anyone who
+    self-registers that email (before the real owner) would seize the platform.
+    """
+    if user.is_superadmin:
+        return True
     s = get_settings()
     return bool(
-        user.is_superadmin
-        or (s.superadmin_email and user.email.lower() == s.superadmin_email)
+        s.superadmin_email
+        and user.email_verified
+        and user.email.lower() == s.superadmin_email
     )
 
 
@@ -89,17 +97,3 @@ async def require_superadmin(user: User = Depends(current_user)) -> User:
     if is_superadmin(user):
         return user
     raise HTTPException(status_code=403, detail="Requiere super-admin de plataforma")
-
-
-def require_role(min_role: str):
-    """Dependency factory: require the active membership to have at least `min_role`."""
-    threshold = ROLE_RANK[min_role]
-
-    async def _guard(ctx: OrgContext = Depends(current_context)) -> OrgContext:
-        if ROLE_RANK.get(ctx.role, 0) < threshold:
-            raise HTTPException(
-                status_code=403, detail=f"Requires role '{min_role}' or higher"
-            )
-        return ctx
-
-    return _guard

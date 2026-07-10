@@ -57,7 +57,6 @@ if settings.cors_origins:
 
 # AI errors → clean JSON responses (so they pass back through CORS with a helpful
 # message instead of a raw 500 the browser mis-reports as a CORS failure).
-from fastapi.responses import JSONResponse
 from app.llm import LLMNotConfigured, LLMError
 
 
@@ -78,6 +77,27 @@ async def _llm_error(request: Request, exc: LLMError) -> Response:
         status_code=502,
         content={"detail": f"El proveedor de IA falló: {exc}"},
     )
+
+
+_MAX_BODY = 2 * 1024 * 1024  # 2 MB para JSON/formularios (los archivos van por presigned)
+
+
+# Rutas que reciben archivos (subida local + assets de diseño): sin el tope JSON.
+_UPLOAD_PATHS = ("/api/v1/uploads/local", "/api/v1/assets")
+
+
+@app.middleware("http")
+async def limit_body_size(request: Request, call_next) -> Response:
+    if request.url.path.startswith(_UPLOAD_PATHS):
+        return await call_next(request)
+    cl = request.headers.get("content-length")
+    if cl is not None:
+        try:
+            if int(cl) > _MAX_BODY:
+                return JSONResponse(status_code=413, content={"detail": "Cuerpo demasiado grande"})
+        except ValueError:
+            return JSONResponse(status_code=400, content={"detail": "Content-Length inválido"})
+    return await call_next(request)
 
 
 @app.middleware("http")

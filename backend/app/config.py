@@ -51,6 +51,13 @@ class Settings:
         # uses it (needed when running more than one instance).
         self.rate_limit_enabled = _bool("ENCUESTUM_RATE_LIMIT_ENABLED", True)
         self.redis_url = (os.getenv("ENCUESTUM_REDIS_URL") or "").strip() or None
+        # Only trust X-Forwarded-For when behind a proxy you control (nginx). Off
+        # by default so clients can't spoof their IP to evade rate limits.
+        self.trust_proxy = _bool("ENCUESTUM_TRUST_PROXY", False)
+        # SSRF guard blocks outbound requests (webhooks, LLM base URL) to private/
+        # internal addresses. Single-tenant self-hosters running a local LLM
+        # (e.g. Ollama on localhost) can opt out. Keep OFF for multi-tenant.
+        self.allow_private_outbound = _bool("ENCUESTUM_ALLOW_PRIVATE_OUTBOUND", False)
 
         # Deliver responses to configured webhooks (Zapier/Sheets/…).
         self.webhooks_enabled = _bool("ENCUESTUM_WEBHOOKS_ENABLED", True)

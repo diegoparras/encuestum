@@ -33,9 +33,15 @@ def _get_redis():
 
 
 def _client_ip(request: Request) -> str:
-    fwd = request.headers.get("x-forwarded-for")
-    if fwd:
-        return fwd.split(",")[0].strip()
+    # Only honor X-Forwarded-For when we're explicitly behind a trusted proxy,
+    # and then take the RIGHTMOST hop (the one our proxy appended), since the
+    # leftmost values are attacker-controlled. Otherwise the socket peer IP.
+    if get_settings().trust_proxy:
+        fwd = request.headers.get("x-forwarded-for")
+        if fwd:
+            parts = [p.strip() for p in fwd.split(",") if p.strip()]
+            if parts:
+                return parts[-1]
     return request.client.host if request.client else "unknown"
 
 

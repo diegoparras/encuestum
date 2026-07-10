@@ -15,6 +15,8 @@ os.environ["ENCUESTUM_RATE_LIMIT_ENABLED"] = "false"
 os.environ["ENCUESTUM_SUPERADMIN_EMAIL"] = "super@example.com"
 os.environ["ENCUESTUM_WEBHOOKS_ENABLED"] = "false"
 os.environ["ENCUESTUM_BASE_DOMAIN"] = "encuestum.example"
+# Los tests no deben depender de DNS; el guard SSRF se prueba aparte por unidad.
+os.environ["ENCUESTUM_ALLOW_PRIVATE_OUTBOUND"] = "true"
 
 import pytest
 from fastapi.testclient import TestClient
@@ -88,6 +90,13 @@ def super_client() -> TestClient:
             json={"email": "super@example.com", "password": "supersecret1"},
         )
     assert r.status_code in (200, 201), r.text
+    # Super-admin via env email requires a VERIFIED account (security fix). Tests
+    # don't run the email flow, so we mark it verified directly in the test DB.
+    import sqlite3
+    conn = sqlite3.connect(os.path.join(_TMP, "encuestum.db"))
+    conn.execute("UPDATE users SET email_verified=1 WHERE email='super@example.com'")
+    conn.commit()
+    conn.close()
     return c
 
 

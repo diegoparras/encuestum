@@ -28,10 +28,6 @@ router = APIRouter(prefix="/public", tags=["public"])
 _ACCESS_PURPOSE = "survey_access"
 
 
-def _branding_theme(theme: dict | None) -> dict | None:
-    """Only the visual bits are safe to show on the access gate (no schema)."""
-    return theme
-
 
 async def _find_invitee(session: AsyncSession, survey_id, email: str, code: str) -> SurveyInvitee | None:
     email = (email or "").strip().lower()
@@ -406,8 +402,19 @@ async def certificate(
 
 
 @router.post("/{slug}/grade-question")
-async def grade_question(slug: str, payload: GradeQuestionRequest, session: AsyncSession = Depends(get_session)):
+async def grade_question(
+    slug: str,
+    payload: GradeQuestionRequest,
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+):
+    # Anti-abuso: la corrección en vivo puede disparar LLM. Límite por IP y, en
+    # encuestas gated, exigir el token de acceso (evita enumerar respuestas
+    # correctas o quemar la API key de la organización de forma anónima).
+    await rate_limit(request, f"gradeq:{slug}", limit=40, window_s=60)
     s = await _visible(slug, session)
+    if getattr(s, "access_mode", "public") != "public" and not _valid_access(s, payload.access_token):
+        raise HTTPException(status_code=403, detail="Necesitás acceso para esta encuesta.")
     evaluation = s.evaluation or {}
     if not evaluation.get("enabled") or evaluation.get("feedbackTiming") != "immediate":
         raise HTTPException(status_code=404, detail="Immediate feedback not enabled")

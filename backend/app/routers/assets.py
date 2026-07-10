@@ -4,7 +4,6 @@ Files live under ENCUESTUM_ASSET_DIR/{org_id}/{uuid}.{ext} and are served
 publicly (respondents need them) via the /assets static mount.
 """
 
-import os
 import uuid
 from typing import List
 

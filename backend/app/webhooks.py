@@ -8,7 +8,6 @@ import hmac
 import json
 import logging
 import uuid
-from typing import Optional
 
 from sqlalchemy import or_
 from sqlmodel import select

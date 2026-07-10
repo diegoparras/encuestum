@@ -45,6 +45,11 @@ def _price_per_m(v) -> Optional[float]:
 
 
 async def _fetch_models(base_url: str, api_key: str) -> List[dict]:
+    from app.net_guard import assert_public_url, UnsafeUrlError
+    try:
+        assert_public_url(base_url)
+    except UnsafeUrlError as exc:
+        raise HTTPException(status_code=422, detail=f"Base URL no permitida: {exc}")
     url = f"{base_url.rstrip('/')}/models"
     try:
         async with httpx.AsyncClient(timeout=20) as client:

@@ -9,7 +9,6 @@ token-signed PUT endpoint so the frontend code is identical either way.
 from dataclasses import dataclass
 from functools import lru_cache
 import os
-from typing import Optional
 
 from app.config import get_settings
 

@@ -83,6 +83,12 @@ async def create_webhook(
     user: User = Depends(current_user),
 ):
     await _require_admin(session, user.id, org_id)
+    # SSRF guard: rechazar URLs hacia direcciones internas / metadata.
+    from app.net_guard import assert_public_url, UnsafeUrlError
+    try:
+        assert_public_url(payload.url)
+    except UnsafeUrlError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
     if payload.survey_id:
         s = await session.get(Survey, payload.survey_id)
         if not s or s.org_id != org_id:

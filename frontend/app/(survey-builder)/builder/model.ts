@@ -1496,5 +1496,3 @@ export function themeToAccent(theme: Record<string, any> | null | undefined): st
   if (typeof v === "string" && parseHex(v)) return v;
   return ESCRIBA_CORAL;
 }
-
-export const DEFAULT_ACCENT = ESCRIBA_CORAL;

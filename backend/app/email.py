@@ -26,7 +26,9 @@ def _send_sync(to: str, subject: str, text: str, html: str | None) -> None:
     msg = EmailMessage()
     msg["From"] = s.email_from
     msg["To"] = to
-    msg["Subject"] = subject
+    # Evitar inyección de cabeceras: los asuntos pueden traer nombres/títulos del
+    # usuario. Sacamos CR/LF antes de setear la cabecera.
+    msg["Subject"] = (subject or "").replace("\r", " ").replace("\n", " ")
     msg.set_content(text)
     if html:
         msg.add_alternative(html, subtype="html")
