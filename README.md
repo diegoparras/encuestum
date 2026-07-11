@@ -61,11 +61,12 @@ Panel de diseño con **temas de un clic** (claros y oscuros), **modo oscuro** de
 **💬 Modo conversacional (chat).** Un motor de chat tipo Typebot montado sobre el render: una pregunta a la vez, respuestas como **quick-reply chips**, indicador de *"escribiendo…"*, auto-avance y burbujas. Con **9 skins de un clic** (Encuestum, WhatsApp, Telegram, iMessage, Messenger, Slack, Discord, Terminal, Minimal), **identidad del bot** (avatar + nombre + estado) y comportamiento configurable.
 
 ### 🚪 Distribución y control de acceso
-- Página pública `/s/{slug}` (SurveyJS en el navegador), **código QR**, **embed** por iframe, **links con prefill** (`?campo=valor`), guardar-y-retomar.
+- Página pública `/s/{slug}` (SurveyJS en el navegador) con **link personalizado** editable por encuesta, **código QR**, **embed** por iframe, **links con prefill** (`?campo=valor`), guardar-y-retomar.
 - **3 modos de acceso** por encuesta: **pública**, **con clave (PIN)**, o **lista de emails admitidos** — cada persona con su **código único** (para entrar y para ver su resultado después) y **link mágico** por email.
-- **Cierre automático** por fecha o cupo.
+- **Programación**: fecha/hora de **inicio** y de **cierre** (en la zona horaria del servidor, `ENCUESTUM_TIMEZONE`) o **cupo** de respuestas; antes de la apertura la encuesta no se puede responder, y podés **reabrir** una cerrada con un clic.
 - **Protección anti-bot** opcional en encuestas públicas: un **captcha proof-of-work** self-hosted (sin terceros, sin keys, invisible para la persona) que frena el spam de respuestas.
 - **Pantalla de gracias totalmente customizable**: **confeti**, ícono/emoji/imagen a elección, layouts (tarjeta/minimal/hero), colores propios, **tokens** (`¡Gracias, {nombre}!`), **botones CTA**, **compartir** (WhatsApp/X/LinkedIn), **redirect con cuenta regresiva** — y en modo chat, cierre como última burbuja del bot.
+- **Pantallas de estado personalizables**: la de **"analizando"** (mientras la IA corrige) y la de **"cerrada"** — con título, mensaje, emoji, **imagen o color de fondo**, color de texto y spinner. Nada de pantallas en blanco.
 
 ### 📊 Resultados y analítica
 - Panel **"Resumen"** con **gráficos por pregunta** (barras, histograma NPS con promedio, respuestas abiertas, archivos/videos).
