@@ -9,13 +9,12 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import text
 from starlette.responses import JSONResponse, Response
 
-from fastapi.staticfiles import StaticFiles
-
 from app.config import get_settings
 from app.db import engine
 from app.logging_conf import configure_logging
 from app.routers import (
-    admin, ai, assets, auth, evaluation, orgs, panel, public, uploads, webhooks_api,
+    admin, ai, assets, auth, evaluation, files, orgs, panel, public, uploads,
+    webhooks_api,
 )
 
 LOGGER = logging.getLogger("encuestum")
@@ -125,9 +124,11 @@ app.include_router(webhooks_api.router, prefix=API)
 app.include_router(panel.router, prefix=API)
 app.include_router(ai.router, prefix=API)
 
-# Archivos subidos (imágenes/audio de diseño), servidos públicamente.
-os.makedirs(settings.asset_dir, exist_ok=True)
-app.mount("/assets", StaticFiles(directory=settings.asset_dir), name="assets")
+# Archivos subidos, servidos same-origin en /assets (streaming con Range desde
+# disco o el bucket privado; responses/* con control de acceso). Ver routers/files.py.
+if not settings.use_s3:
+    os.makedirs(settings.asset_dir, exist_ok=True)
+app.include_router(files.router)
 # Encuestas bajo /api/v1/survey (contrato existente)
 SURVEY = "/api/v1/survey"
 app.include_router(public.router, prefix=SURVEY)

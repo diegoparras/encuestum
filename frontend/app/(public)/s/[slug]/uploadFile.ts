@@ -19,7 +19,9 @@ export async function uploadRespondentFile(
   const { upload_url, method, headers, public_url } = await pre.json();
   // Storage local devuelve una URL RELATIVA (/api/v1/uploads/local…) → se resuelve
   // contra la base de la API (backend en dev, mismo-origen en producción). S3
-  // devuelve una URL absoluta al bucket → se usa tal cual.
+  // devuelve una URL prefirmada absoluta al bucket → se usa tal cual. El
+  // public_url resultante es /assets/… relativo en ambos modos (el bucket es
+  // privado; la app lo sirve same-origin), con un token ?t= para responses/*.
   const putUrl = upload_url.startsWith("/") ? getApiUrl(upload_url) : upload_url;
   const put = await fetch(putUrl, { method, headers, body: file });
   if (!put.ok) throw new Error("PUT failed");

@@ -147,7 +147,7 @@ docker build -t encuestum:local .
 
 ## 🎛️ Deploy en EasyPanel
 
-EasyPanel es la forma más cómoda de correrlo en un VPS. Encuestum es **una App** (no compose): corre la imagen y se configura por variables de entorno. Guía completa en [`docs/DEPLOY_EASYPANEL.md`](docs/DEPLOY_EASYPANEL.md). Resumen:
+EasyPanel es la forma más cómoda de correrlo en un VPS. Encuestum es **una App** (no compose): corre la imagen y se configura por variables de entorno. Guía completa en [`docs/DEPLOY_EASYPANEL.md`](docs/DEPLOY_EASYPANEL.md); para el stack completo de la Suite (R2 + SSO Lockatus) ver [`docs/DEPLOY_EASYPANEL_SUITE.md`](docs/DEPLOY_EASYPANEL_SUITE.md). Resumen:
 
 1. **Base de datos** → en tu proyecto de EasyPanel, creá un servicio **Postgres** (te da un host interno tipo `tuproyecto_encuestum-db`).
 2. **App** → **Create** → **App** → source **Docker Image**: `ghcr.io/diegoparras/encuestum:latest`.
@@ -199,15 +199,15 @@ Todo se configura por env con prefijo `ENCUESTUM_*`. Ver [`.env.example`](.env.e
 Por defecto, los archivos que suben los respondientes (videos, adjuntos) se guardan en el **disco** del contenedor (`ENCUESTUM_DATA_DIR/assets`). Perfecto para empezar, pero **no escala** ni sobrevive a un contenedor efímero. Para producción, usá **almacenamiento de objetos**.
 
 ### Cómo funciona (por qué no te explota el servidor)
-Encuestum genera una **URL prefirmada** y el navegador del respondiente **sube el archivo DIRECTO al bucket** — el servidor **nunca toca** el archivo grande. Barato, rápido y escalable.
+Encuestum genera una **URL prefirmada** y el navegador del respondiente **sube el archivo DIRECTO al bucket** — el servidor **nunca bufferea** el archivo grande. Para verlos, la app los **streamea same-origin** desde el bucket (`/assets/…`, con soporte de Range para el seek de video): el bucket queda **privado**, su ruta nunca llega al navegador, y los archivos de respuesta solo los ven **miembros de la organización**.
 
 ### Recomendado: Cloudflare R2 (egress gratis)
 R2 no cobra por descarga (egress), ideal para servir videos. 10 GB gratis; ~$0,015/GB/mes después.
 
 1. En Cloudflare → **R2** → creá un bucket (ej. `encuestum`).
-2. Generá un **API Token** de R2 (Access Key ID + Secret).
-3. Activá un **dominio público** para el bucket (r2.dev o un dominio propio/CDN).
-4. Configurá **CORS** en el bucket: permitir `PUT` y `GET` desde el dominio de tu app.
+2. Generá un **API Token** de R2 (Access Key ID + Secret) con permiso *Object Read & Write* sobre ese bucket.
+3. Dejá el bucket **privado** (no actives *Public access* ni dominio r2.dev).
+4. Configurá **CORS** en el bucket: permitir `PUT` desde el dominio de tu app (para la subida directa).
 5. Variables:
    ```bash
    ENCUESTUM_STORAGE=s3
@@ -216,12 +216,14 @@ R2 no cobra por descarga (egress), ideal para servir videos. 10 GB gratis; ~$0,0
    ENCUESTUM_S3_ACCESS_KEY_ID=<r2-access-key>
    ENCUESTUM_S3_SECRET_ACCESS_KEY=<r2-secret>
    ENCUESTUM_S3_REGION=auto
-   ENCUESTUM_S3_PUBLIC_URL=https://cdn.tudominio.com   # dominio público del bucket
-   # ENCUESTUM_S3_PREFIX=                              # (opcional) carpeta dentro del bucket
+   # ENCUESTUM_S3_PREFIX=            # (opcional) carpeta dentro del bucket
+   # ENCUESTUM_S3_PUBLIC_URL=…       # (opcional) servir desde bucket público/CDN;
+   #                                 # expone el bucket y desactiva el control de
+   #                                 # acceso de responses/* — mejor dejarla vacía
    ```
 
 ### Amazon S3 (o cualquier S3-compatible)
-Mismo esquema: `ENCUESTUM_S3_ENDPOINT` (el de tu región/proveedor), bucket con **lectura pública** y **CORS** que permita `PUT`/`GET` desde tu dominio. Sirve para MinIO, Backblaze B2, Wasabi, DigitalOcean Spaces, etc.
+Mismo esquema: `ENCUESTUM_S3_ENDPOINT` (el de tu región/proveedor), bucket **privado** y **CORS** que permita `PUT` desde tu dominio. Sirve para MinIO, Backblaze B2, Wasabi, DigitalOcean Spaces, etc.
 
 > Los límites de tamaño se controlan con `ENCUESTUM_ASSET_MAX_VIDEO_MB`, `_IMAGE_MB`, `_AUDIO_MB`.
 

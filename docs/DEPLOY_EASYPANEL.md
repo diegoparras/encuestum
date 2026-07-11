@@ -9,6 +9,9 @@ backend *same-origin* (nginx enruta `/api/`), así que **no hay que configurar n
 > **Al final vas a tener**: `https://encuestas.tudominio.com` con TLS, base Postgres, tu cuenta
 > de owner creada, y (opcional) IA, emails, almacenamiento de videos en R2/S3 y SSO de la Suite.
 
+> ¿Querés el **stack completo de la Suite** (Encuestum + Cloudflare R2 + hub Lockatus con SSO)
+> en un solo instructivo? → [`DEPLOY_EASYPANEL_SUITE.md`](DEPLOY_EASYPANEL_SUITE.md).
+
 ---
 
 ## 0. Requisitos
@@ -121,7 +124,9 @@ Listo — ya podés crear encuestas. Lo de abajo es **opcional**, activás lo qu
 ### 🗄️ Almacenamiento de videos/archivos (R2 / S3) — recomendado
 Por defecto los archivos que suben los respondientes van al disco del contenedor. En producción
 conviene un **bucket** (Cloudflare R2 con egress gratis, o S3/MinIO): los videos suben **directo
-del navegador al bucket**, el server no los toca.
+del navegador al bucket**, el server no los bufferea. El bucket queda **privado** — la app sirve
+los archivos same-origin y su ruta nunca se expone; los archivos de respuesta solo los ven
+miembros de la organización.
 ```
 ENCUESTUM_STORAGE=s3
 ENCUESTUM_S3_ENDPOINT=https://<ACCOUNT_ID>.r2.cloudflarestorage.com
@@ -129,9 +134,10 @@ ENCUESTUM_S3_BUCKET=encuestum
 ENCUESTUM_S3_ACCESS_KEY_ID=...
 ENCUESTUM_S3_SECRET_ACCESS_KEY=...
 ENCUESTUM_S3_REGION=auto
-ENCUESTUM_S3_PUBLIC_URL=https://cdn.tudominio.com
 ```
-👉 Guía completa (bucket, **CORS**, dominio público, migración): [`ALMACENAMIENTO_EXTERNO.md`](ALMACENAMIENTO_EXTERNO.md).
+El bucket solo necesita una regla **CORS** que permita `PUT` desde tu dominio (para la subida
+directa). No habilites acceso público de lectura.
+👉 Guía completa (bucket, **CORS**, control de acceso, migración): [`ALMACENAMIENTO_EXTERNO.md`](ALMACENAMIENTO_EXTERNO.md).
 
 ### ✉️ Emails (invitaciones, reset, verificación)
 Sin SMTP, los emails se **loguean** (el enlace queda en el log) — sirve para probar. Para enviarlos

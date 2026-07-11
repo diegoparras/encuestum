@@ -4,11 +4,19 @@ With the s3 backend, big files upload straight from the browser to the bucket
 via a presigned PUT URL — the app server never buffers them, so it can't be
 overwhelmed by large uploads. The local backend mirrors the same flow through a
 token-signed PUT endpoint so the frontend code is identical either way.
+
+Serving is same-origin by default: public_url() returns a relative /assets/…
+URL and the app streams the object (see routers/files.py), so the bucket stays
+private and its route never reaches the browser. Setting ENCUESTUM_S3_PUBLIC_URL
+opts back into serving straight from a public bucket/CDN.
 """
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from functools import lru_cache
+import mimetypes
 import os
+import re
+from typing import Iterator
 
 from app.config import get_settings
 
@@ -20,6 +28,61 @@ class UploadTarget:
     url: str             # where the browser PUTs the raw bytes
     headers: dict        # headers the browser must send (Content-Type)
     public_url: str      # where the file is served from afterwards
+
+
+@dataclass
+class StoredFile:
+    """An object opened for serving, with single-range support (video seek)."""
+
+    stream: Iterator[bytes]
+    status: int                    # 200 full / 206 partial
+    content_type: str
+    headers: dict = field(default_factory=dict)  # Content-Length/Content-Range
+
+
+class FileNotFound(Exception):
+    pass
+
+
+class RangeNotSatisfiable(Exception):
+    def __init__(self, size: int) -> None:
+        self.size = size
+
+
+_RANGE_RE = re.compile(r"^bytes=(\d*)-(\d*)$")
+
+
+def parse_range(header: str | None, size: int) -> tuple[int, int] | None:
+    """Single-range parser: bytes=a-b / bytes=a- / bytes=-suffix → (start, end)
+    inclusive, or None to serve the whole object. Raises RangeNotSatisfiable."""
+    if not header:
+        return None
+    m = _RANGE_RE.match(header.strip())
+    if not m:
+        return None  # multi-range or malformed → serve full (per RFC, MAY ignore)
+    start_s, end_s = m.groups()
+    if start_s == "" and end_s == "":
+        return None
+    if start_s == "":  # suffix: last N bytes
+        n = int(end_s)
+        if n == 0 or size == 0:
+            raise RangeNotSatisfiable(size)
+        start = max(0, size - n)
+        return (start, size - 1)
+    start = int(start_s)
+    if start >= size:
+        raise RangeNotSatisfiable(size)
+    end = min(int(end_s), size - 1) if end_s else size - 1
+    if end < start:
+        raise RangeNotSatisfiable(size)
+    return (start, end)
+
+
+def _guess_type(key: str) -> str:
+    return mimetypes.guess_type(key)[0] or "application/octet-stream"
+
+
+_CHUNK = 256 * 1024
 
 
 class LocalStorage:
@@ -64,6 +127,34 @@ class LocalStorage:
         except OSError:
             pass
 
+    def open(self, key: str, range_header: str | None = None) -> StoredFile:
+        path = os.path.join(self.root, *key.split("/"))
+        if not os.path.isfile(path):
+            raise FileNotFound(key)
+        size = os.path.getsize(path)
+        rng = parse_range(range_header, size)
+        start, end = rng if rng else (0, size - 1)
+        length = end - start + 1 if size else 0
+
+        def _iter() -> Iterator[bytes]:
+            with open(path, "rb") as fh:
+                fh.seek(start)
+                remaining = length
+                while remaining > 0:
+                    chunk = fh.read(min(_CHUNK, remaining))
+                    if not chunk:
+                        break
+                    remaining -= len(chunk)
+                    yield chunk
+
+        headers = {"Content-Length": str(length)}
+        if rng:
+            headers["Content-Range"] = f"bytes {start}-{end}/{size}"
+        return StoredFile(
+            stream=_iter(), status=206 if rng else 200,
+            content_type=_guess_type(key), headers=headers,
+        )
+
 
 class S3Storage:
     """S3-compatible object storage (Cloudflare R2 / AWS S3 / MinIO / …)."""
@@ -95,11 +186,13 @@ class S3Storage:
         return f"{self.prefix}/{key}" if self.prefix else key
 
     def public_url(self, key: str) -> str:
-        full = self._full(key)
+        # Default: relative /assets/… — the app proxies the object (routers/
+        # files.py), the bucket stays PRIVATE and its route never reaches the
+        # browser. ENCUESTUM_S3_PUBLIC_URL opts into a public bucket/CDN instead
+        # (exposes the bucket domain and skips the responses/* access gate).
         if self.public_base:
-            return f"{self.public_base}/{full}"
-        # Fallback (bucket must be public); prefer setting ENCUESTUM_S3_PUBLIC_URL.
-        return full
+            return f"{self.public_base}/{self._full(key)}"
+        return f"/assets/{key}"
 
     def save_bytes(self, key: str, data: bytes, content_type: str) -> str:
         self._client.put_object(
@@ -124,6 +217,50 @@ class S3Storage:
             self._client.delete_object(Bucket=self.bucket, Key=self._full(key))
         except Exception:  # noqa: BLE001
             pass
+
+    def open(self, key: str, range_header: str | None = None) -> StoredFile:
+        from botocore.exceptions import ClientError
+
+        params = {"Bucket": self.bucket, "Key": self._full(key)}
+        # Normalizamos el Range acá (mismo parser que local) en vez de pasarlo
+        # crudo: S3/R2 ignora rangos malformados y algunos proveedores difieren
+        # en los sufijos, así siempre mandamos un bytes=a-b canónico.
+        rng = None
+        if range_header:
+            head = self._head(params, key)
+            rng = parse_range(range_header, head)
+            if rng:
+                params["Range"] = f"bytes={rng[0]}-{rng[1]}"
+        try:
+            obj = self._client.get_object(**params)
+        except ClientError as exc:
+            code = exc.response.get("Error", {}).get("Code", "")
+            if code in ("NoSuchKey", "404"):
+                raise FileNotFound(key) from exc
+            raise
+        body = obj["Body"]
+        headers = {"Content-Length": str(obj["ContentLength"])}
+        if rng:
+            headers["Content-Range"] = obj.get(
+                "ContentRange", f"bytes {rng[0]}-{rng[1]}/{head}"
+            )
+        return StoredFile(
+            stream=body.iter_chunks(_CHUNK), status=206 if rng else 200,
+            content_type=obj.get("ContentType") or _guess_type(key), headers=headers,
+        )
+
+    def _head(self, params: dict, key: str) -> int:
+        from botocore.exceptions import ClientError
+
+        try:
+            return self._client.head_object(
+                Bucket=params["Bucket"], Key=params["Key"]
+            )["ContentLength"]
+        except ClientError as exc:
+            code = exc.response.get("Error", {}).get("Code", "")
+            if code in ("NoSuchKey", "404"):
+                raise FileNotFound(key) from exc
+            raise
 
 
 @lru_cache(maxsize=1)

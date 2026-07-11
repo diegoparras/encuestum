@@ -49,7 +49,8 @@ class AssetOut(BaseModel):
 
 
 def _asset_url(org_id, filename: str) -> str:
-    # Local → relative /assets/… (served by nginx); s3 → absolute bucket URL.
+    # Relative /assets/… (streamed same-origin by routers/files.py), unless the
+    # operator opted into a public bucket/CDN via ENCUESTUM_S3_PUBLIC_URL.
     return get_storage().public_url(f"{org_id}/{filename}")
 
 

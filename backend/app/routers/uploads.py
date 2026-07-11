@@ -14,10 +14,21 @@ from app.config import get_settings
 from app.db import get_session
 from app.models import Survey
 from app.ratelimit import rate_limit
-from app.security import read_purpose_token
+from app.routers.files import VIEW_TOKEN_TTL_HOURS
+from app.security import create_purpose_token, read_purpose_token
 from app.storage import get_storage
 
 router = APIRouter(tags=["uploads"])
+
+
+def _viewable_url(public_url: str, key: str) -> str:
+    """responses/* served same-origin is access-gated (routers/files.py); append
+    a short-lived signed token so the UPLOADER's own preview works without a
+    session. Panel viewers authenticate with their session cookie instead."""
+    if not public_url.startswith("/assets/responses/"):
+        return public_url  # CDN/public-bucket mode or non-gated prefix
+    token = create_purpose_token("asset-view", {"key": key}, VIEW_TOKEN_TTL_HOURS)
+    return f"{public_url}?t={token}"
 
 # What respondents may upload (video answers, plus image/audio just in case).
 _RESP_TYPES = {
@@ -69,7 +80,7 @@ async def response_upload_url(
     target = await run_in_threadpool(get_storage().presign_upload, key, ct)
     return UploadUrlOut(
         method=target.method, upload_url=target.url, headers=target.headers,
-        public_url=target.public_url, max_mb=max_mb,
+        public_url=_viewable_url(target.public_url, key), max_mb=max_mb,
     )
 
 
@@ -86,4 +97,5 @@ async def local_put(request: Request, token: str):
         raise HTTPException(status_code=413, detail="Archivo demasiado grande")
     ct = data.get("ct", "application/octet-stream")
     await run_in_threadpool(get_storage().save_bytes, data["key"], body, ct)
-    return {"ok": True, "public_url": get_storage().public_url(data["key"])}
+    url = get_storage().public_url(data["key"])
+    return {"ok": True, "public_url": _viewable_url(url, data["key"])}
