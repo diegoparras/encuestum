@@ -11,6 +11,7 @@ import {
   perQuestionStyleCss,
   themeToDesign,
   type AudioSettings,
+  type StateScreenConfig,
 } from "../../../(survey-builder)/builder/model";
 import {
   absolutizeAssets,
@@ -547,14 +548,21 @@ export default function SurveyView({ slug }: { slug: string }) {
   const accent = data?.theme?.cssVariables?.["--sjs-primary-backcolor"] || "#8faf0e";
 
   if (data && data.available === false) {
+    const cc = design.closed;
+    // Con mensaje propio, el motivo automático (fecha/cupo/cerrada) queda como
+    // línea secundaria si el operador no lo desactivó.
+    const reason =
+      cc?.message && (cc.showReason ?? true) ? data.closed_reason || undefined : undefined;
     return (
-      <Centered>
-        {data.title && <h1 className="text-xl font-semibold">{data.title}</h1>}
-        <p className="mt-3 text-base text-neutral-700">
-          {data.closed_reason || t("public.closed.default")}
-        </p>
-        <p className="mt-2 text-sm text-neutral-400">{t("public.closed.thanks")}</p>
-      </Centered>
+      <StateScreen
+        config={cc}
+        accent={accent}
+        dark={design.mode === "dark"}
+        title={cc?.title ?? data.title ?? undefined}
+        message={cc?.message || data.closed_reason || t("public.closed.default")}
+        reason={reason}
+        footer={t("public.closed.thanks")}
+      />
     );
   }
 
@@ -674,27 +682,13 @@ export default function SurveyView({ slug }: { slug: string }) {
       </style>
       {brandingHeader}
       {submitting && (
-        <div
-          role="status"
-          aria-live="polite"
-          className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-5 px-6 text-center"
-          style={{
-            backgroundColor:
-              design.mode === "dark" ? "rgba(9,9,11,0.94)" : "rgba(255,255,255,0.94)",
-          }}
-        >
-          <span
-            className="inline-block h-9 w-9 animate-spin rounded-full border-[3px] border-current border-t-transparent"
-            style={{ color: accent }}
-            aria-hidden="true"
-          />
-          <p
-            className="max-w-md text-base font-medium leading-relaxed"
-            style={{ color: design.mode === "dark" ? "#e5e7eb" : "#1f2937" }}
-          >
-            {resolveTokens(data?.grading_message || "") || t("public.grading.default")}
-          </p>
-        </div>
+        <StateScreen
+          config={design.grading}
+          accent={accent}
+          dark={design.mode === "dark"}
+          spinner
+          message={resolveTokens(data?.grading_message || "") || t("public.grading.default")}
+        />
       )}
       {design.coverImage && !design.chat && (
         // eslint-disable-next-line @next/next/no-img-element
@@ -1083,6 +1077,86 @@ function Centered({ children }: { children: React.ReactNode }) {
   return (
     <div className="min-h-screen flex flex-col items-center justify-center text-center px-6 text-neutral-800">
       {children}
+    </div>
+  );
+}
+
+// Pantalla de estado a pantalla completa, personalizable desde el panel de diseño
+// (analizando / cerrada): fondo por color o imagen (con velo para legibilidad),
+// emoji, spinner, título, mensaje. Con `spinner` es un overlay sobre la encuesta.
+function StateScreen({
+  config,
+  accent,
+  dark,
+  spinner,
+  title,
+  message,
+  reason,
+  footer,
+}: {
+  config?: StateScreenConfig;
+  accent: string;
+  dark: boolean;
+  spinner?: boolean;
+  title?: string;
+  message: string;
+  reason?: string;
+  footer?: string;
+}) {
+  const c = config || {};
+  const hasBgImage = !!c.bgImage;
+  const showSpinner = !!spinner && (c.spinner ?? true);
+  const textColor =
+    c.textColor || (hasBgImage ? "#ffffff" : dark ? "#e5e7eb" : "#1f2937");
+  const style: React.CSSProperties = hasBgImage
+    ? {
+        backgroundImage: `linear-gradient(rgba(0,0,0,0.55),rgba(0,0,0,0.55)), url(${resolveAssetUrl(
+          c.bgImage!
+        )})`,
+        backgroundSize: "cover",
+        backgroundPosition: "center",
+      }
+    : { backgroundColor: c.bgColor || (dark ? "#09090b" : "#ffffff") };
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-4 px-6 text-center"
+      style={style}
+    >
+      {c.emoji && (
+        <div className="text-5xl leading-none" aria-hidden="true">
+          {c.emoji}
+        </div>
+      )}
+      {showSpinner && (
+        <span
+          className="inline-block h-9 w-9 animate-spin rounded-full border-[3px] border-current border-t-transparent"
+          style={{ color: accent }}
+          aria-hidden="true"
+        />
+      )}
+      {title && (
+        <h1 className="text-2xl font-semibold" style={{ color: textColor }}>
+          {title}
+        </h1>
+      )}
+      <p
+        className="max-w-md text-base font-medium leading-relaxed"
+        style={{ color: textColor }}
+      >
+        {message}
+      </p>
+      {reason && (
+        <p className="text-sm" style={{ color: textColor, opacity: 0.75 }}>
+          {reason}
+        </p>
+      )}
+      {footer && (
+        <p className="mt-1 text-sm" style={{ color: textColor, opacity: 0.55 }}>
+          {footer}
+        </p>
+      )}
     </div>
   );
 }

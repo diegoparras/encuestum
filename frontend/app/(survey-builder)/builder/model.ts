@@ -351,6 +351,19 @@ export const DEFAULT_THANKYOU: ThankYouConfig = {
   chatMode: "bubble",
 };
 
+// Pantalla de estado personalizable (analizando / cerrada). Todo opcional: lo
+// que quede vacío usa el default (mensaje traducido, colores del tema).
+export interface StateScreenConfig {
+  title?: string; // encabezado grande (opcional)
+  message?: string; // texto principal
+  emoji?: string; // emoji/ícono grande (opcional)
+  bgColor?: string; // color de fondo (pisa el del tema)
+  bgImage?: string; // imagen de fondo a pantalla completa (asset URL)
+  textColor?: string; // color del texto (auto por fondo si se omite)
+  spinner?: boolean; // "analizando": mostrar el spinner (default true)
+  showReason?: boolean; // "cerrada": mostrar además el motivo automático (default true)
+}
+
 export interface DesignSettings {
   fontFamily: string; // one of FONT_OPTIONS ids
   mode?: "light" | "dark"; // color scheme of the survey (default light)
@@ -373,6 +386,8 @@ export interface DesignSettings {
   chat?: boolean; // conversational (Typebot-style) chat skin for the respondent
   chatOptions?: ChatOptions; // customización del modo chat (skin, bot, comportamiento)
   thankYou?: ThankYouConfig; // pantalla de agradecimiento (ícono, confeti, CTAs, colores…)
+  grading?: StateScreenConfig; // pantalla mientras se procesa/corrige (evaluaciones con IA)
+  closed?: StateScreenConfig; // pantalla cuando la encuesta está cerrada (fecha/cupo/manual)
   backgroundColor?: string;
   backgroundImage?: string; // asset URL (relative /assets/…)
   backgroundOpacity: number; // 0..1
@@ -1539,6 +1554,8 @@ export function designToTheme(accent: string, design: DesignSettings): Record<st
     chat: !!design.chat,
     chatOptions: design.chatOptions ?? null,
     thankYou: design.thankYou ?? null,
+    grading: design.grading ?? null,
+    closed: design.closed ?? null,
     backgroundColor: design.backgroundColor ?? null,
     backgroundImage: design.backgroundImage ?? null,
     backgroundOpacity: design.backgroundOpacity ?? 1,
@@ -1577,6 +1594,8 @@ export function themeToDesign(theme: Record<string, any> | null | undefined): De
       e.thankYou && typeof e.thankYou === "object"
         ? { ...DEFAULT_THANKYOU, ...e.thankYou }
         : { ...DEFAULT_THANKYOU },
+    grading: e.grading && typeof e.grading === "object" ? e.grading : undefined,
+    closed: e.closed && typeof e.closed === "object" ? e.closed : undefined,
     backgroundColor: e.backgroundColor || theme?.cssVariables?.["--sjs-general-backcolor-dim"] || undefined,
     backgroundImage: e.backgroundImage || theme?.backgroundImage || undefined,
     backgroundOpacity: typeof e.backgroundOpacity === "number" ? e.backgroundOpacity : 1,

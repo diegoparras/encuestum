@@ -1,11 +1,12 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { X, Type, Palette, Image as ImageIcon, Music, Check, Sparkles, Contrast, Sun, Moon, Search, Square, Wand2, MousePointerClick, AlignCenter, AlignLeft, MessagesSquare, PartyPopper, Plus, Trash2 } from "lucide-react";
+import { X, Type, Palette, Image as ImageIcon, Music, Check, Sparkles, Contrast, Sun, Moon, Search, Square, Wand2, MousePointerClick, AlignCenter, AlignLeft, MessagesSquare, PartyPopper, Plus, Trash2, Loader2, Lock } from "lucide-react";
 import {
   ACCENT_PALETTE,
   AudioSettings,
   DesignSettings,
+  StateScreenConfig,
   FONT_OPTIONS,
   FontOption,
   GOOGLE_FONT_FAMILIES,
@@ -999,6 +1000,24 @@ export function DesignPanel({
             })()}
           </Section>
 
+          {/* Pantalla: mientras se corrige (analizando) */}
+          <Section icon={<Loader2 className="w-4 h-4" />} title={t("builder.design.grading")}>
+            <StateScreenEditor
+              value={design.grading}
+              onChange={(c) => patch({ grading: c })}
+              kind="grading"
+            />
+          </Section>
+
+          {/* Pantalla: encuesta cerrada */}
+          <Section icon={<Lock className="w-4 h-4" />} title={t("builder.design.closed")}>
+            <StateScreenEditor
+              value={design.closed}
+              onChange={(c) => patch({ closed: c })}
+              kind="closed"
+            />
+          </Section>
+
           {/* Imagen de fondo */}
           <Section icon={<ImageIcon className="w-4 h-4" />} title={t("builder.design.bgImage")}>
             <AssetPicker
@@ -1143,6 +1162,139 @@ function ThemeCard({
         </span>
       )}
     </button>
+  );
+}
+
+// Editor de una pantalla de estado (analizando / cerrada). Todos los campos son
+// opcionales; vacío = default. `kind` cambia el toggle específico y el placeholder.
+function StateScreenEditor({
+  value,
+  onChange,
+  kind,
+}: {
+  value?: StateScreenConfig;
+  onChange: (c: StateScreenConfig) => void;
+  kind: "grading" | "closed";
+}) {
+  const { t } = useI18n();
+  const c = value ?? {};
+  const set = (p: Partial<StateScreenConfig>) => onChange({ ...c, ...p });
+  const isHex = (v?: string) => !!v && /^#[0-9a-f]{6}$/i.test(v);
+  const inputCls =
+    "w-full rounded-md border border-neutral-200 px-2.5 py-2 text-sm outline-none focus:border-neutral-400 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100 dark:placeholder:text-neutral-500";
+  const labelCls =
+    "mb-1.5 block text-xs font-medium text-neutral-600 dark:text-neutral-300";
+  const ColorRow = ({
+    label,
+    val,
+    onSet,
+    autoLabel,
+  }: {
+    label: string;
+    val?: string;
+    onSet: (v: string | undefined) => void;
+    autoLabel: string;
+  }) => (
+    <div>
+      <label className={labelCls}>{label}</label>
+      <div className="flex items-center gap-2">
+        <input
+          type="color"
+          value={isHex(val) ? (val as string) : "#111111"}
+          onChange={(e) => onSet(e.target.value)}
+          className="h-9 w-12 shrink-0 cursor-pointer rounded border border-neutral-200 dark:border-neutral-700"
+        />
+        <span className="text-xs text-neutral-500 dark:text-neutral-400">
+          {val ?? autoLabel}
+        </span>
+        {val && (
+          <button
+            type="button"
+            onClick={() => onSet(undefined)}
+            className="ml-auto text-xs text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200"
+          >
+            {t("builder.design.clear")}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+  return (
+    <div className="space-y-4">
+      <p className="rounded-lg border border-neutral-100 dark:border-neutral-800 bg-neutral-50/60 dark:bg-neutral-900/60 p-2.5 text-[11px] leading-relaxed text-neutral-500 dark:text-neutral-400">
+        {t(`builder.design.${kind}Hint`)}
+      </p>
+      <div>
+        <label className={labelCls}>{t("builder.design.ssTitle")}</label>
+        <input
+          value={c.title ?? ""}
+          onChange={(e) => set({ title: e.target.value })}
+          placeholder={t(`builder.design.${kind}TitlePh`)}
+          className={inputCls}
+        />
+      </div>
+      <div>
+        <label className={labelCls}>{t("builder.design.ssMessage")}</label>
+        <textarea
+          value={c.message ?? ""}
+          onChange={(e) => set({ message: e.target.value })}
+          rows={2}
+          placeholder={t(`builder.design.${kind}MessagePh`)}
+          className={inputCls}
+        />
+      </div>
+      <div>
+        <label className={labelCls}>{t("builder.design.ssEmoji")}</label>
+        <input
+          value={c.emoji ?? ""}
+          onChange={(e) => set({ emoji: e.target.value })}
+          placeholder={kind === "grading" ? "🤖" : "🔒"}
+          maxLength={4}
+          className="h-9 w-16 rounded-md border border-neutral-200 text-center text-base dark:border-neutral-700 dark:bg-neutral-800"
+        />
+      </div>
+      <div>
+        <label className={labelCls}>{t("builder.design.ssBgImage")}</label>
+        <AssetPicker
+          kind="image"
+          value={c.bgImage}
+          onChange={(url) => set({ bgImage: url })}
+        />
+      </div>
+      <ColorRow
+        label={t("builder.design.ssBgColor")}
+        val={c.bgColor}
+        onSet={(v) => set({ bgColor: v })}
+        autoLabel={t("builder.design.autoByMode")}
+      />
+      <ColorRow
+        label={t("builder.design.ssTextColor")}
+        val={c.textColor}
+        onSet={(v) => set({ textColor: v })}
+        autoLabel={t("builder.design.autoByMode")}
+      />
+      {kind === "grading" ? (
+        <label className="flex items-center justify-between gap-3">
+          <span className="text-xs font-medium text-neutral-600 dark:text-neutral-300">
+            {t("builder.design.ssSpinner")}
+          </span>
+          <Switch
+            checked={c.spinner ?? true}
+            onCheckedChange={(v) => set({ spinner: v })}
+          />
+        </label>
+      ) : (
+        <label className="flex items-center justify-between gap-3">
+          <span className="text-xs font-medium text-neutral-600 dark:text-neutral-300">
+            {t("builder.design.ssShowReason")}
+          </span>
+          <Switch
+            checked={c.showReason ?? true}
+            onCheckedChange={(v) => set({ showReason: v })}
+          />
+        </label>
+      )}
+    </div>
   );
 }
 
