@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { Loader2 } from "lucide-react";
+import { Loader2, LogIn } from "lucide-react";
 import { login } from "@/utils/auth";
+import { getApiUrl } from "@/utils/api";
 import { useI18n } from "@/lib/i18n";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -17,6 +18,21 @@ export default function LoginPage() {
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // null = todavía no sabemos el modo de auth; true = SSO (Lockatus); false = local.
+  const [sso, setSso] = useState<boolean | null>(null);
+  const [ssoError, setSsoError] = useState(false);
+
+  useEffect(() => {
+    fetch(getApiUrl("/api/v1/auth/config"), { cache: "no-store" })
+      .then((r) => r.json())
+      .then((d) => setSso(!!d?.sso))
+      .catch(() => setSso(false));
+    try {
+      if (new URLSearchParams(window.location.search).get("sso_error")) setSsoError(true);
+    } catch {
+      /* ignore */
+    }
+  }, []);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -40,59 +56,85 @@ export default function LoginPage() {
           {t("auth.login.subtitle")}
         </p>
 
-        <form onSubmit={onSubmit} className="mt-6 space-y-4">
-          <div className="space-y-1.5">
-            <Label htmlFor="email">{t("auth.email.label")}</Label>
-            <Input
-              id="email"
-              type="email"
-              autoComplete="email"
-              required
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder={t("auth.email.placeholder")}
-            />
-          </div>
+        {(ssoError || (sso && error)) && (
+          <p className="mt-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950/40">
+            {t("auth.sso.error")}
+          </p>
+        )}
 
-          <div className="space-y-1.5">
-            <div className="flex items-center justify-between">
-              <Label htmlFor="password">{t("auth.password.label")}</Label>
-              <Link
-                href="/forgot"
-                className="text-xs font-medium text-primary hover:underline"
-              >
-                {t("auth.login.forgotLink")}
-              </Link>
-            </div>
-            <Input
-              id="password"
-              type="password"
-              autoComplete="current-password"
-              required
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-              placeholder="••••••••"
-            />
+        {sso === null ? (
+          <div className="flex justify-center py-10">
+            <Loader2 className="h-5 w-5 animate-spin text-neutral-400" />
           </div>
-
-          {error && (
-            <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950/40">
-              {error}
+        ) : sso ? (
+          // ── Modo federado (Lockatus SSO) ──
+          <div className="mt-6">
+            <a
+              href={getApiUrl("/api/v1/auth/sso/login")}
+              className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-[#1e2a06] hover:opacity-90"
+            >
+              <LogIn className="h-4 w-4" />
+              {t("auth.sso.button")}
+            </a>
+            <p className="mt-3 text-center text-xs text-neutral-400 dark:text-neutral-500">
+              {t("auth.sso.hint")}
             </p>
-          )}
+          </div>
+        ) : (
+          // ── Modo local (cuentas propias) ──
+          <>
+            <form onSubmit={onSubmit} className="mt-6 space-y-4">
+              <div className="space-y-1.5">
+                <Label htmlFor="email">{t("auth.email.label")}</Label>
+                <Input
+                  id="email"
+                  type="email"
+                  autoComplete="email"
+                  required
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder={t("auth.email.placeholder")}
+                />
+              </div>
 
-          <Button type="submit" className="w-full" disabled={loading}>
-            {loading && <Loader2 className="h-4 w-4 animate-spin" />}
-            {loading ? t("auth.login.submitting") : t("auth.login.submit")}
-          </Button>
-        </form>
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between">
+                  <Label htmlFor="password">{t("auth.password.label")}</Label>
+                  <Link href="/forgot" className="text-xs font-medium text-primary hover:underline">
+                    {t("auth.login.forgotLink")}
+                  </Link>
+                </div>
+                <Input
+                  id="password"
+                  type="password"
+                  autoComplete="current-password"
+                  required
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="••••••••"
+                />
+              </div>
 
-        <p className="mt-6 text-center text-sm text-neutral-500 dark:text-neutral-400">
-          {t("auth.login.noAccount")}{" "}
-          <Link href="/register" className="font-medium text-primary hover:underline">
-            {t("auth.actions.createAccount")}
-          </Link>
-        </p>
+              {error && (
+                <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950/40">
+                  {error}
+                </p>
+              )}
+
+              <Button type="submit" className="w-full" disabled={loading}>
+                {loading && <Loader2 className="h-4 w-4 animate-spin" />}
+                {loading ? t("auth.login.submitting") : t("auth.login.submit")}
+              </Button>
+            </form>
+
+            <p className="mt-6 text-center text-sm text-neutral-500 dark:text-neutral-400">
+              {t("auth.login.noAccount")}{" "}
+              <Link href="/register" className="font-medium text-primary hover:underline">
+                {t("auth.actions.createAccount")}
+              </Link>
+            </p>
+          </>
+        )}
       </CardContent>
     </Card>
   );

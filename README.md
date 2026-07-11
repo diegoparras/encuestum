@@ -348,7 +348,7 @@ CI (GitHub Actions) corre ambos en cada push/PR.
 ¿Encontraste una vulnerabilidad? Reportala en privado (no abras un issue público).
 
 ### 🔗 Federación con la Suite (Lockatus / SSO)
-Encuestum usa **cuentas locales**. La federación con [**Lockatus**](docs/LOCKATUS.md) (el SSO OIDC de la Suite Escriba: login unificado + 2FA + roles) está **documentada pero aún no implementada** — ver [`docs/LOCKATUS.md`](docs/LOCKATUS.md) para el diseño y qué falta construir.
+Por defecto Encuestum usa **cuentas locales**. Con `AUTH_MODE=federado` delega el login en [**Lockatus**](docs/LOCKATUS.md), el SSO OIDC de la Suite Escriba (login unificado + 2FA + roles): el hub pone la identidad y Encuestum crea al usuario + su organización en el primer ingreso. Guía completa en [`docs/LOCKATUS.md`](docs/LOCKATUS.md).
 
 ---
 

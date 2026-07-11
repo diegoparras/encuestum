@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { Loader2 } from "lucide-react";
 import { register } from "@/utils/auth";
+import { getApiUrl } from "@/utils/api";
 import { useI18n } from "@/lib/i18n";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -21,6 +22,17 @@ export default function RegisterPage() {
   const [error, setError] = useState<string | null>(null);
 
   const passwordTooShort = password.length > 0 && password.length < 8;
+
+  // En modo federado (Lockatus SSO) no hay alta local: mandamos al login (que
+  // muestra el botón de la Suite).
+  useEffect(() => {
+    fetch(getApiUrl("/api/v1/auth/config"), { cache: "no-store" })
+      .then((r) => r.json())
+      .then((d) => {
+        if (d?.sso) router.replace("/login");
+      })
+      .catch(() => undefined);
+  }, [router]);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();

@@ -22,6 +22,19 @@ class Settings:
         if not self.session_secret:
             self.session_secret = secrets.token_urlsafe(48)
 
+        # Modo de autenticación: "local" (cuentas propias) o "federado" (SSO con
+        # Lockatus, el hub de identidad de la Suite Escriba). Default local.
+        self.auth_mode = (os.getenv("AUTH_MODE") or "local").strip().lower()
+        self.lockatus_issuer = (os.getenv("LOCKATUS_ISSUER") or "").rstrip("/")
+        self.lockatus_client_id = (os.getenv("LOCKATUS_CLIENT_ID") or "encuestum").strip()
+        self.lockatus_redirect_uri = (os.getenv("LOCKATUS_REDIRECT_URI") or "").strip()
+        # Rol del hub que otorga super-admin de plataforma (opcional).
+        self.lockatus_admin_role = (os.getenv("LOCKATUS_ADMIN_ROLE") or "admin").strip()
+        if self.auth_mode == "federado" and not (self.lockatus_issuer and self.lockatus_redirect_uri):
+            raise RuntimeError(
+                "AUTH_MODE=federado requiere LOCKATUS_ISSUER y LOCKATUS_REDIRECT_URI."
+            )
+
         self.session_cookie = os.getenv("ENCUESTUM_SESSION_COOKIE", "enc_session")
         self.org_cookie = os.getenv("ENCUESTUM_ORG_COOKIE", "enc_org")
         self.session_ttl_days = int(os.getenv("ENCUESTUM_SESSION_TTL_DAYS", "30"))
@@ -119,6 +132,10 @@ class Settings:
 
         # Environment label (affects a couple of dev conveniences).
         self.env = os.getenv("ENCUESTUM_ENV", "production").strip().lower()
+
+    @property
+    def is_federated(self) -> bool:
+        return self.auth_mode == "federado"
 
     @property
     def smtp_configured(self) -> bool:

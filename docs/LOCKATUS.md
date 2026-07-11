@@ -1,9 +1,9 @@
 # Federación con Lockatus (SSO de la Suite Escriba)
 
-> **Estado: NO implementado todavía.** Encuestum hoy usa **cuentas locales** (registro +
-> login propio con bcrypt/JWT). Este documento describe **qué es** la federación, **cómo se
-> haría** siguiendo el patrón probado de la suite, y **qué falta construir**. Cuando el
-> cliente OIDC esté vendorizado en Encuestum, esta guía pasa a ser el manual de uso.
+> **Estado: IMPLEMENTADO.** Se activa con `AUTH_MODE=federado` (default `local` = login
+> propio, sin cambios). En federado, Encuestum delega el login en **Lockatus** (OIDC
+> Authorization Code + PKCE): el "quién sos" lo pone el hub y Encuestum hace *find-or-create*
+> del usuario por email + su organización por defecto.
 
 [Lockatus](https://github.com/diegoparras/lockatus) es el **hub de identidad** de la Suite
 Escriba: el padrón de personas y el portero común. Da **login unificado** con **2FA (TOTP)**,
@@ -40,66 +40,78 @@ Endpoints de descubrimiento del hub: `GET /.well-known/openid-configuration` y `
 
 ---
 
-## Lo que habría que construir en Encuestum
+## Cómo está implementado
 
-Siguiendo la guía [`AGREGAR-APP.md`](https://github.com/diegoparras/lockatus) del hub y los
-clientes de referencia en Python (**Anonimal**: `app/lockatus_client.py`, con `cryptography`;
-**Fisherboy**), el trabajo es:
+Sigue el patrón de la suite (clientes de referencia: **Anonimal**, **Fisherboy**), con el
+cliente OIDC canónico vendorizado.
 
-1. **Cliente OIDC** (`backend/app/lockatus_client.py`): `begin_login()` (arma PKCE+state+nonce,
-   cookie de transacción firmada, URL de `/authorize`) y `handle_callback()` (canjea el `code`
-   en `/token`, verifica los JWT RS256 contra el JWKS cacheado). Sin dependencias pesadas
-   (verificación RS256 con `cryptography`).
-2. **Rutas** en `auth.py` cuando `AUTH_MODE=federado`:
-   - `GET /api/v1/auth/login` → `begin_login()` → 302 al hub.
-   - `GET /api/v1/auth/callback` → `handle_callback()` → **find-or-create** del usuario por
-     email → **mapea el rol** del hub al modelo de Encuestum → **siembra la cookie de sesión**
-     existente (el resto del gating por rol no cambia).
-   - `logout` → limpia la cookie (y opcionalmente el `end_session` del hub).
-3. **Frontend**: cuando `AUTH_MODE=federado`, la pantalla de login muestra **"Entrar con la
-   Suite Escriba"** (un botón que va a `/api/v1/auth/login`) en vez del formulario local.
-4. **Decisión de diseño — orgs/roles**: Encuestum es **multi-tenant** (organizaciones + roles
-   `owner/admin/member`), mientras que Lockatus da **un rol por app**. Hay que decidir el mapeo:
-   - *Opción simple*: el rol del hub (`admin`/`member`/…) mapea al rol dentro de una
-     **organización por defecto** (todos los usuarios federados caen en la misma org).
-   - *Opción multi-org*: mantener el modelo de invitaciones de Encuestum para las orgs, y usar
-     Lockatus **solo para la identidad** (quién sos), no para el rol por org.
-   Esta decisión es la única parte "no mecánica" (el resto es copiar el patrón de la suite).
+1. **Cliente OIDC** — `backend/app/lockatus_client.py`: PKCE, URL de `/authorize`, canje en
+   `/token`, y verificación **RS256 offline** contra el JWKS del hub (con `cryptography`).
+2. **Rutas** en `backend/app/routers/auth.py` (solo activas en `AUTH_MODE=federado`):
+   - `GET /api/v1/auth/config` → el frontend consulta el modo (`{ auth_mode, sso }`).
+   - `GET /api/v1/auth/sso/login` → arma PKCE+state+nonce (cookie de transacción firmada) y
+     redirige al `/authorize` del hub.
+   - `GET /api/v1/auth/sso/callback` → verifica `state`, canjea el `code`, **verifica id_token
+     (email, nonce) y access_token (role)**, hace **find-or-create** del usuario por email, y
+     **siembra la misma cookie de sesión** que el login local → el resto del gate no cambia.
+     Al terminar redirige al frontend (`/surveys`).
+   - El **alta local** (`/register`) queda deshabilitada en federado (las identidades vienen del hub).
+3. **Frontend** — la pantalla de `/login` consulta `/auth/config` y, en federado, muestra el
+   botón **"Entrar con la Suite Escriba"** (en vez del formulario). `/register` redirige a `/login`.
+
+### Mapeo orgs/roles (decisión tomada)
+
+Encuestum es **multi-tenant** (organizaciones + roles `owner/admin/member`); Lockatus da **un rol
+por app**. La implementación usa **Lockatus solo para la identidad**:
+
+- **Primer login federado** → se crea el usuario (email ya verificado por el hub) + su
+  **organización por defecto** como `owner` (igual que el registro local).
+- Las **orgs y roles internos** se siguen manejando con el sistema de invitaciones de Encuestum
+  (el hub no dicta a qué orgs pertenecés).
+- El **rol del hub** que definas en `LOCKATUS_ADMIN_ROLE` (default `admin`) promueve al usuario a
+  **super-admin de plataforma** (`is_superadmin`) — útil para tu cuenta de operador.
+
+> El **gating de acceso** lo hace el hub: si un usuario no tiene rol para `encuestum` en la matriz
+> de Lockatus, recibe `access_denied` y ni llega al callback.
 
 ---
 
-## Configuración (cuando esté implementado)
+## Configuración
 
-**En el hub** (declarar la app) — endpoint admin de Lockatus:
+**1. En el hub** (declarar la app) — endpoint admin de Lockatus:
 
 ```
 PUT /api/admin/apps/encuestum
 { "name": "Encuestum",
   "roles": ["admin", "member"],
-  "redirect_uris": ["https://encuestas.tudominio.com/api/v1/auth/callback"] }
+  "redirect_uris": ["https://encuestas.tudominio.com/api/v1/auth/sso/callback"] }
 ```
 
-Después: registrar el/los `redirect_uri` exactos y **asignar roles** a los usuarios en la
+Después: registrar el/los `redirect_uri` **exactos** y **asignar roles** a los usuarios en la
 matriz de accesos del hub (sin rol para `encuestum`, el usuario recibe `access_denied`).
 
-**En Encuestum** (variables):
+**2. En Encuestum** (variables):
 
 ```
 AUTH_MODE=federado
-LOCKATUS_ISSUER=https://identidad.tudominio.com        # URL pública del hub
+LOCKATUS_ISSUER=https://identidad.tudominio.com                       # URL pública del hub
 LOCKATUS_CLIENT_ID=encuestum
-LOCKATUS_REDIRECT_URI=https://encuestas.tudominio.com/api/v1/auth/callback
+LOCKATUS_REDIRECT_URI=https://encuestas.tudominio.com/api/v1/auth/sso/callback
+LOCKATUS_ADMIN_ROLE=admin                                            # (opcional) rol del hub → super-admin
 ```
 
-Con `AUTH_MODE=local` (default) no cambia nada: sigue el login propio.
+- El `LOCKATUS_REDIRECT_URI` debe apuntar al **backend** (`/api/v1/auth/sso/callback`) y coincidir
+  EXACTO con lo registrado en el hub. En la imagen all-in-one, el backend y el frontend son
+  mismo-origen; con front/back en dominios distintos, es la URL de la **API**.
+- El `ENCUESTUM_SESSION_SECRET` se reusa para firmar la cookie de transacción del flujo OIDC.
+- Con `AUTH_MODE=local` (default) no cambia nada: sigue el login propio.
 
----
-
-## ¿Lo construimos?
-
-El patrón está **probado** en 4+ apps de la suite y hay clientes Python de referencia, así que
-es un trabajo acotado y de bajo riesgo (salvo la decisión de mapeo orgs/roles del punto 4).
-Si querés, se implementa el cliente + las rutas + el botón de login y esta guía pasa a ser el
-manual real.
+En dev, con el hub en `http://localhost:8081`:
+```
+AUTH_MODE=federado
+LOCKATUS_ISSUER=http://localhost:8081
+LOCKATUS_CLIENT_ID=encuestum
+LOCKATUS_REDIRECT_URI=http://localhost:8000/api/v1/auth/sso/callback
+```
 
 Ver también: [Seguridad](SEGURIDAD.md) · [Deploy en EasyPanel](DEPLOY_EASYPANEL.md).

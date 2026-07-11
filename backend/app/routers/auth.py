@@ -1,9 +1,13 @@
 """Authentication: register, login, logout, whoami, password reset, email verify."""
 
 import logging
+import secrets
+import time
+import urllib.parse
 import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi.responses import RedirectResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
@@ -11,6 +15,7 @@ from app.accounts import (
     build_me,
     clear_session_cookies,
     create_account,
+    find_or_create_federated_user,
     get_user_by_email,
     set_session_cookies,
 )
@@ -42,6 +47,82 @@ router = APIRouter(prefix="/auth", tags=["auth"])
 
 _OK_RESET = "Si el email existe, te enviamos un enlace para restablecer la contraseña."
 
+# ── Federación con Lockatus (SSO OIDC de la Suite) ───────────────────────────
+# Solo se instancia en AUTH_MODE=federado. Cookie de transacción (verifier/state/
+# nonce) firmada con el session_secret.
+_OIDC_COOKIE = "enc_oidc"
+_lk = None
+if get_settings().is_federated:
+    from app.lockatus_client import Lockatus
+
+    _s = get_settings()
+    _lk = Lockatus(_s.lockatus_issuer, _s.lockatus_client_id, _s.lockatus_redirect_uri, _s.session_secret)
+
+
+def _frontend_url(path: str) -> str:
+    return f"{get_settings().public_base_url.rstrip('/')}{path}"
+
+
+@router.get("/config")
+async def auth_config():
+    """El frontend consulta esto para saber si mostrar el login local o el botón SSO."""
+    s = get_settings()
+    return {"auth_mode": s.auth_mode, "sso": s.is_federated, "allow_registration": s.allow_registration}
+
+
+@router.get("/sso/login")
+async def sso_login(response: Response):
+    s = get_settings()
+    if not s.is_federated or _lk is None:
+        raise HTTPException(status_code=404, detail="SSO no habilitado")
+    verifier, challenge = _lk.pkce()
+    state = secrets.token_urlsafe(16)
+    nonce = secrets.token_urlsafe(16)
+    txn = _lk.sign({"v": verifier, "s": state, "n": nonce, "exp": int((time.time() + 600) * 1000)})
+    resp = RedirectResponse(_lk.authorize_url(state, nonce, challenge), status_code=302)
+    resp.set_cookie(
+        _OIDC_COOKIE, txn, max_age=600, httponly=True,
+        secure=s.cookie_secure, samesite=s.cookie_samesite, path="/",
+    )
+    return resp
+
+
+@router.get("/sso/callback")
+async def sso_callback(
+    request: Request,
+    code: str | None = None,
+    state: str | None = None,
+    error: str | None = None,
+    session: AsyncSession = Depends(get_session),
+):
+    s = get_settings()
+    if not s.is_federated or _lk is None:
+        raise HTTPException(status_code=404, detail="SSO no habilitado")
+    if error:
+        return RedirectResponse(_frontend_url(f"/login?sso_error={urllib.parse.quote(error)}"), status_code=302)
+    txn = _lk.unsign(request.cookies.get(_OIDC_COOKIE))
+    if not code or not txn or txn.get("s") != state:
+        return RedirectResponse(_frontend_url("/login?sso_error=state"), status_code=302)
+    try:
+        tok = await _lk.exchange(code, txn["v"])
+        id_claims = await _lk.verify_jwt(tok["id_token"], audience=s.lockatus_client_id, nonce=txn["n"])
+        access_claims = await _lk.verify_jwt(tok["access_token"], audience=s.lockatus_client_id)
+        email = id_claims.get("email") or access_claims.get("email")
+        name = id_claims.get("name") or id_claims.get("preferred_username") or email
+        role = access_claims.get("role") or id_claims.get("role")
+        if not email:
+            raise ValueError("el token no incluye email (¿scope 'email'?)")
+    except Exception as exc:  # noqa: BLE001
+        LOGGER.warning("SSO callback falló: %s", exc)
+        return RedirectResponse(_frontend_url("/login?sso_error=token"), status_code=302)
+
+    is_admin = bool(role) and role == s.lockatus_admin_role
+    user, org_id = await find_or_create_federated_user(session, email=email, name=name, is_admin=is_admin)
+    resp = RedirectResponse(_frontend_url("/surveys"), status_code=302)
+    set_session_cookies(resp, user.id, org_id)
+    resp.delete_cookie(_OIDC_COOKIE, path="/")
+    return resp
+
 
 async def _send_verification(user: User) -> None:
     settings = get_settings()
@@ -57,6 +138,8 @@ async def register(
     session: AsyncSession = Depends(get_session),
 ):
     settings = get_settings()
+    if settings.is_federated:
+        raise HTTPException(status_code=403, detail="El alta se maneja desde la Suite (Lockatus).")
     if not settings.allow_registration:
         raise HTTPException(status_code=403, detail="El registro está deshabilitado")
     await rate_limit(request, "register", limit=10, window_s=3600)

@@ -55,6 +55,65 @@ async def create_account(
     return user, org
 
 
+async def find_or_create_federated_user(
+    session: AsyncSession,
+    *,
+    email: str,
+    name: Optional[str],
+    is_admin: bool = False,
+) -> tuple[User, uuid.UUID]:
+    """Identidad federada (Lockatus): busca al usuario por email o lo crea con su
+    organización por defecto (como el registro). El hub es la fuente de verdad de
+    la identidad; las orgs/roles internos siguen manejándose en Encuestum. Devuelve
+    (user, org_id_activa)."""
+    import secrets as _secrets
+
+    email = email.strip().lower()
+    user = await get_user_by_email(session, email)
+    if user is None:
+        # Sin contraseña usable: el login local no aplica a cuentas federadas. El
+        # email lo dio por verificado el hub.
+        user = User(
+            email=email,
+            name=(name or None),
+            password_hash=hash_password(_secrets.token_urlsafe(32)),
+            email_verified=True,
+        )
+        if is_admin:
+            user.is_superadmin = True
+        session.add(user)
+        await session.flush()
+
+        label = f"Espacio de {name.strip()}" if name and name.strip() else "Mi espacio"
+        org = Organization(name=label)
+        session.add(org)
+        await session.flush()
+        session.add(Membership(user_id=user.id, org_id=org.id, role=ROLE_OWNER))
+        await session.commit()
+        await session.refresh(user)
+        return user, org.id
+
+    # Usuario existente: promovemos a superadmin si el hub lo indica (idempotente).
+    if is_admin and not user.is_superadmin:
+        user.is_superadmin = True
+        session.add(user)
+        await session.commit()
+    first = (
+        await session.scalars(
+            select(Membership).where(Membership.user_id == user.id).order_by(Membership.created_at.asc())
+        )
+    ).first()
+    if first is None:
+        # Cuenta sin org (raro): le creamos una por defecto.
+        org = Organization(name="Mi espacio")
+        session.add(org)
+        await session.flush()
+        session.add(Membership(user_id=user.id, org_id=org.id, role=ROLE_OWNER))
+        await session.commit()
+        return user, org.id
+    return user, first.org_id
+
+
 async def build_me(session: AsyncSession, user: User, active_org_id: uuid.UUID) -> MeOut:
     rows = (
         await session.execute(
