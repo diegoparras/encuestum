@@ -50,13 +50,13 @@ def read_session_token(token: str) -> Optional[uuid.UUID]:
 
 
 # ── Purpose tokens (invite / password reset / email verify) ──────────────────
-def create_purpose_token(purpose: str, data: dict, ttl_hours: int) -> str:
+def create_purpose_token(purpose: str, data: dict, ttl_hours: int = 0, ttl_minutes: int = 0) -> str:
     s = get_settings()
     now = datetime.now(timezone.utc)
     payload = {
         "purpose": purpose,
         "iat": int(now.timestamp()),
-        "exp": int((now + timedelta(hours=ttl_hours)).timestamp()),
+        "exp": int((now + timedelta(hours=ttl_hours, minutes=ttl_minutes)).timestamp()),
         **data,
     }
     return jwt.encode(payload, s.session_secret, algorithm=_ALGO)

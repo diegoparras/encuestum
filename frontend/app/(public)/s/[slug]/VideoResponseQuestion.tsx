@@ -456,11 +456,15 @@ function VideoRecorder({ question }: { question: QuestionVideoResponseModel }) {
           onLoadedData={forceFirstFrame}
           className="w-full max-h-56 sm:max-h-72 md:max-h-80 rounded-lg bg-black"
         />
-        {isPreviewOnly && (
+        {isPreviewOnly ? (
           <p className="text-xs" style={hintStyle}>
             {t("public.video.previewNote")}
           </p>
-        )}
+        ) : savedValue ? (
+          <p className="text-xs" style={hintStyle}>
+            {t("public.video.expiryNote")}
+          </p>
+        ) : null}
         <div className="flex flex-wrap items-center justify-center gap-2">
           <button
             type="button"

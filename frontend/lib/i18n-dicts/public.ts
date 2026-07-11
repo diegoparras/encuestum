@@ -101,6 +101,8 @@ export const dict: Record<Lang, Record<string, string>> = {
     "public.video.uploadFailedShort": "Upload failed. Retry",
     "public.video.uploadToast": "Couldn't upload the video. Please try again.",
     "public.video.previewNote": "Preview (not uploaded in the editor)",
+    "public.video.expiryNote":
+      "You can review your video here for 5 minutes. After that you won't be able to see it, but it stays saved.",
     "public.video.recordAgain": "Record again",
     "public.video.remove": "Remove",
     "public.video.previewHintPre": "Get comfortable and tap ",
@@ -209,6 +211,8 @@ export const dict: Record<Lang, Record<string, string>> = {
     "public.video.uploadFailedShort": "No se pudo subir. Reintentar",
     "public.video.uploadToast": "No se pudo subir el video. Probá de nuevo.",
     "public.video.previewNote": "Vista previa (no se sube en el editor)",
+    "public.video.expiryNote":
+      "Vas a poder revisar tu video acá durante 5 minutos. Después ya no vas a poder verlo, pero queda guardado.",
     "public.video.recordAgain": "Grabar de nuevo",
     "public.video.remove": "Quitar",
     "public.video.previewHintPre": "Acomodate y tocá ",
@@ -320,6 +324,8 @@ export const dict: Record<Lang, Record<string, string>> = {
     "public.video.uploadToast":
       "Impossible d'envoyer la vidéo. Réessayez.",
     "public.video.previewNote": "Aperçu (non envoyé dans l'éditeur)",
+    "public.video.expiryNote":
+      "Vous pouvez revoir votre vidéo ici pendant 5 minutes. Ensuite vous ne pourrez plus la voir, mais elle reste enregistrée.",
     "public.video.recordAgain": "Réenregistrer",
     "public.video.remove": "Retirer",
     "public.video.previewHintPre": "Installez-vous et appuyez sur ",
@@ -430,6 +436,8 @@ export const dict: Record<Lang, Record<string, string>> = {
     "public.video.uploadToast":
       "Não foi possível enviar o vídeo. Tente de novo.",
     "public.video.previewNote": "Prévia (não enviada no editor)",
+    "public.video.expiryNote":
+      "Você pode rever seu vídeo aqui por 5 minutos. Depois não vai mais conseguir vê-lo, mas ele fica salvo.",
     "public.video.recordAgain": "Gravar de novo",
     "public.video.remove": "Remover",
     "public.video.previewHintPre": "Prepare-se e toque em ",
@@ -542,6 +550,8 @@ export const dict: Record<Lang, Record<string, string>> = {
     "public.video.uploadFailedShort": "Caricamento non riuscito. Riprova",
     "public.video.uploadToast": "Impossibile caricare il video. Riprova.",
     "public.video.previewNote": "Anteprima (non caricata nell'editor)",
+    "public.video.expiryNote":
+      "Puoi rivedere il tuo video qui per 5 minuti. Dopo non potrai più vederlo, ma resta salvato.",
     "public.video.recordAgain": "Registra di nuovo",
     "public.video.remove": "Rimuovi",
     "public.video.previewHintPre": "Mettiti comodo e tocca ",
@@ -639,6 +649,7 @@ export const dict: Record<Lang, Record<string, string>> = {
     "public.video.uploadFailedShort": "上传失败。重试",
     "public.video.uploadToast": "无法上传视频。请重试。",
     "public.video.previewNote": "预览（在编辑器中不会上传）",
+    "public.video.expiryNote": "你可以在此查看视频 5 分钟。之后将无法再查看，但视频会保存下来。",
     "public.video.recordAgain": "重新录制",
     "public.video.remove": "移除",
     "public.video.previewHintPre": "准备好后点击",
@@ -751,6 +762,8 @@ export const dict: Record<Lang, Record<string, string>> = {
       "動画をアップロードできませんでした。もう一度お試しください。",
     "public.video.previewNote":
       "プレビュー（エディターではアップロードされません）",
+    "public.video.expiryNote":
+      "動画はここで5分間確認できます。その後は表示できなくなりますが、保存はされています。",
     "public.video.recordAgain": "録画し直す",
     "public.video.remove": "削除",
     "public.video.previewHintPre": "準備ができたら",

@@ -30,8 +30,9 @@ LOGGER = logging.getLogger("encuestum")
 router = APIRouter(tags=["files"])
 
 # Vida del token de visualización que se le da al que SUBE el archivo (su propia
-# preview mientras completa la encuesta). El panel no lo usa: entra por sesión.
-VIEW_TOKEN_TTL_HOURS = 24
+# preview mientras completa la encuesta). Corto a propósito: solo cubre la ventana
+# entre subir y seguir con la encuesta. El panel no lo usa: entra por sesión.
+VIEW_TOKEN_TTL_MINUTES = 5
 
 _CACHE_PUBLIC = "public, max-age=604800, immutable"   # design assets (uuid names)
 _CACHE_PRIVATE = "private, max-age=3600"              # respondent files

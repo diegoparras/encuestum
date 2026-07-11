@@ -14,7 +14,7 @@ from app.config import get_settings
 from app.db import get_session
 from app.models import Survey
 from app.ratelimit import rate_limit
-from app.routers.files import VIEW_TOKEN_TTL_HOURS
+from app.routers.files import VIEW_TOKEN_TTL_MINUTES
 from app.security import create_purpose_token, read_purpose_token
 from app.storage import get_storage
 
@@ -27,7 +27,7 @@ def _viewable_url(public_url: str, key: str) -> str:
     session. Panel viewers authenticate with their session cookie instead."""
     if not public_url.startswith("/assets/responses/"):
         return public_url  # CDN/public-bucket mode or non-gated prefix
-    token = create_purpose_token("asset-view", {"key": key}, VIEW_TOKEN_TTL_HOURS)
+    token = create_purpose_token("asset-view", {"key": key}, ttl_minutes=VIEW_TOKEN_TTL_MINUTES)
     return f"{public_url}?t={token}"
 
 # What respondents may upload (video answers, plus image/audio just in case).
