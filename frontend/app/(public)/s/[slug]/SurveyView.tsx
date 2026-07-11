@@ -15,6 +15,7 @@ import {
 } from "../../../(survey-builder)/builder/model";
 import {
   absolutizeAssets,
+  alignOverrideCss,
   buttonOverrideCss,
   cardsCss,
   ENC_ALIGN_CSS,
@@ -682,7 +683,8 @@ export default function SurveyView({ slug }: { slug: string }) {
           cardsCss(design.mode === "dark") +
           buttonOverrideCss(design.buttonColor, design.buttonShadow) +
           perQuestionStyleCss(data?.json_schema, design) +
-          fontsCss(design)}
+          fontsCss(design) +
+          alignOverrideCss(design)}
       </style>
       {brandingHeader}
       {submitting && (

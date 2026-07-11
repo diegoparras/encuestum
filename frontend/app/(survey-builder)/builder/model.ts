@@ -371,6 +371,10 @@ export interface DesignSettings {
   titleFont?: string;
   questionFont?: string;
   buttonFont?: string;
+  // Alineación por rol (opcional): vacío = usa la alineación base (`alignment`).
+  titleAlign?: "left" | "center";
+  questionAlign?: "left" | "center";
+  buttonAlign?: "left" | "center";
   mode?: "light" | "dark"; // color scheme of the survey (default light)
   textColor?: string; // question title/description/main text color (overrides mode default)
   transparentQuestions?: boolean; // remove the white card behind questions so the background shows through
@@ -1547,6 +1551,9 @@ export function designToTheme(accent: string, design: DesignSettings): Record<st
     titleFont: design.titleFont ?? null,
     questionFont: design.questionFont ?? null,
     buttonFont: design.buttonFont ?? null,
+    titleAlign: design.titleAlign ?? null,
+    questionAlign: design.questionAlign ?? null,
+    buttonAlign: design.buttonAlign ?? null,
     mode: design.mode ?? "light",
     textColor: design.textColor ?? null,
     transparentQuestions: !!design.transparentQuestions,
@@ -1581,11 +1588,16 @@ export function themeToDesign(theme: Record<string, any> | null | undefined): De
     : "system";
   const roleFont = (v: any) =>
     typeof v === "string" && v ? v : undefined;
+  const roleAlign = (v: any) =>
+    v === "left" || v === "center" ? v : undefined;
   return {
     fontFamily: font,
     titleFont: roleFont(e.titleFont),
     questionFont: roleFont(e.questionFont),
     buttonFont: roleFont(e.buttonFont),
+    titleAlign: roleAlign(e.titleAlign),
+    questionAlign: roleAlign(e.questionAlign),
+    buttonAlign: roleAlign(e.buttonAlign),
     mode: e.mode === "dark" || theme?.colorPalette === "dark" ? "dark" : "light",
     textColor: e.textColor || theme?.cssVariables?.["--sjs-font-questiontitle-color"] || undefined,
     transparentQuestions: !!e.transparentQuestions,

@@ -83,6 +83,32 @@ export function fontsCss(design: DesignSettings): string {
   return css;
 }
 
+/** Alineación por rol (títulos / preguntas / botones) que pisa la alineación
+ *  base. Sólo emite reglas para los roles con override explícito. Va DESPUÉS de
+ *  ENC_ALIGN_CSS para ganar por orden. Scope: `enc-scope`. */
+export function alignOverrideCss(design: DesignSettings): string {
+  const ta = (a: string) => (a === "center" ? "center" : "left");
+  let css = "";
+  if (design.titleAlign) {
+    css += `.enc-scope .sd-header__text, .enc-scope .sd-title:not(.sd-question__title), .enc-scope .sd-description, .enc-scope .sd-page__title, .enc-scope .sd-panel__title { text-align: ${ta(design.titleAlign)}; }\n`;
+  }
+  if (design.questionAlign) {
+    const c = design.questionAlign === "center";
+    css += `.enc-scope .sd-question__header, .enc-scope .sd-question__title, .enc-scope .sd-question__description { text-align: ${ta(design.questionAlign)}; }\n`;
+    css += `.enc-scope .sd-question__title { justify-content: ${c ? "center" : "flex-start"}; }\n`;
+    css += `.enc-scope .sd-rating, .enc-scope .sd-selectbase, .enc-scope .sd-imagepicker { ${
+      c
+        ? "justify-content:center;margin-left:auto;margin-right:auto;width:fit-content;"
+        : "justify-content:flex-start;margin-left:0;margin-right:auto;width:auto;"
+    } }\n`;
+  }
+  if (design.buttonAlign) {
+    const c = design.buttonAlign === "center";
+    css += `.enc-scope .sd-action-bar, .enc-scope .sd-footer, .enc-scope .sd-body__navigation { justify-content: ${c ? "center" : "flex-start"}; }\n`;
+  }
+  return css;
+}
+
 /** Un contenedor visible alrededor de cada pregunta (separador). El trazo y el
  *  tinte dependen del modo para que se note tanto en claro como en oscuro,
  *  incluso con cuadros transparentes sobre una imagen. Scope: `enc-cards`. */

@@ -648,6 +648,51 @@ export function DesignPanel({
                 );
               })}
             </div>
+            {/* Alineación por rol (opcional): pisa la base para cada sección */}
+            <div className="mt-3 space-y-2">
+              <p className="text-[11px] font-medium uppercase tracking-wide text-neutral-400 dark:text-neutral-500">
+                {t("builder.design.alignPerRole")}
+              </p>
+              {([
+                ["titleAlign", "fontRoleTitle"],
+                ["questionAlign", "fontRoleQuestion"],
+                ["buttonAlign", "fontRoleButton"],
+              ] as const).map(([key, label]) => {
+                const val = (design as any)[key] as "left" | "center" | undefined;
+                const opts: ReadonlyArray<["left" | "center" | undefined, any]> = [
+                  [undefined, null],
+                  ["left", AlignLeft],
+                  ["center", AlignCenter],
+                ];
+                return (
+                  <div key={key} className="flex items-center gap-2">
+                    <span className="w-16 shrink-0 text-xs font-medium text-neutral-600 dark:text-neutral-300">
+                      {t(`builder.design.${label}`)}
+                    </span>
+                    <div className="flex flex-1 gap-1">
+                      {opts.map(([v, Icon], i) => {
+                        const active = val === v;
+                        return (
+                          <button
+                            key={i}
+                            type="button"
+                            onClick={() => patch({ [key]: v } as unknown as Partial<DesignSettings>)}
+                            title={v ? undefined : t("builder.design.alignBase")}
+                            className={`flex flex-1 items-center justify-center rounded-md border px-2 py-1.5 text-xs font-medium transition-colors ${
+                              active
+                                ? "border-[#8faf0e] bg-[#8faf0e0a] text-neutral-800 dark:text-neutral-100"
+                                : "border-neutral-200 text-neutral-500 hover:border-neutral-300 dark:border-neutral-700 dark:text-neutral-400"
+                            }`}
+                          >
+                            {Icon ? <Icon className="w-3.5 h-3.5" /> : t("builder.design.alignBase")}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
             <p className="mt-2 text-[11px] leading-relaxed text-neutral-400 dark:text-neutral-500">
               {t("builder.design.alignmentHint")}
             </p>

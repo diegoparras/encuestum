@@ -7,7 +7,7 @@ import "survey-core/survey-core.min.css";
 import "survey-core/i18n/spanish";
 import { Monitor, Smartphone } from "lucide-react";
 import { DesignSettings, DEFAULT_DESIGN, designToTheme, perQuestionStyleCss } from "./model";
-import { absolutizeAssets, buttonOverrideCss, cardsCss, ENC_ALIGN_CSS, fontsCss, loadFont, resolveAssetUrl } from "./design";
+import { absolutizeAssets, alignOverrideCss, buttonOverrideCss, cardsCss, ENC_ALIGN_CSS, fontsCss, loadFont, resolveAssetUrl } from "./design";
 import { registerVideoResponseQuestion } from "../../(public)/s/[slug]/VideoResponseQuestion";
 import { ChatSurveyView } from "../../(public)/s/[slug]/ChatSurveyView";
 import { useI18n } from "@/lib/i18n";
@@ -114,7 +114,8 @@ export function LivePreview({ schema, accent, design, language }: Props) {
                 cardsCss(d.mode === "dark") +
                 buttonOverrideCss(d.buttonColor, d.buttonShadow) +
                 perQuestionStyleCss(debounced, d) +
-                fontsCss(d)}
+                fontsCss(d) +
+                alignOverrideCss(d)}
             </style>
             {d.coverImage && !d.chat && (
               // eslint-disable-next-line @next/next/no-img-element
