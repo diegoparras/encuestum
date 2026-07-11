@@ -71,7 +71,7 @@ export default function LoginPage() {
           <div className="mt-6">
             <a
               href={getApiUrl("/api/v1/auth/sso/login")}
-              className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-[#1e2a06] hover:opacity-90"
+              className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white hover:opacity-90"
             >
               <LogIn className="h-4 w-4" />
               {t("auth.sso.button")}
