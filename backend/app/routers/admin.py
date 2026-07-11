@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import re
 import uuid
 from datetime import datetime, timezone
 from typing import List
@@ -25,6 +26,11 @@ from app.schemas import (
 router = APIRouter(prefix="/surveys", tags=["surveys"])
 
 LOGGER = logging.getLogger(__name__)
+
+
+def _normalize_slug(raw: str) -> str:
+    """Link personalizado: minúsculas, letras/números/guiones, sin guiones al borde."""
+    return re.sub(r"[^a-z0-9]+", "-", (raw or "").strip().lower()).strip("-")
 
 
 async def _survey_or_404(sid: uuid.UUID, org_id: uuid.UUID, session: AsyncSession) -> Survey:
@@ -120,12 +126,41 @@ async def update_survey(
             raise HTTPException(status_code=400, detail="La URL de redirección debe empezar con http:// o https://")
     if payload.access_mode == "pin" and payload.access_pin is not None and len(payload.access_pin.strip()) < 4:
         raise HTTPException(status_code=400, detail="La clave (PIN) debe tener al menos 4 caracteres")
+
+    # Link personalizado (slug): normalizar, validar longitud y unicidad global.
+    if payload.slug is not None:
+        norm = _normalize_slug(payload.slug)
+        if not (3 <= len(norm) <= 64):
+            raise HTTPException(
+                status_code=400,
+                detail="El link debe tener entre 3 y 64 caracteres (letras, números y guiones).",
+            )
+        if norm != s.slug:
+            taken = await session.scalar(
+                select(Survey.id).where(Survey.slug == norm, Survey.id != s.id)
+            )
+            if taken:
+                raise HTTPException(status_code=409, detail="Ese link ya está en uso por otra encuesta.")
+            s.slug = norm
+
     data = payload.model_dump(exclude_unset=True)
-    # org_id / created_by are never client-settable.
+    # org_id / created_by / slug are handled explicitly, never via the generic loop.
     data.pop("org_id", None)
     data.pop("created_by", None)
+    data.pop("slug", None)
     for field, value in data.items():
         setattr(s, field, value)
+
+    # Coherencia de fechas: la apertura no puede ser posterior o igual al cierre.
+    if s.opens_at is not None and s.closes_at is not None:
+        opens = s.opens_at if s.opens_at.tzinfo else s.opens_at.replace(tzinfo=timezone.utc)
+        closes = s.closes_at if s.closes_at.tzinfo else s.closes_at.replace(tzinfo=timezone.utc)
+        if opens >= closes:
+            raise HTTPException(
+                status_code=400,
+                detail="La fecha de inicio debe ser anterior a la de cierre.",
+            )
+
     session.add(s)
     await session.commit()
     await session.refresh(s)

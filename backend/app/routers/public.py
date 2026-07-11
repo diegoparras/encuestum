@@ -83,6 +83,12 @@ async def _availability(s: Survey, session: AsyncSession) -> tuple[bool, str | N
 
     if s.status == "closed":
         return False, "Esta encuesta fue cerrada."
+    if s.opens_at is not None:
+        opens = s.opens_at
+        if opens.tzinfo is None:  # SQLite returns naive datetimes
+            opens = opens.replace(tzinfo=timezone.utc)
+        if _utcnow() < opens:
+            return False, "Esta encuesta todavía no está abierta."
     if s.closes_at is not None:
         closes = s.closes_at
         if closes.tzinfo is None:  # SQLite returns naive datetimes
@@ -131,6 +137,7 @@ def _public_payload(s: Survey, available: bool, reason: str | None, gated: bool)
         available=available, closed_reason=reason,
         access_mode=getattr(s, "access_mode", "public"), gated=gated,
         thankyou_message=getattr(s, "thankyou_message", None),
+        grading_message=getattr(s, "grading_message", None),
         redirect_url=getattr(s, "redirect_url", None),
         require_captcha=bool(getattr(s, "require_captcha", False))
         and get_settings().captcha_enabled,

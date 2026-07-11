@@ -29,8 +29,11 @@ export interface SurveyDetail {
   json_schema: Record<string, any>;
   theme: Record<string, any> | null;
   evaluation: Record<string, any> | null;
+  opens_at: string | null;
   closes_at: string | null;
   max_responses: number | null;
+  // Zona horaria del servidor (config global) para interpretar opens_at/closes_at.
+  timezone: string;
   // Control de acceso y visibilidad de resultados
   access_mode: AccessMode;
   access_pin: string | null;
@@ -40,6 +43,8 @@ export interface SurveyDetail {
   notify_emails?: string;
   // Distribución: mensaje de agradecimiento y redirección al terminar.
   thankyou_message?: string;
+  // Texto mientras se procesa/corrige la respuesta (evaluaciones con IA).
+  grading_message?: string;
   redirect_url?: string;
   // Anti-bot: exige un desafío proof-of-work antes de aceptar respuestas.
   require_captcha?: boolean;
@@ -253,10 +258,12 @@ export const surveyApi = {
       Pick<
         SurveyDetail,
         | "title"
+        | "slug"
         | "json_schema"
         | "status"
         | "language"
         | "theme"
+        | "opens_at"
         | "evaluation"
         | "closes_at"
         | "max_responses"
@@ -265,6 +272,7 @@ export const surveyApi = {
         | "results_mode"
         | "notify_emails"
         | "thankyou_message"
+        | "grading_message"
         | "redirect_url"
         | "require_captcha"
       >

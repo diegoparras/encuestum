@@ -53,6 +53,12 @@ class Settings:
         # user explicitly flagged is_superadmin).
         self.superadmin_email = (os.getenv("ENCUESTUM_SUPERADMIN_EMAIL") or "").strip().lower() or None
 
+        # Zona horaria (IANA, ej. "America/Argentina/Buenos_Aires") para interpretar
+        # y mostrar las fechas de apertura/cierre de las encuestas en el panel. El
+        # gating de disponibilidad se hace siempre en instantes absolutos (UTC); esta
+        # zona sólo afecta cómo el operador ingresa y ve las fechas. Default UTC.
+        self.timezone = (os.getenv("ENCUESTUM_TIMEZONE") or "UTC").strip() or "UTC"
+
         # Base domain for per-org subdomains (e.g. "encuestum.com" → acme.encuestum.com).
         # Empty = subdomains disabled (the org can still claim a name, no URL is built).
         self.base_domain = (os.getenv("ENCUESTUM_BASE_DOMAIN") or "").strip().lower().lstrip(".") or None

@@ -521,9 +521,11 @@ export interface BuilderState {
   accent: string;
   onePerPage: boolean; // Typeform-style one question per screen
   showProgress: boolean; // show "Pregunta X de Y" (only meaningful with onePerPage)
+  opensAt: string | null; // ISO datetime; la encuesta no abre hasta este momento
   closesAt: string | null; // ISO datetime; auto-close after this moment
   maxResponses: number | null; // auto-close after this many responses
   thankyouMessage: string; // mensaje de agradecimiento al terminar (vacío = por defecto)
+  gradingMessage: string; // texto mientras se procesa/corrige la respuesta (vacío = por defecto)
   redirectUrl: string; // al enviar, se redirige a esta URL (vacío = sin redirección)
   questions: BuilderQuestion[];
   evaluation: EvaluationSettings;
@@ -1257,9 +1259,11 @@ export function schemaToBuilder(
     accent,
     onePerPage,
     showProgress,
+    opensAt: null,
     closesAt: null,
     maxResponses: null,
     thankyouMessage: "",
+    gradingMessage: "",
     redirectUrl: "",
     questions,
     evaluation: hydrateEvaluationSettings(evaluation),

@@ -21,6 +21,7 @@ import {
   type AccessMode,
   type ResultsMode,
 } from "../../../surveyApi";
+import { toast } from "sonner";
 import { useAsyncData } from "@/lib/useAsyncData";
 import { LoadError } from "@/components/LoadError";
 import { useI18n } from "@/lib/i18n";
@@ -76,6 +77,7 @@ export default function SurveyEditorPage() {
   const [state, setState] = useState<BuilderState | null>(null);
   const [status, setStatus] = useState<"draft" | "published" | "closed">("draft");
   const [slug, setSlug] = useState("");
+  const [timezone, setTimezone] = useState("UTC");
   const [language, setLanguage] = useState<string | null>("es");
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
@@ -113,9 +115,11 @@ export default function SurveyEditorPage() {
     const accent = themeToAccent(s.theme);
     const built = schemaToBuilder(s.json_schema, s.title || "", accent, s.evaluation);
     built.design = themeToDesign(s.theme);
+    built.opensAt = s.opens_at ?? null;
     built.closesAt = s.closes_at;
     built.maxResponses = s.max_responses;
     built.thankyouMessage = s.thankyou_message ?? "";
+    built.gradingMessage = s.grading_message ?? "";
     built.redirectUrl = s.redirect_url ?? "";
     return { survey: s, built };
   }, [id]);
@@ -127,6 +131,7 @@ export default function SurveyEditorPage() {
     setState(loaded.built);
     setStatus(s.status);
     setSlug(s.slug);
+    setTimezone(s.timezone ?? "UTC");
     setLanguage(s.language ?? "es");
     setAccessMode(s.access_mode ?? "public");
     setAccessPin(s.access_pin ?? null);
@@ -277,9 +282,11 @@ export default function SurveyEditorPage() {
         json_schema: builderToSchema(state),
         theme: designToTheme(state.accent, state.design),
         evaluation: builderToEvaluation(state),
+        opens_at: state.opensAt,
         closes_at: state.closesAt,
         max_responses: state.maxResponses,
         thankyou_message: state.thankyouMessage,
+        grading_message: state.gradingMessage,
         redirect_url: state.redirectUrl,
         language,
       });
@@ -343,6 +350,21 @@ export default function SurveyEditorPage() {
       setPublishing(false);
     }
   }
+
+  // Link personalizado: guardado dedicado (fuera del autosave) para dar feedback
+  // claro si el link ya está en uso o es inválido.
+  const commitSlug = useCallback(
+    async (newSlug: string) => {
+      try {
+        const updated = await surveyApi.update(id, { slug: newSlug });
+        setSlug(updated.slug);
+        toast.success(t("builder.page.linkUpdated"));
+      } catch (e: any) {
+        toast.error(e?.message || t("builder.page.linkError"));
+      }
+    },
+    [id, t]
+  );
 
   // Warn on unload with unsaved changes.
   useEffect(() => {
@@ -507,7 +529,11 @@ export default function SurveyEditorPage() {
             ) : (
               <Send className="w-4 h-4" />
             )}
-            {isPublished ? t("builder.page.close") : t("builder.page.publish")}
+            {isPublished
+              ? t("builder.page.close")
+              : status === "closed"
+                ? t("builder.page.reopen")
+                : t("builder.page.publish")}
           </button>
         </div>
       </header>
@@ -551,13 +577,19 @@ export default function SurveyEditorPage() {
             question={selectedQuestion}
             questions={state.questions}
             onQuestionChange={patchQuestion}
+            onBack={() => setSelectedId(null)}
             description={state.description}
             onePerPage={state.onePerPage}
             showProgress={state.showProgress}
+            opensAt={state.opensAt}
             closesAt={state.closesAt}
             maxResponses={state.maxResponses}
             thankyouMessage={state.thankyouMessage}
+            gradingMessage={state.gradingMessage}
             redirectUrl={state.redirectUrl}
+            slug={slug}
+            onSlugCommit={commitSlug}
+            timezone={timezone}
             onSurveyChange={(patch) => mutate((prev) => ({ ...prev, ...patch }))}
             evaluation={state.evaluation}
             onEvaluationChange={setEvaluation}

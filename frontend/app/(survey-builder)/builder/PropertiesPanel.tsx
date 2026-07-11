@@ -20,27 +20,39 @@ import { ChoicesEditor } from "./ChoicesEditor";
 import { ImageChoicesEditor } from "./ImageChoicesEditor";
 import { GradingSection } from "./GradingSection";
 import { AssetPicker } from "./AssetPicker";
-import { Film, GitBranch, Plus, Sparkles, Trash2 } from "lucide-react";
+import { utcToLocalInput, localInputToUtc, tzLabel } from "@/utils/tz";
+import { ArrowLeft, Film, GitBranch, Plus, Sparkles, Trash2 } from "lucide-react";
 
 interface Props {
   question: BuilderQuestion | null;
   questions: BuilderQuestion[];
   onQuestionChange: (patch: Partial<BuilderQuestion>) => void;
+  // Vuelve a las opciones generales de la encuesta (deselecciona la pregunta).
+  onBack?: () => void;
   // Survey-level settings (shown when no question is selected).
   description: string;
   onePerPage: boolean;
   showProgress: boolean;
+  opensAt: string | null;
   closesAt: string | null;
   maxResponses: number | null;
   thankyouMessage: string;
+  gradingMessage: string;
   redirectUrl: string;
+  // Link personalizado (slug). Se confirma al salir del campo (valida unicidad).
+  slug: string;
+  onSlugCommit: (slug: string) => void;
+  // Zona horaria fija (config del servidor) para los campos de fecha.
+  timezone: string;
   onSurveyChange: (patch: {
     description?: string;
     onePerPage?: boolean;
     showProgress?: boolean;
+    opensAt?: string | null;
     closesAt?: string | null;
     maxResponses?: number | null;
     thankyouMessage?: string;
+    gradingMessage?: string;
     redirectUrl?: string;
   }) => void;
   evaluation: EvaluationSettings;
@@ -52,25 +64,28 @@ export function PropertiesPanel({
   question,
   questions,
   onQuestionChange,
+  onBack,
   description,
   onePerPage,
   showProgress,
+  opensAt,
   closesAt,
   maxResponses,
   thankyouMessage,
+  gradingMessage,
   redirectUrl,
+  slug,
+  onSlugCommit,
+  timezone,
   onSurveyChange,
   evaluation,
   onEvaluationChange,
   accent,
 }: Props) {
   const { t } = useI18n();
-  const toDateInput = (iso: string | null) => {
-    if (!iso) return "";
-    const d = new Date(iso);
-    if (isNaN(d.getTime())) return "";
-    return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
-  };
+  // Fechas en la zona horaria fija del servidor (ENCUESTUM_TIMEZONE).
+  const toDateInput = (iso: string | null) => utcToLocalInput(iso, timezone);
+  const fromDateInput = (v: string) => localInputToUtc(v, timezone);
   if (!question) {
     return (
       <div className="p-5">
@@ -84,6 +99,9 @@ export function PropertiesPanel({
             className="w-full rounded-md border border-neutral-200 px-2.5 py-2 text-sm outline-none focus:border-neutral-400 dark:bg-neutral-800 dark:border-neutral-700 dark:text-neutral-100 dark:placeholder:text-neutral-500"
           />
         </Field>
+
+        <SlugField slug={slug} onCommit={onSlugCommit} />
+
         <ToggleRow
           label={t("builder.props.onePerPage")}
           hint={t("builder.props.onePerPageHint")}
@@ -100,15 +118,23 @@ export function PropertiesPanel({
         )}
 
         <div className="mt-5 border-t border-neutral-100 dark:border-neutral-800 pt-4">
-          <SectionTitle>{t("builder.props.autoClose")}</SectionTitle>
-          <Field label={t("builder.props.closeOnDate")}>
+          <SectionTitle>{t("builder.props.schedule")}</SectionTitle>
+          <Field label={`${t("builder.props.openOnDate")} (${tzLabel(timezone)})`}>
+            <input
+              type="datetime-local"
+              value={toDateInput(opensAt)}
+              onChange={(e) =>
+                onSurveyChange({ opensAt: fromDateInput(e.target.value) })
+              }
+              className="w-full rounded-md border border-neutral-200 px-2.5 py-2 text-sm outline-none focus:border-neutral-400 dark:bg-neutral-800 dark:border-neutral-700 dark:text-neutral-100 dark:placeholder:text-neutral-500"
+            />
+          </Field>
+          <Field label={`${t("builder.props.closeOnDate")} (${tzLabel(timezone)})`}>
             <input
               type="datetime-local"
               value={toDateInput(closesAt)}
               onChange={(e) =>
-                onSurveyChange({
-                  closesAt: e.target.value ? new Date(e.target.value).toISOString() : null,
-                })
+                onSurveyChange({ closesAt: fromDateInput(e.target.value) })
               }
               className="w-full rounded-md border border-neutral-200 px-2.5 py-2 text-sm outline-none focus:border-neutral-400 dark:bg-neutral-800 dark:border-neutral-700 dark:text-neutral-100 dark:placeholder:text-neutral-500"
             />
@@ -128,7 +154,7 @@ export function PropertiesPanel({
             />
           </Field>
           <p className="text-xs text-neutral-400 dark:text-neutral-500">
-            {t("builder.props.autoCloseHint")}
+            {t("builder.props.scheduleHint")}
           </p>
         </div>
 
@@ -145,6 +171,18 @@ export function PropertiesPanel({
           </Field>
           <p className="-mt-2 mb-4 text-xs text-neutral-400 dark:text-neutral-500">
             {t("builder.props.thankYouHint")}
+          </p>
+          <Field label={t("builder.props.gradingMessage")}>
+            <textarea
+              value={gradingMessage}
+              onChange={(e) => onSurveyChange({ gradingMessage: e.target.value })}
+              rows={2}
+              placeholder={t("builder.props.gradingPlaceholder")}
+              className="w-full rounded-md border border-neutral-200 px-2.5 py-2 text-sm outline-none focus:border-neutral-400 dark:bg-neutral-800 dark:border-neutral-700 dark:text-neutral-100 dark:placeholder:text-neutral-500"
+            />
+          </Field>
+          <p className="-mt-2 mb-4 text-xs text-neutral-400 dark:text-neutral-500">
+            {t("builder.props.gradingHint")}
           </p>
           <Field label={t("builder.props.redirectOptional")}>
             <input
@@ -179,6 +217,7 @@ export function PropertiesPanel({
   if (q.type === "section") {
     return (
       <div className="p-5">
+        {onBack && <BackToSurvey onBack={onBack} label={t("builder.props.backToSurvey")} />}
         <SectionTitle>{t("builder.props.section")}</SectionTitle>
 
         <Field label={t("builder.props.sectionTitle")}>
@@ -210,6 +249,7 @@ export function PropertiesPanel({
 
   return (
     <div className="p-5">
+      {onBack && <BackToSurvey onBack={onBack} label={t("builder.props.backToSurvey")} />}
       <SectionTitle>{t(`builder.qtype.${q.type}`)}</SectionTitle>
 
       <Field label={t("builder.props.question")}>
@@ -1092,6 +1132,59 @@ function VideoSection({
         onChange={(url) => onChange(url)}
       />
     </div>
+  );
+}
+
+function BackToSurvey({ onBack, label }: { onBack: () => void; label: string }) {
+  return (
+    <button
+      type="button"
+      onClick={onBack}
+      className="mb-3 -ml-1.5 inline-flex items-center gap-1.5 rounded-md px-1.5 py-1 text-xs font-medium text-neutral-500 dark:text-neutral-400 hover:text-neutral-800 dark:hover:text-neutral-200 hover:bg-neutral-100 dark:hover:bg-neutral-800"
+    >
+      <ArrowLeft className="w-3.5 h-3.5" /> {label}
+    </button>
+  );
+}
+
+// Link personalizado: input saneado en vivo (minúsculas, letras/números/guiones);
+// confirma al salir del campo (el padre valida unicidad contra el servidor).
+function SlugField({
+  slug,
+  onCommit,
+}: {
+  slug: string;
+  onCommit: (slug: string) => void;
+}) {
+  const { t } = useI18n();
+  const [val, setVal] = React.useState(slug);
+  React.useEffect(() => {
+    setVal(slug);
+  }, [slug]);
+  const sanitize = (s: string) =>
+    s.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+/, "");
+  return (
+    <Field label={t("builder.props.customLink")}>
+      <div className="flex items-center rounded-md border border-neutral-200 focus-within:border-neutral-400 dark:border-neutral-700 dark:bg-neutral-800">
+        <span className="pl-2.5 text-sm text-neutral-400 dark:text-neutral-500 select-none">
+          /s/
+        </span>
+        <input
+          value={val}
+          onChange={(e) => setVal(sanitize(e.target.value))}
+          onBlur={() => {
+            const v = val.replace(/-+$/, "");
+            if (v && v !== slug) onCommit(v);
+            else setVal(slug);
+          }}
+          placeholder="mi-encuesta"
+          className="min-w-0 flex-1 rounded-md bg-transparent px-1 py-2 text-sm outline-none dark:text-neutral-100 dark:placeholder:text-neutral-500"
+        />
+      </div>
+      <p className="mt-1.5 text-xs text-neutral-400 dark:text-neutral-500">
+        {t("builder.props.customLinkHint")}
+      </p>
+    </Field>
   );
 }
 

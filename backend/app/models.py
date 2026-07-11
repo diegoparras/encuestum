@@ -188,6 +188,9 @@ class Survey(SQLModel, table=True):
     status: str = Field(sa_column=Column(String, nullable=False), default="draft")
     language: Optional[str] = Field(sa_column=Column(String), default=None)
     # Auto-close controls: after this date, or once this many responses arrive.
+    opens_at: Optional[datetime] = Field(
+        sa_column=Column(DateTime(timezone=True)), default=None
+    )
     closes_at: Optional[datetime] = Field(
         sa_column=Column(DateTime(timezone=True)), default=None
     )
@@ -211,6 +214,9 @@ class Survey(SQLModel, table=True):
     # After submit: a custom thank-you message and/or a redirect URL.
     thankyou_message: Optional[str] = Field(sa_column=Column(String), default=None)
     redirect_url: Optional[str] = Field(sa_column=Column(String), default=None)
+    # Mensaje mostrado mientras se procesa/corrige la respuesta (útil en evaluaciones
+    # con IA, donde el respondiente espera unos segundos). Vacío = texto por defecto.
+    grading_message: Optional[str] = Field(sa_column=Column(String), default=None)
     # Anti-bot: require a proof-of-work challenge before accepting a submission
     # (only meaningful for public/anonymous surveys).
     require_captcha: bool = Field(

@@ -64,6 +64,7 @@ interface PublicSurvey {
   gated?: boolean;
   // Distribución: pantalla de gracias personalizable y redirección al terminar.
   thankyou_message?: string | null;
+  grading_message?: string | null;
   redirect_url?: string | null;
   // Anti-bot: exige resolver un proof-of-work antes de enviar.
   require_captcha?: boolean;
@@ -673,7 +674,27 @@ export default function SurveyView({ slug }: { slug: string }) {
       </style>
       {brandingHeader}
       {submitting && (
-        <div className="fixed top-0 inset-x-0 h-1 animate-pulse z-50" style={{ backgroundColor: accent }} />
+        <div
+          role="status"
+          aria-live="polite"
+          className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-5 px-6 text-center"
+          style={{
+            backgroundColor:
+              design.mode === "dark" ? "rgba(9,9,11,0.94)" : "rgba(255,255,255,0.94)",
+          }}
+        >
+          <span
+            className="inline-block h-9 w-9 animate-spin rounded-full border-[3px] border-current border-t-transparent"
+            style={{ color: accent }}
+            aria-hidden="true"
+          />
+          <p
+            className="max-w-md text-base font-medium leading-relaxed"
+            style={{ color: design.mode === "dark" ? "#e5e7eb" : "#1f2937" }}
+          >
+            {resolveTokens(data?.grading_message || "") || t("public.grading.default")}
+          </p>
+        </div>
       )}
       {design.coverImage && !design.chat && (
         // eslint-disable-next-line @next/next/no-img-element

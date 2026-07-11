@@ -121,39 +121,39 @@ function ImageChoiceRow({
     <div
       ref={setNodeRef}
       style={style}
-      className="flex items-start gap-1.5 rounded-lg border border-neutral-200 dark:border-neutral-800 p-2"
+      className="rounded-lg border border-neutral-200 dark:border-neutral-800 p-2"
     >
-      <button
-        type="button"
-        className="mt-2 shrink-0 text-neutral-300 dark:text-neutral-600 hover:text-neutral-500 dark:hover:text-neutral-400 cursor-grab active:cursor-grabbing touch-none"
-        {...attributes}
-        {...listeners}
-        aria-label={t("builder.reorderOption")}
-      >
-        <GripVertical className="w-3.5 h-3.5" />
-      </button>
-      <div className="w-24 shrink-0">
-        <AssetPicker
-          kind="image"
-          value={choice.imageUrl}
-          onChange={onImage}
+      {/* Línea 1: mover + nombre de la opción + quitar */}
+      <div className="flex items-center gap-1.5">
+        <button
+          type="button"
+          className="shrink-0 text-neutral-300 dark:text-neutral-600 hover:text-neutral-500 dark:hover:text-neutral-400 cursor-grab active:cursor-grabbing touch-none"
+          {...attributes}
+          {...listeners}
+          aria-label={t("builder.reorderOption")}
+        >
+          <GripVertical className="w-3.5 h-3.5" />
+        </button>
+        <input
+          value={choice.text}
+          onChange={(e) => onText(e.target.value)}
+          placeholder={t("builder.imageLabelPlaceholder")}
+          className="min-w-0 flex-1 rounded-md border border-neutral-200 px-2.5 py-1.5 text-sm outline-none focus:border-neutral-400 dark:bg-neutral-800 dark:border-neutral-700 dark:text-neutral-100 dark:placeholder:text-neutral-500"
         />
+        <button
+          type="button"
+          onClick={onRemove}
+          disabled={!canRemove}
+          className="shrink-0 p-1 text-neutral-300 dark:text-neutral-600 hover:text-red-600 disabled:opacity-30 disabled:hover:text-neutral-300 dark:disabled:hover:text-neutral-600"
+          aria-label={t("builder.removeOption")}
+        >
+          <X className="w-4 h-4" />
+        </button>
       </div>
-      <input
-        value={choice.text}
-        onChange={(e) => onText(e.target.value)}
-        placeholder={t("builder.imageLabelPlaceholder")}
-        className="mt-1.5 min-w-0 flex-1 rounded-md border border-neutral-200 px-2.5 py-1.5 text-sm outline-none focus:border-neutral-400 dark:bg-neutral-800 dark:border-neutral-700 dark:text-neutral-100 dark:placeholder:text-neutral-500"
-      />
-      <button
-        type="button"
-        onClick={onRemove}
-        disabled={!canRemove}
-        className="mt-1.5 shrink-0 p-1 text-neutral-300 dark:text-neutral-600 hover:text-red-600 disabled:opacity-30 disabled:hover:text-neutral-300 dark:disabled:hover:text-neutral-600"
-        aria-label={t("builder.removeOption")}
-      >
-        <X className="w-4 h-4" />
-      </button>
+      {/* Línea 2: imagen de la opción, a todo el ancho */}
+      <div className="mt-2 pl-[22px]">
+        <AssetPicker kind="image" value={choice.imageUrl} onChange={onImage} />
+      </div>
     </div>
   );
 }
