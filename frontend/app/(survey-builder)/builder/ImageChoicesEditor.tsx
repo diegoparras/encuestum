@@ -143,7 +143,7 @@ function ImageChoiceRow({
         value={choice.text}
         onChange={(e) => onText(e.target.value)}
         placeholder={t("builder.imageLabelPlaceholder")}
-        className="mt-1.5 flex-1 rounded-md border border-neutral-200 px-2.5 py-1.5 text-sm outline-none focus:border-neutral-400 dark:bg-neutral-800 dark:border-neutral-700 dark:text-neutral-100 dark:placeholder:text-neutral-500"
+        className="mt-1.5 min-w-0 flex-1 rounded-md border border-neutral-200 px-2.5 py-1.5 text-sm outline-none focus:border-neutral-400 dark:bg-neutral-800 dark:border-neutral-700 dark:text-neutral-100 dark:placeholder:text-neutral-500"
       />
       <button
         type="button"

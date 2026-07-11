@@ -620,7 +620,12 @@ export function createQuestion(type: QuestionType, index: number): BuilderQuesti
   };
 
   if (typeHasChoices(type)) {
-    base.choices = [newChoice("Opción 1"), newChoice("Opción 2"), newChoice("Opción 3")];
+    // imagepicker arranca con 2 (cada opción lleva imagen, dos alcanzan para
+    // empezar); el resto de los tipos de opción, con 3.
+    base.choices =
+      type === "imagepicker"
+        ? [newChoice("Opción 1"), newChoice("Opción 2")]
+        : [newChoice("Opción 1"), newChoice("Opción 2"), newChoice("Opción 3")];
   }
   if (type === "rating") {
     base.rateMin = 0;
