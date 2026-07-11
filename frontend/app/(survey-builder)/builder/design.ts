@@ -4,7 +4,7 @@
 import "survey-core/i18n/spanish";
 import { surveyLocalization } from "survey-core";
 import { getApiUrl } from "@/utils/api";
-import { fontById, readableForeground } from "./model";
+import { fontById, fontCssFamily, readableForeground, type DesignSettings } from "./model";
 
 // Progress bar reads "Pregunta X de Y" (each page is one question) instead of
 // the default "Página X de Y".
@@ -59,6 +59,26 @@ export function buttonOverrideCss(color?: string | null, shadow?: boolean): stri
 .enc-scope .sd-btn { box-shadow: 0 4px 14px rgba(0,0,0,0.22); }
 .enc-scope .sd-btn:hover { box-shadow: 0 6px 18px rgba(0,0,0,0.28); }
 `;
+  }
+  return css;
+}
+
+/** Fuentes por rol: títulos (encuesta/sección), preguntas y botones. Sólo emite
+ *  reglas para los roles con fuente propia; sin override, la base rige para todo.
+ *  Va después del resto del CSS para ganar por orden. Scope: `enc-scope`. */
+export function fontsCss(design: DesignSettings): string {
+  let css = "";
+  if (design.titleFont) {
+    const f = fontCssFamily(design.titleFont);
+    css += `.enc-scope .sd-title:not(.sd-question__title), .enc-scope .sd-page__title, .enc-scope .sd-panel__title { font-family: ${f} !important; }\n`;
+  }
+  if (design.questionFont) {
+    const f = fontCssFamily(design.questionFont);
+    css += `.enc-scope .sd-question__title, .enc-scope .sd-question__description, .enc-scope .sd-question .sd-input, .enc-scope .sd-question input, .enc-scope .sd-question textarea, .enc-scope .sd-question select, .enc-scope .sd-item__control-label, .enc-scope .sd-selectbase__label, .enc-scope .sd-rating__item-text { font-family: ${f} !important; }\n`;
+  }
+  if (design.buttonFont) {
+    const f = fontCssFamily(design.buttonFont);
+    css += `.enc-scope .sd-btn, .enc-scope .sd-navigation button, .enc-scope .sd-action__content { font-family: ${f} !important; }\n`;
   }
   return css;
 }

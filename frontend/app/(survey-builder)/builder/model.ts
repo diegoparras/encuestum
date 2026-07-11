@@ -365,7 +365,12 @@ export interface StateScreenConfig {
 }
 
 export interface DesignSettings {
-  fontFamily: string; // one of FONT_OPTIONS ids
+  fontFamily: string; // fuente base (one of FONT_OPTIONS ids)
+  // Fuentes por rol (opcionales): si están vacías usan la base. Permiten una
+  // tipografía distinta para títulos, preguntas y botones.
+  titleFont?: string;
+  questionFont?: string;
+  buttonFont?: string;
   mode?: "light" | "dark"; // color scheme of the survey (default light)
   textColor?: string; // question title/description/main text color (overrides mode default)
   transparentQuestions?: boolean; // remove the white card behind questions so the background shows through
@@ -1539,6 +1544,9 @@ export function designToTheme(accent: string, design: DesignSettings): Record<st
   }
   t._encuestum = {
     fontFamily: design.fontFamily,
+    titleFont: design.titleFont ?? null,
+    questionFont: design.questionFont ?? null,
+    buttonFont: design.buttonFont ?? null,
     mode: design.mode ?? "light",
     textColor: design.textColor ?? null,
     transparentQuestions: !!design.transparentQuestions,
@@ -1571,8 +1579,13 @@ export function themeToDesign(theme: Record<string, any> | null | undefined): De
   const font = typeof e.fontFamily === "string" && fontById(e.fontFamily).id === e.fontFamily
     ? e.fontFamily
     : "system";
+  const roleFont = (v: any) =>
+    typeof v === "string" && v ? v : undefined;
   return {
     fontFamily: font,
+    titleFont: roleFont(e.titleFont),
+    questionFont: roleFont(e.questionFont),
+    buttonFont: roleFont(e.buttonFont),
     mode: e.mode === "dark" || theme?.colorPalette === "dark" ? "dark" : "light",
     textColor: e.textColor || theme?.cssVariables?.["--sjs-font-questiontitle-color"] || undefined,
     transparentQuestions: !!e.transparentQuestions,

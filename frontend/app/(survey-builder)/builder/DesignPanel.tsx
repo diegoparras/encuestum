@@ -69,6 +69,10 @@ export function DesignPanel({
   // Buscador de tipografías: query en vivo + versión con debounce (~150ms).
   const [fontQuery, setFontQuery] = useState("");
   const [debouncedFontQuery, setDebouncedFontQuery] = useState("");
+  // Rol que edita el picker de tipografía: base, títulos, preguntas o botones.
+  const [fontRole, setFontRole] = useState<
+    "fontFamily" | "titleFont" | "questionFont" | "buttonFont"
+  >("fontFamily");
 
   // Preload every visible font so the type list previews in its real face.
   useEffect(() => {
@@ -113,6 +117,14 @@ export function DesignPanel({
   if (!open) return null;
 
   const patch = (p: Partial<DesignSettings>) => onChange({ ...design, ...p });
+  // Tipografía por rol: el picker edita `fontRole`. La base siempre tiene valor;
+  // los demás roles vacíos = heredan la base.
+  const activeFont = ((design as any)[fontRole] as string | undefined) ?? "";
+  const setFont = (id: string) =>
+    patch({ [fontRole]: id } as unknown as Partial<DesignSettings>);
+  const clearFont = () =>
+    patch({ [fontRole]: undefined } as unknown as Partial<DesignSettings>);
+  const previewFont = activeFont || design.fontFamily; // para muestras
 
   const audio = design.audio ?? null;
   const patchAudio = (p: Partial<AudioSettings>) => {
@@ -168,6 +180,41 @@ export function DesignPanel({
 
           {/* Tipografía */}
           <Section icon={<Type className="w-4 h-4" />} title={t("builder.design.typography")}>
+            {/* Rol: qué edita el picker (base, títulos, preguntas, botones) */}
+            <div className="mb-2.5 grid grid-cols-4 gap-1.5">
+              {([
+                ["fontFamily", "fontRoleBase"],
+                ["titleFont", "fontRoleTitle"],
+                ["questionFont", "fontRoleQuestion"],
+                ["buttonFont", "fontRoleButton"],
+              ] as const).map(([role, key]) => (
+                <button
+                  key={role}
+                  type="button"
+                  onClick={() => setFontRole(role)}
+                  className={`rounded-lg border px-1.5 py-1.5 text-xs font-medium transition-colors ${
+                    fontRole === role
+                      ? "border-[#8faf0e] bg-[#8faf0e0a] text-neutral-800 dark:text-neutral-100"
+                      : "border-neutral-200 text-neutral-500 hover:border-neutral-300 dark:border-neutral-700 dark:text-neutral-400"
+                  }`}
+                >
+                  {t(`builder.design.${key}`)}
+                </button>
+              ))}
+            </div>
+            {fontRole !== "fontFamily" && (
+              <button
+                type="button"
+                onClick={clearFont}
+                className={`mb-3 w-full rounded-lg border px-3 py-2 text-xs font-medium transition-colors ${
+                  activeFont === ""
+                    ? "border-[#8faf0e] bg-[#8faf0e0a] text-neutral-800 dark:text-neutral-100"
+                    : "border-neutral-200 text-neutral-500 hover:border-neutral-300 dark:border-neutral-700 dark:text-neutral-400"
+                }`}
+              >
+                {t("builder.design.fontSameAsBase")}
+              </button>
+            )}
             {/* Buscador de Google Fonts */}
             <div className="relative mb-3">
               <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-neutral-400 dark:text-neutral-500" />
@@ -183,14 +230,14 @@ export function DesignPanel({
             {searchingFonts ? (
               <>
                 {/* Chip "Actual" cuando la fuente aplicada no está en los resultados */}
-                {!filteredFonts.some((f) => f.id === design.fontFamily) && (
+                {activeFont && !filteredFonts.some((f) => f.id === activeFont) && (
                   <div className="mb-2 inline-flex max-w-full items-center gap-1.5 rounded-full border border-[#8faf0e] bg-[#8faf0e0a] px-2.5 py-1 text-xs text-neutral-700 dark:text-neutral-300">
                     <span className="text-neutral-400 dark:text-neutral-500">{t("builder.design.current")}</span>
                     <span
                       className="truncate"
-                      style={{ fontFamily: fontCssFamily(design.fontFamily) }}
+                      style={{ fontFamily: fontCssFamily(activeFont) }}
                     >
-                      {design.fontFamily === "system" ? t("builder.font.system") : fontById(design.fontFamily).label}
+                      {activeFont === "system" ? t("builder.font.system") : fontById(activeFont).label}
                     </span>
                   </div>
                 )}
@@ -202,12 +249,12 @@ export function DesignPanel({
                 ) : (
                   <ul className="max-h-[320px] space-y-1 overflow-y-auto pr-1">
                     {filteredFonts.map((f) => {
-                      const active = design.fontFamily === f.id;
+                      const active = activeFont === f.id;
                       return (
                         <li key={f.id}>
                           <button
                             type="button"
-                            onClick={() => patch({ fontFamily: f.id })}
+                            onClick={() => setFont(f.id)}
                             className={`flex w-full items-center gap-2 rounded-lg border px-3 py-2.5 text-left transition-colors ${
                               active
                                 ? "border-[#8faf0e] bg-[#8faf0e0a]"
@@ -238,12 +285,12 @@ export function DesignPanel({
             ) : (
               <div className="grid grid-cols-2 gap-2">
                 {FONT_OPTIONS.map((f) => {
-                  const active = design.fontFamily === f.id;
+                  const active = activeFont === f.id;
                   return (
                     <button
                       key={f.id}
                       type="button"
-                      onClick={() => patch({ fontFamily: f.id })}
+                      onClick={() => setFont(f.id)}
                       className={`relative rounded-lg border px-3 py-3 text-left transition-colors ${
                         active
                           ? "border-[#8faf0e] bg-[#8faf0e0a]"

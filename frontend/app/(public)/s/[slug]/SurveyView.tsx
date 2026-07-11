@@ -18,6 +18,7 @@ import {
   buttonOverrideCss,
   cardsCss,
   ENC_ALIGN_CSS,
+  fontsCss,
   loadFont,
   resolveAssetUrl,
 } from "../../../(survey-builder)/builder/design";
@@ -507,8 +508,10 @@ export default function SurveyView({ slug }: { slug: string }) {
 
   const design = useMemo(() => themeToDesign(data?.theme), [data]);
   useEffect(() => {
-    loadFont(design.fontFamily);
-  }, [design.fontFamily]);
+    for (const f of [design.fontFamily, design.titleFont, design.questionFont, design.buttonFont]) {
+      if (f) loadFont(f);
+    }
+  }, [design.fontFamily, design.titleFont, design.questionFont, design.buttonFont]);
 
   // Tokens de personalización en la pantalla de gracias: {nombrePregunta} se
   // reemplaza por la respuesta del participante (ej. "¡Gracias, {nombre}!").
@@ -678,7 +681,8 @@ export default function SurveyView({ slug }: { slug: string }) {
           ENC_ALIGN_CSS +
           cardsCss(design.mode === "dark") +
           buttonOverrideCss(design.buttonColor, design.buttonShadow) +
-          perQuestionStyleCss(data?.json_schema, design)}
+          perQuestionStyleCss(data?.json_schema, design) +
+          fontsCss(design)}
       </style>
       {brandingHeader}
       {submitting && (

@@ -7,7 +7,7 @@ import "survey-core/survey-core.min.css";
 import "survey-core/i18n/spanish";
 import { Monitor, Smartphone } from "lucide-react";
 import { DesignSettings, DEFAULT_DESIGN, designToTheme, perQuestionStyleCss } from "./model";
-import { absolutizeAssets, buttonOverrideCss, cardsCss, ENC_ALIGN_CSS, loadFont, resolveAssetUrl } from "./design";
+import { absolutizeAssets, buttonOverrideCss, cardsCss, ENC_ALIGN_CSS, fontsCss, loadFont, resolveAssetUrl } from "./design";
 import { registerVideoResponseQuestion } from "../../(public)/s/[slug]/VideoResponseQuestion";
 import { ChatSurveyView } from "../../(public)/s/[slug]/ChatSurveyView";
 import { useI18n } from "@/lib/i18n";
@@ -33,8 +33,10 @@ export function LivePreview({ schema, accent, design, language }: Props) {
   const d = design ?? DEFAULT_DESIGN;
 
   useEffect(() => {
-    loadFont(d.fontFamily);
-  }, [d.fontFamily]);
+    for (const f of [d.fontFamily, d.titleFont, d.questionFont, d.buttonFont]) {
+      if (f) loadFont(f);
+    }
+  }, [d.fontFamily, d.titleFont, d.questionFont, d.buttonFont]);
 
   // Debounce so typing in the properties panel doesn't rebuild on every keystroke.
   const [debounced, setDebounced] = useState(schema);
@@ -111,7 +113,8 @@ export function LivePreview({ schema, accent, design, language }: Props) {
               {ENC_ALIGN_CSS +
                 cardsCss(d.mode === "dark") +
                 buttonOverrideCss(d.buttonColor, d.buttonShadow) +
-                perQuestionStyleCss(debounced, d)}
+                perQuestionStyleCss(debounced, d) +
+                fontsCss(d)}
             </style>
             {d.coverImage && !d.chat && (
               // eslint-disable-next-line @next/next/no-img-element
