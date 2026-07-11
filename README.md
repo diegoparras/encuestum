@@ -194,6 +194,8 @@ Todo se configura por env con prefijo `ENCUESTUM_*`. Ver [`.env.example`](.env.e
 
 ## 🗄️ Almacenamiento externo (Cloudflare R2 / S3)
 
+> 📖 **Guía completa** (R2, S3, MinIO, CORS, migración, troubleshooting): [`docs/ALMACENAMIENTO_EXTERNO.md`](docs/ALMACENAMIENTO_EXTERNO.md).
+
 Por defecto, los archivos que suben los respondientes (videos, adjuntos) se guardan en el **disco** del contenedor (`ENCUESTUM_DATA_DIR/assets`). Perfecto para empezar, pero **no escala** ni sobrevive a un contenedor efímero. Para producción, usá **almacenamiento de objetos**.
 
 ### Cómo funciona (por qué no te explota el servidor)
@@ -332,8 +334,11 @@ CI (GitHub Actions) corre ambos en cada push/PR.
 
 ## 🔐 Seguridad
 
+> 📖 **Guía completa** (captcha proof-of-work, rate-limit, anti-SSRF, proxy/HSTS, checklist de producción): [`docs/SEGURIDAD.md`](docs/SEGURIDAD.md).
+
 - Sesiones firmadas (JWT en cookie httpOnly), contraseñas con **bcrypt**.
 - **Aislamiento multi-tenant** verificado (sin IDOR entre organizaciones).
+- **Captcha anti-bot proof-of-work** (opcional, por encuesta) — self-hosted, sin terceros ni keys.
 - **Anti-SSRF** en webhooks y en el base URL de proveedores IA.
 - **Rate limiting** por IP en los endpoints públicos (submit, acceso, códigos).
 - **Least-privilege**: operaciones destructivas y export solo para admin+.
@@ -341,6 +346,9 @@ CI (GitHub Actions) corre ambos en cada push/PR.
 - **Fijá `ENCUESTUM_SESSION_SECRET` y `ENCUESTUM_COOKIE_SECURE=true` en producción.**
 
 ¿Encontraste una vulnerabilidad? Reportala en privado (no abras un issue público).
+
+### 🔗 Federación con la Suite (Lockatus / SSO)
+Encuestum usa **cuentas locales**. La federación con [**Lockatus**](docs/LOCKATUS.md) (el SSO OIDC de la Suite Escriba: login unificado + 2FA + roles) está **documentada pero aún no implementada** — ver [`docs/LOCKATUS.md`](docs/LOCKATUS.md) para el diseño y qué falta construir.
 
 ---
 
