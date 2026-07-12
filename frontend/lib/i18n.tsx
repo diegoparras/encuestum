@@ -62,6 +62,14 @@ const en: Dict = {
   "common.disconnected.title": "No connection to the server",
   "common.disconnected.body":
     "We couldn't reach Encuestum. Check your connection or wait a few seconds — we retry automatically.",
+  // Aviso para móviles (solo en el builder, una vez por sesión)
+  "mobileNotice.eyebrow": "Recommendation",
+  "mobileNotice.title": "Best on a computer",
+  "mobileNotice.body":
+    "The survey builder is a three-panel workspace designed for a large screen. To create and edit comfortably, we recommend using a computer.",
+  "mobileNotice.zoomTip":
+    "On a phone you can lower your browser's zoom until it fits — some devices need around 50%. Even then the question preview may be cramped, so a computer is best for editing.",
+  "mobileNotice.dismiss": "Got it",
 };
 
 const es: Dict = {
@@ -96,6 +104,13 @@ const es: Dict = {
   "common.disconnected.title": "Sin conexión con el servidor",
   "common.disconnected.body":
     "No pudimos contactar a Encuestum. Revisá tu conexión o esperá unos segundos — reintentamos solos.",
+  "mobileNotice.eyebrow": "Recomendación",
+  "mobileNotice.title": "Mejor desde un ordenador",
+  "mobileNotice.body":
+    "El editor de encuestas es un espacio de tres paneles pensado para una pantalla grande. Para construir y editar con comodidad, te recomendamos usar un ordenador.",
+  "mobileNotice.zoomTip":
+    "En un móvil podés reducir el zoom del navegador hasta que entre — algunos dispositivos necesitan bajarlo cerca del 50 %. Aun así, la vista previa de las preguntas puede quedar limitada, así que lo ideal para editar es un ordenador.",
+  "mobileNotice.dismiss": "Entendido",
 };
 
 const fr: Dict = {
@@ -130,6 +145,13 @@ const fr: Dict = {
   "common.disconnected.title": "Pas de connexion au serveur",
   "common.disconnected.body":
     "Impossible de contacter Encuestum. Vérifiez votre connexion ou patientez quelques secondes — nous réessayons automatiquement.",
+  "mobileNotice.eyebrow": "Recommandation",
+  "mobileNotice.title": "Mieux sur un ordinateur",
+  "mobileNotice.body":
+    "L'éditeur d'enquêtes est un espace à trois panneaux conçu pour un grand écran. Pour créer et modifier confortablement, nous vous recommandons d'utiliser un ordinateur.",
+  "mobileNotice.zoomTip":
+    "Sur un téléphone, vous pouvez réduire le zoom du navigateur jusqu'à ce que tout tienne — certains appareils doivent descendre autour de 50 %. Même ainsi, l'aperçu des questions peut rester à l'étroit : un ordinateur reste idéal pour l'édition.",
+  "mobileNotice.dismiss": "Compris",
 };
 
 const pt: Dict = {
@@ -164,6 +186,13 @@ const pt: Dict = {
   "common.disconnected.title": "Sem conexão com o servidor",
   "common.disconnected.body":
     "Não conseguimos contatar o Encuestum. Verifique sua conexão ou aguarde alguns segundos — tentamos de novo sozinhos.",
+  "mobileNotice.eyebrow": "Recomendação",
+  "mobileNotice.title": "Melhor em um computador",
+  "mobileNotice.body":
+    "O editor de pesquisas é um espaço de três painéis pensado para uma tela grande. Para criar e editar com conforto, recomendamos usar um computador.",
+  "mobileNotice.zoomTip":
+    "No celular você pode reduzir o zoom do navegador até caber — alguns aparelhos precisam baixar para cerca de 50 %. Mesmo assim, a prévia das perguntas pode ficar apertada, então o ideal para editar é um computador.",
+  "mobileNotice.dismiss": "Entendi",
 };
 
 const it: Dict = {
@@ -198,6 +227,13 @@ const it: Dict = {
   "common.disconnected.title": "Nessuna connessione al server",
   "common.disconnected.body":
     "Non siamo riusciti a contattare Encuestum. Controlla la connessione o attendi qualche secondo — riproviamo da soli.",
+  "mobileNotice.eyebrow": "Consiglio",
+  "mobileNotice.title": "Meglio da un computer",
+  "mobileNotice.body":
+    "L'editor dei sondaggi è uno spazio a tre pannelli pensato per uno schermo grande. Per creare e modificare comodamente ti consigliamo di usare un computer.",
+  "mobileNotice.zoomTip":
+    "Su un telefono puoi ridurre lo zoom del browser finché tutto entra — alcuni dispositivi devono scendere intorno al 50 %. Anche così l'anteprima delle domande può risultare stretta, quindi per modificare è meglio un computer.",
+  "mobileNotice.dismiss": "Ho capito",
 };
 
 const zh: Dict = {
@@ -232,6 +268,13 @@ const zh: Dict = {
   "common.disconnected.title": "无法连接服务器",
   "common.disconnected.body":
     "我们无法连接到 Encuestum。请检查网络连接或稍候片刻——系统会自动重试。",
+  "mobileNotice.eyebrow": "建议",
+  "mobileNotice.title": "在电脑上体验更佳",
+  "mobileNotice.body":
+    "问卷编辑器是为大屏幕设计的三栏工作区。为了顺畅地创建和编辑，建议使用电脑。",
+  "mobileNotice.zoomTip":
+    "在手机上，你可以降低浏览器缩放直到能完整显示——有些设备需要降到约 50%。即便如此，问题预览仍可能显得局促，因此编辑时最好使用电脑。",
+  "mobileNotice.dismiss": "知道了",
 };
 
 const ja: Dict = {
@@ -266,6 +309,13 @@ const ja: Dict = {
   "common.disconnected.title": "サーバーに接続できません",
   "common.disconnected.body":
     "Encuestum に接続できませんでした。接続を確認するか、数秒お待ちください — 自動的に再試行します。",
+  "mobileNotice.eyebrow": "おすすめ",
+  "mobileNotice.title": "パソコンでの利用がおすすめ",
+  "mobileNotice.body":
+    "アンケートエディターは大きな画面向けに設計された3ペインの作業スペースです。快適に作成・編集するにはパソコンのご利用をおすすめします。",
+  "mobileNotice.zoomTip":
+    "スマートフォンではブラウザのズームを下げて全体が収まるように調整できます。端末によっては50%程度まで下げる必要があります。それでも設問のプレビューは窮屈になることがあるため、編集にはパソコンが最適です。",
+  "mobileNotice.dismiss": "了解",
 };
 
 const BASE_DICTS: Record<Lang, Dict> = { en, es, fr, pt, it, zh, ja };

@@ -548,8 +548,12 @@ export default function SurveyEditorPage() {
         </div>
       )}
 
-      {/* Three-pane editor */}
-      <div className="flex flex-1 min-h-0">
+      {/* Three-pane editor. En pantallas chicas mantenemos un ancho mínimo y
+          dejamos scroll horizontal: así, al reducir el zoom del navegador, los
+          tres paneles conservan su tamaño y la vista previa sigue siendo legible
+          (en vez de que el panel central se aplaste a una franja). */}
+      <div className="flex flex-1 min-h-0 overflow-x-auto">
+        <div className="flex h-full w-full min-w-[900px]">
         <aside className="w-[300px] shrink-0 border-r border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-950">
           <QuestionListPanel
             questions={state.questions}
@@ -621,6 +625,7 @@ export default function SurveyEditorPage() {
             </div>
           )}
         </aside>
+        </div>
       </div>
 
       <DesignPanel

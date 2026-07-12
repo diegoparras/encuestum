@@ -23,6 +23,7 @@ import {
 import { getMe, logout, switchOrg, type Me } from "@/utils/auth";
 import { getApiUrl } from "@/utils/api";
 import { MeProvider } from "./MeContext";
+import { MobileNotice } from "./MobileNotice";
 import { cn } from "@/lib/utils";
 import { EncuestumLogo } from "@/components/EncuestumLogo";
 import { useI18n, LANGS, LANG_LABELS } from "@/lib/i18n";
@@ -435,6 +436,7 @@ export default function AppShell({ children }: { children: React.ReactNode }) {
 
         <main className="mx-auto max-w-6xl px-4 py-6 sm:px-6 sm:py-8">{children}</main>
       </div>
+      <MobileNotice />
     </MeProvider>
   );
 }
