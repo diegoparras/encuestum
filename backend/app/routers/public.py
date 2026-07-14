@@ -60,8 +60,12 @@ def _valid_access(s: Survey, token: str | None) -> bool:
 
 async def _visible(slug: str, session: AsyncSession) -> Survey:
     """A survey that has been published at least once (published or closed).
-    Drafts / unknown slugs are 404 — they never existed publicly."""
-    s = await session.scalar(select(Survey).where(Survey.slug == slug))
+    Drafts / unknown slugs are 404 — they never existed publicly. Una encuesta en
+    la papelera (deleted_at) también es 404: al borrarla debe dejar de responderse
+    de inmediato, aunque siga siendo restaurable."""
+    s = await session.scalar(
+        select(Survey).where(Survey.slug == slug, Survey.deleted_at.is_(None))
+    )
     if not s or s.status == "draft":
         raise HTTPException(status_code=404, detail="Survey not available")
     return s

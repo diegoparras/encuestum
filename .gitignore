@@ -15,3 +15,6 @@ app_data/
 .env*.local
 # OS
 .DS_Store
+
+# Local dev helpers (rutas absolutas por máquina)
+.claude/

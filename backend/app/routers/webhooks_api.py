@@ -91,7 +91,7 @@ async def create_webhook(
         raise HTTPException(status_code=422, detail=str(exc))
     if payload.survey_id:
         s = await session.get(Survey, payload.survey_id)
-        if not s or s.org_id != org_id:
+        if not s or s.org_id != org_id or s.deleted_at is not None:
             raise HTTPException(status_code=404, detail="Encuesta no encontrada")
     w = Webhook(org_id=org_id, url=payload.url, survey_id=payload.survey_id, created_by=user.id)
     session.add(w)

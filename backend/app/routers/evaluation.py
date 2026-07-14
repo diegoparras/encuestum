@@ -16,7 +16,7 @@ router = APIRouter(prefix="/surveys", tags=["evaluation"])
 
 async def _survey_or_404(sid, org_id, session):
     s = await session.get(Survey, sid)
-    if not s or s.org_id != org_id:
+    if not s or s.org_id != org_id or s.deleted_at is not None:
         raise HTTPException(status_code=404, detail="Survey not found")
     return s
 

@@ -52,7 +52,7 @@ async def org_overview(
     user: User = Depends(current_user),
 ):
     await _member(session, user.id, org_id)
-    surveys = (await session.scalars(select(Survey).where(Survey.org_id == org_id))).all()
+    surveys = (await session.scalars(select(Survey).where(Survey.org_id == org_id, Survey.deleted_at.is_(None)))).all()
     counts = await _response_counts(session, [s.id for s in surveys])
     members = await session.scalar(
         select(func.count(Membership.id)).where(Membership.org_id == org_id)
@@ -85,7 +85,9 @@ async def org_export(
     await _member(session, user.id, org_id)
     surveys = (
         await session.scalars(
-            select(Survey).where(Survey.org_id == org_id).order_by(Survey.created_at.asc())
+            select(Survey)
+            .where(Survey.org_id == org_id, Survey.deleted_at.is_(None))
+            .order_by(Survey.created_at.asc())
         )
     ).all()
     sheets = []
@@ -160,7 +162,7 @@ async def admin_export(
     orgs = (await session.scalars(select(Organization).order_by(Organization.created_at.asc()))).all()
     org_sheet = [["organización", "slug", "encuestas", "respuestas", "miembros", "creada"]]
     for o in orgs:
-        sids = [s.id for s in (await session.scalars(select(Survey).where(Survey.org_id == o.id))).all()]
+        sids = [s.id for s in (await session.scalars(select(Survey).where(Survey.org_id == o.id, Survey.deleted_at.is_(None)))).all()]
         counts = await _response_counts(session, sids)
         members = await session.scalar(
             select(func.count(Membership.id)).where(Membership.org_id == o.id)

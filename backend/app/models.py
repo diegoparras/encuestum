@@ -227,6 +227,13 @@ class Survey(SQLModel, table=True):
     evaluation: Optional[dict] = Field(sa_column=Column(JSON), default=None)
     # Cached grounded AI insights over open-text answers.
     insights: Optional[dict] = Field(sa_column=Column(JSON), default=None)
+    # Papelera (soft-delete): al borrar se marca la fecha en vez de destruir la
+    # encuesta y sus respuestas. Una encuesta en la papelera no se lista, no se
+    # edita y — crítico — deja de responderse desde su link público. Se puede
+    # restaurar, o purgar definitivamente (ahí sí se borra de verdad).
+    deleted_at: Optional[datetime] = Field(
+        sa_column=Column(DateTime(timezone=True), index=True), default=None
+    )
     created_at: datetime = Field(
         sa_column=Column(DateTime(timezone=True), nullable=False, default=_utcnow)
     )

@@ -61,6 +61,8 @@ class SurveySummary(BaseModel):
     is_evaluation: bool
     created_at: datetime
     updated_at: datetime
+    # Solo lo completa el listado de la papelera; en el listado normal va en None.
+    deleted_at: Optional[datetime] = None
 
 
 class SurveyDetail(BaseModel):

@@ -4,7 +4,17 @@ import React, { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Plus, ExternalLink, Loader2, LayoutTemplate, X, Copy } from "lucide-react";
+import {
+  Plus,
+  ExternalLink,
+  Loader2,
+  LayoutTemplate,
+  X,
+  Copy,
+  Trash2,
+  RotateCcw,
+  AlertTriangle,
+} from "lucide-react";
 import {
   surveyApi,
   SurveySummary,
@@ -39,6 +49,37 @@ export default function SurveysListPage() {
   const [galleryOpen, setGalleryOpen] = useState(false);
   const [creatingId, setCreatingId] = useState<string | null>(null);
   const [duplicatingId, setDuplicatingId] = useState<string | null>(null);
+  const [trashOpen, setTrashOpen] = useState(false);
+  const [trashingId, setTrashingId] = useState<string | null>(null);
+
+  // Borrar manda a la papelera (nada se destruye). Ofrecemos deshacer en el
+  // toast, que es el momento en que el usuario se da cuenta del error.
+  async function trashSurvey(id: string) {
+    if (trashingId) return;
+    setTrashingId(id);
+    try {
+      await surveyApi.remove(id);
+      reload();
+      toast.success(t("surveys.toast.trashed"), {
+        action: {
+          label: t("surveys.undo"),
+          onClick: async () => {
+            try {
+              await surveyApi.restore(id);
+              reload();
+              toast.success(t("surveys.toast.restored"));
+            } catch (e: any) {
+              toast.error(e?.message || t("surveys.toast.restoreError"));
+            }
+          },
+        },
+      });
+    } catch (e: any) {
+      toast.error(e?.message || t("surveys.toast.trashError"));
+    } finally {
+      setTrashingId(null);
+    }
+  }
 
   async function createSurvey() {
     setCreating(true);
@@ -90,6 +131,14 @@ export default function SurveysListPage() {
           </p>
         </div>
         <div className="flex items-center gap-2">
+          <button
+            onClick={() => setTrashOpen(true)}
+            title={t("surveys.trash")}
+            className="inline-flex items-center gap-2 rounded-lg border border-neutral-300 dark:border-neutral-700 px-4 py-2 text-sm font-medium hover:bg-neutral-50 dark:hover:bg-neutral-800"
+          >
+            <Trash2 className="w-4 h-4" />
+            {t("surveys.trash")}
+          </button>
           <button
             onClick={() => setGalleryOpen(true)}
             className="inline-flex items-center gap-2 rounded-lg border border-neutral-300 dark:border-neutral-700 px-4 py-2 text-sm font-medium hover:bg-neutral-50 dark:hover:bg-neutral-800"
@@ -189,10 +238,30 @@ export default function SurveysListPage() {
                   )}
                   {t("surveys.duplicate")}
                 </button>
+                <button
+                  onClick={() => trashSurvey(s.id)}
+                  disabled={!!trashingId}
+                  title={t("surveys.deleteTitle")}
+                  className="inline-flex items-center gap-1 text-sm text-neutral-500 dark:text-neutral-400 hover:text-red-600 dark:hover:text-red-400 disabled:opacity-50"
+                >
+                  {trashingId === s.id ? (
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                  ) : (
+                    <Trash2 className="w-3.5 h-3.5" />
+                  )}
+                  {t("surveys.delete")}
+                </button>
               </div>
             </div>
           ))}
         </div>
+      )}
+
+      {trashOpen && (
+        <TrashPanel
+          onClose={() => setTrashOpen(false)}
+          onRestored={reload}
+        />
       )}
 
       {galleryOpen && (
@@ -204,6 +273,175 @@ export default function SurveysListPage() {
           onPick={createFromTemplate}
         />
       )}
+    </div>
+  );
+}
+
+// Papelera: restaurar es de un click; eliminar del todo pide una segunda
+// confirmación en el propio botón (sin un confirm() nativo que se acepta sin
+// leer), porque ahí sí se destruyen la encuesta y todas sus respuestas.
+function TrashPanel({
+  onClose,
+  onRestored,
+}: {
+  onClose: () => void;
+  onRestored: () => void;
+}) {
+  const { t, lang } = useI18n();
+  const { data: trashed, status, error, reload } = useAsyncData(
+    () => surveyApi.listTrash(),
+    []
+  );
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [confirmId, setConfirmId] = useState<string | null>(null);
+
+  async function restore(id: string) {
+    if (busyId) return;
+    setBusyId(id);
+    try {
+      await surveyApi.restore(id);
+      toast.success(t("surveys.toast.restored"));
+      reload();
+      onRestored();
+    } catch (e: any) {
+      toast.error(e?.message || t("surveys.toast.restoreError"));
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  async function purge(id: string) {
+    if (confirmId !== id) {
+      setConfirmId(id); // primer click: pedir confirmación
+      return;
+    }
+    if (busyId) return;
+    setBusyId(id);
+    try {
+      await surveyApi.purge(id);
+      toast.success(t("surveys.toast.purged"));
+      setConfirmId(null);
+      reload();
+    } catch (e: any) {
+      toast.error(e?.message || t("surveys.toast.purgeError"));
+    } finally {
+      setBusyId(null);
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 px-4 py-10"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-2xl rounded-2xl bg-white dark:bg-neutral-900 shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-start justify-between border-b border-neutral-200 dark:border-neutral-800 px-6 py-4">
+          <div>
+            <h2 className="flex items-center gap-2 text-lg font-semibold">
+              <Trash2 className="h-5 w-5 text-neutral-400" />
+              {t("surveys.trash.title")}
+            </h2>
+            <p className="mt-0.5 text-sm text-neutral-500 dark:text-neutral-400">
+              {t("surveys.trash.subtitle")}
+            </p>
+          </div>
+          <button
+            onClick={onClose}
+            className="rounded-md p-1 text-neutral-400 hover:bg-neutral-100 hover:text-neutral-700 dark:text-neutral-500 dark:hover:bg-neutral-800 dark:hover:text-neutral-300"
+            aria-label={t("surveys.closeModal")}
+          >
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+
+        <div className="p-6">
+          {status === "loading" && (
+            <div className="flex items-center gap-2 text-sm text-neutral-500 dark:text-neutral-400">
+              <Loader2 className="h-4 w-4 animate-spin" /> {t("surveys.loading")}
+            </div>
+          )}
+
+          {status === "error" && <LoadError message={error} onRetry={reload} compact />}
+
+          {trashed && trashed.length === 0 && (
+            <p className="py-10 text-center text-sm text-neutral-500 dark:text-neutral-400">
+              {t("surveys.trash.empty")}
+            </p>
+          )}
+
+          {trashed && trashed.length > 0 && (
+            <div className="divide-y divide-neutral-200 rounded-xl border border-neutral-200 dark:divide-neutral-800 dark:border-neutral-800">
+              {trashed.map((s) => (
+                <div key={s.id} className="px-4 py-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="truncate font-medium">
+                        {s.title || t("surveys.untitled")}
+                      </p>
+                      <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-neutral-500 dark:text-neutral-400">
+                        <span>{t("surveys.responsesCount", { n: s.response_count })}</span>
+                        {s.deleted_at && (
+                          <span>
+                            {t("surveys.trash.deletedAt", {
+                              d: new Date(s.deleted_at).toLocaleDateString(lang, {
+                                day: "numeric",
+                                month: "short",
+                                year: "numeric",
+                              }),
+                            })}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-3">
+                      <button
+                        onClick={() => restore(s.id)}
+                        disabled={!!busyId}
+                        className="inline-flex items-center gap-1 text-sm font-medium text-neutral-600 hover:text-neutral-900 disabled:opacity-50 dark:text-neutral-300 dark:hover:text-neutral-100"
+                      >
+                        {busyId === s.id && confirmId !== s.id ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <RotateCcw className="h-3.5 w-3.5" />
+                        )}
+                        {t("surveys.trash.restore")}
+                      </button>
+                      <button
+                        onClick={() => purge(s.id)}
+                        disabled={!!busyId}
+                        className={`inline-flex items-center gap-1 rounded-md px-2 py-1 text-sm font-medium disabled:opacity-50 ${
+                          confirmId === s.id
+                            ? "bg-red-600 text-white hover:bg-red-700"
+                            : "text-red-600 hover:bg-red-50 dark:hover:bg-red-950/40"
+                        }`}
+                      >
+                        {busyId === s.id && confirmId === s.id ? (
+                          <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        ) : (
+                          <Trash2 className="h-3.5 w-3.5" />
+                        )}
+                        {confirmId === s.id
+                          ? t("surveys.trash.purgeConfirm")
+                          : t("surveys.trash.purge")}
+                      </button>
+                    </div>
+                  </div>
+
+                  {confirmId === s.id && (
+                    <p className="mt-2 flex items-start gap-1.5 rounded-lg bg-red-50 p-2 text-xs text-red-700 dark:bg-red-950/40 dark:text-red-300">
+                      <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+                      {t("surveys.trash.purgeWarning")}
+                    </p>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

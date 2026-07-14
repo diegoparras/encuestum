@@ -33,9 +33,16 @@ def _normalize_slug(raw: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", (raw or "").strip().lower()).strip("-")
 
 
-async def _survey_or_404(sid: uuid.UUID, org_id: uuid.UUID, session: AsyncSession) -> Survey:
+async def _survey_or_404(
+    sid: uuid.UUID, org_id: uuid.UUID, session: AsyncSession, *, include_deleted: bool = False
+) -> Survey:
+    """Una encuesta en la papelera es 404 para todo el resto de la app: no se
+    edita, no se publica, no se exporta. Solo los endpoints de la papelera
+    (restaurar / purgar) pasan include_deleted=True."""
     s = await session.get(Survey, sid)
     if not s or s.org_id != org_id:
+        raise HTTPException(status_code=404, detail="Survey not found")
+    if s.deleted_at is not None and not include_deleted:
         raise HTTPException(status_code=404, detail="Survey not found")
     return s
 
@@ -72,7 +79,9 @@ async def list_surveys(
 ):
     surveys = (
         await session.scalars(
-            select(Survey).where(Survey.org_id == ctx.org.id).order_by(Survey.updated_at.desc())
+            select(Survey)
+            .where(Survey.org_id == ctx.org.id, Survey.deleted_at.is_(None))
+            .order_by(Survey.updated_at.desc())
         )
     ).all()
     ids = [s.id for s in surveys]
@@ -225,8 +234,83 @@ async def delete_survey(
     ctx: OrgContext = Depends(current_context),
     session: AsyncSession = Depends(get_session),
 ):
+    """Manda la encuesta a la papelera (soft-delete). No destruye nada: las
+    respuestas se conservan y la encuesta se puede restaurar. Deja de listarse,
+    de editarse y de responderse públicamente de inmediato."""
     _require_admin(ctx)
     s = await _survey_or_404(sid, ctx.org.id, session)
+    s.deleted_at = datetime.now(timezone.utc)
+    session.add(s)
+    await session.commit()
+
+
+@router.get("/trash/list", response_model=List[SurveySummary])
+async def list_trash(
+    ctx: OrgContext = Depends(current_context),
+    session: AsyncSession = Depends(get_session),
+):
+    """Encuestas en la papelera, las más recientemente borradas primero."""
+    _require_admin(ctx)
+    surveys = (
+        await session.scalars(
+            select(Survey)
+            .where(Survey.org_id == ctx.org.id, Survey.deleted_at.is_not(None))
+            .order_by(Survey.deleted_at.desc())
+        )
+    ).all()
+    ids = [s.id for s in surveys]
+    counts: dict = {}
+    if ids:
+        rows = (
+            await session.execute(
+                select(SurveyResponse.survey_id, func.count(SurveyResponse.id))
+                .where(SurveyResponse.survey_id.in_(ids))
+                .group_by(SurveyResponse.survey_id)
+            )
+        ).all()
+        counts = {r[0]: r[1] for r in rows}
+    return [
+        SurveySummary(
+            id=s.id, title=s.title, slug=s.slug, status=s.status, language=s.language,
+            response_count=counts.get(s.id, 0),
+            is_evaluation=bool(s.evaluation and s.evaluation.get("enabled")),
+            created_at=s.created_at, updated_at=s.updated_at, deleted_at=s.deleted_at,
+        )
+        for s in surveys
+    ]
+
+
+@router.post("/{sid}/restore", response_model=SurveyDetail)
+async def restore_survey(
+    sid: uuid.UUID,
+    ctx: OrgContext = Depends(current_context),
+    session: AsyncSession = Depends(get_session),
+):
+    """Saca la encuesta de la papelera. Vuelve con su estado y su link intactos."""
+    _require_admin(ctx)
+    s = await _survey_or_404(sid, ctx.org.id, session, include_deleted=True)
+    s.deleted_at = None
+    session.add(s)
+    await session.commit()
+    await session.refresh(s)
+    return SurveyDetail.from_model(s)
+
+
+@router.delete("/{sid}/purge", status_code=204)
+async def purge_survey(
+    sid: uuid.UUID,
+    ctx: OrgContext = Depends(current_context),
+    session: AsyncSession = Depends(get_session),
+):
+    """Borrado definitivo, irreversible: destruye la encuesta y sus respuestas.
+    Solo se permite sobre encuestas que YA están en la papelera, para que nunca
+    se pierdan datos con un solo click."""
+    _require_admin(ctx)
+    s = await _survey_or_404(sid, ctx.org.id, session, include_deleted=True)
+    if s.deleted_at is None:
+        raise HTTPException(
+            status_code=409, detail="La encuesta debe estar en la papelera para borrarse del todo"
+        )
     await session.execute(delete(SurveyResponse).where(SurveyResponse.survey_id == sid))
     await session.delete(s)
     await session.commit()

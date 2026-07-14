@@ -62,7 +62,9 @@ async def response_upload_url(
     answer) straight to storage. Rate-limited and size/type-capped."""
     await rate_limit(request, "resp-upload", limit=40, window_s=300)
     s = get_settings()
-    survey = await session.scalar(select(Survey).where(Survey.slug == slug))
+    survey = await session.scalar(
+        select(Survey).where(Survey.slug == slug, Survey.deleted_at.is_(None))
+    )
     if not survey or survey.status != "published":
         raise HTTPException(status_code=404, detail="Encuesta no disponible")
 

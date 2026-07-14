@@ -15,6 +15,8 @@ export interface SurveySummary {
   is_evaluation: boolean;
   created_at: string;
   updated_at: string;
+  /** Solo viene con valor en el listado de la papelera. */
+  deleted_at?: string | null;
 }
 
 export type AccessMode = "public" | "pin" | "list";
@@ -286,8 +288,15 @@ export const surveyApi = {
     request<SurveyDetail>(`/api/v1/survey/surveys/${id}/publish`, { method: "POST" }),
   close: (id: string) =>
     request<SurveyDetail>(`/api/v1/survey/surveys/${id}/close`, { method: "POST" }),
+  /** Manda la encuesta a la papelera. No destruye nada: es restaurable. */
   remove: (id: string) =>
     request<void>(`/api/v1/survey/surveys/${id}`, { method: "DELETE" }),
+  listTrash: () => request<SurveySummary[]>("/api/v1/survey/surveys/trash/list"),
+  restore: (id: string) =>
+    request<SurveyDetail>(`/api/v1/survey/surveys/${id}/restore`, { method: "POST" }),
+  /** Borrado definitivo e irreversible. Solo funciona desde la papelera. */
+  purge: (id: string) =>
+    request<void>(`/api/v1/survey/surveys/${id}/purge`, { method: "DELETE" }),
   responses: (id: string) =>
     request<ResponseItem[]>(`/api/v1/survey/surveys/${id}/responses`),
   getSummary: (id: string) =>
