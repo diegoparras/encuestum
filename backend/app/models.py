@@ -227,6 +227,8 @@ class Survey(SQLModel, table=True):
     evaluation: Optional[dict] = Field(sa_column=Column(JSON), default=None)
     # Cached grounded AI insights over open-text answers.
     insights: Optional[dict] = Field(sa_column=Column(JSON), default=None)
+    # Cached AI executive report (narrative over the computed aggregates).
+    report: Optional[dict] = Field(sa_column=Column(JSON), default=None)
     # Papelera (soft-delete): al borrar se marca la fecha en vez de destruir la
     # encuesta y sus respuestas. Una encuesta en la papelera no se lista, no se
     # edita y — crítico — deja de responderse desde su link público. Se puede

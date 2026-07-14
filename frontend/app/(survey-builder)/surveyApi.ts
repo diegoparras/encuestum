@@ -122,6 +122,16 @@ export interface SummaryReport {
   questions: SummaryQuestion[];
 }
 
+/** Informe ejecutivo por IA (narrativa sobre los agregados ya calculados). */
+export interface ExecutiveReport {
+  headline: string;
+  summary: string;
+  findings: { title: string; detail: string; evidence: string[] }[];
+  recommendations: string[];
+  generated_at: string;
+  response_count: number;
+}
+
 // ---- Embudo de conversión (vistas → comenzaron → completaron) ----
 
 export interface FunnelDropoff {
@@ -325,6 +335,12 @@ export const surveyApi = {
     request<void>(`/api/v1/survey/surveys/${id}/purge`, { method: "DELETE" }),
   responses: (id: string) =>
     request<ResponseItem[]>(`/api/v1/survey/surveys/${id}/responses`),
+  getReport: (id: string) =>
+    request<{ report: ExecutiveReport | null }>(`/api/v1/survey/surveys/${id}/report`),
+  generateReport: (id: string) =>
+    request<{ report: ExecutiveReport }>(`/api/v1/survey/surveys/${id}/report`, {
+      method: "POST",
+    }),
   getSummary: (
     id: string,
     opts?: { segmentBy?: string | null; filters?: SummaryFilter[] }

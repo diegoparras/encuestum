@@ -355,8 +355,13 @@ async def funnel(
 ):
     """Embudo: vistas → comenzaron → completaron, con el punto de abandono por
     pregunta (última pregunta vista por quienes no terminaron)."""
-    from app.models import SurveyVisit
     s = await _survey_or_404(sid, ctx.org.id, session)
+    return await _funnel_data(sid, s, session)
+
+
+async def _funnel_data(sid: uuid.UUID, s, session: AsyncSession) -> dict:
+    """Cálculo del embudo, reutilizable (endpoint /funnel + informe ejecutivo)."""
+    from app.models import SurveyVisit
     views = int(
         await session.scalar(
             select(func.count(SurveyVisit.id)).where(SurveyVisit.survey_id == sid)
@@ -461,6 +466,50 @@ async def response_summary(
     return build_summary(
         s.json_schema or {}, responses, filters=parsed_filters, segment_by=segment_by
     )
+
+
+@router.get("/{sid}/report")
+async def get_report(
+    sid: uuid.UUID,
+    ctx: OrgContext = Depends(current_context),
+    session: AsyncSession = Depends(get_session),
+):
+    """Devuelve el informe ejecutivo cacheado (o null si nunca se generó)."""
+    s = await _survey_or_404(sid, ctx.org.id, session)
+    return {"report": s.report}
+
+
+@router.post("/{sid}/report")
+async def generate_report(
+    sid: uuid.UUID,
+    ctx: OrgContext = Depends(current_context),
+    session: AsyncSession = Depends(get_session),
+):
+    """Genera (y cachea) el informe ejecutivo por IA. Los números los calcula el
+    servidor; la IA solo redacta la narrativa y cita evidencia textual."""
+    from app.llm_calls import generate_executive_report
+    from app.summarizing import build_report_context
+
+    s = await _survey_or_404(sid, ctx.org.id, session)
+    responses = (
+        await session.scalars(
+            select(SurveyResponse).where(SurveyResponse.survey_id == sid)
+        )
+    ).all()
+    if not responses:
+        raise HTTPException(status_code=409, detail="No hay respuestas para analizar")
+
+    funnel_data = await _funnel_data(sid, s, session)
+    context = build_report_context(s.json_schema or {}, responses, funnel=funnel_data)
+    report = await generate_executive_report(
+        language=s.language or "es", context=context
+    )
+    report = {**report, "generated_at": datetime.now(timezone.utc).isoformat(),
+              "response_count": len(responses)}
+    s.report = report
+    session.add(s)
+    await session.commit()
+    return {"report": report}
 
 
 @router.delete("/{sid}/responses/{rid}", status_code=204)

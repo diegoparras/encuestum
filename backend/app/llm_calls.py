@@ -188,3 +188,51 @@ async def summarize_open_responses(
         f"# Respuestas ({len(answers)})\n{numbered}\n"
     )
     return await llm.structured(system=SUM_SYSTEM, user=user, schema_model=OpenSummary)
+
+
+# ---- Executive report ------------------------------------------------------
+
+class ReportFinding(BaseModel):
+    title: str
+    detail: str
+    # Citas textuales de respuestas abiertas que respaldan el hallazgo (si aplica).
+    evidence: List[str] = Field(default_factory=list)
+
+
+class ExecutiveReport(BaseModel):
+    headline: str
+    summary: str
+    findings: List[ReportFinding] = Field(default_factory=list)
+    recommendations: List[str] = Field(default_factory=list)
+
+
+REPORT_SYSTEM = """
+Redactás un informe ejecutivo a partir de datos de una encuesta YA agregados.
+
+Reglas innegociables:
+1. Los números ya vienen calculados en el contexto. NO los recalcules, NO
+   inventes cifras nuevas ni porcentajes que no estén provistos. Podés citar los
+   que están.
+2. Toda cita en `evidence` debe ser una frase textual EXACTA tomada de los
+   `samples` de respuestas abiertas del contexto. Si no podés citarlo, no lo
+   afirmes como voz de la gente.
+3. `headline`: una sola frase con el hallazgo principal.
+4. `summary`: 2-4 frases que combinen lo cuantitativo (números provistos) con lo
+   cualitativo (temas de las respuestas abiertas).
+5. `findings`: 3 a 5 hallazgos concretos. Cada uno cruza un dato con su lectura;
+   sumá `evidence` textual cuando refuerce el punto.
+6. `recommendations`: acciones concretas y accionables que se desprendan de los
+   datos. Nada genérico que no salga de este contexto.
+7. Todo en el idioma indicado. Tono profesional, directo, sin relleno.
+"""
+
+
+async def generate_executive_report(*, language: str, context: dict) -> dict:
+    import json
+
+    user = (
+        f"# Idioma del informe\n{language}\n\n"
+        f"# Datos agregados de la encuesta (ya calculados)\n"
+        f"{json.dumps(context, ensure_ascii=False, indent=2)}\n"
+    )
+    return await llm.structured(system=REPORT_SYSTEM, user=user, schema_model=ExecutiveReport)

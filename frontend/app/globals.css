@@ -80,3 +80,26 @@ a {
   color: hsl(0 0% 55%);
   background: transparent;
 }
+
+/* Impresión del informe ejecutivo (Descargar PDF). Al imprimir con la clase
+   enc-printing en el body, se oculta todo menos la región del informe, que se
+   expande a la página. Técnica de visibility para funcionar sin importar la
+   profundidad del nodo en el árbol. */
+@media print {
+  body.enc-printing * {
+    visibility: hidden !important;
+  }
+  body.enc-printing .enc-print-region,
+  body.enc-printing .enc-print-region * {
+    visibility: visible !important;
+  }
+  body.enc-printing .enc-print-region {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    border: none !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+  }
+}

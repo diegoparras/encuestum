@@ -50,6 +50,16 @@ async def _fake_gen(*, topic, count, types, language, difficulty, context=None):
                            "rubric": [], "points": 1.0}]}
 
 
+async def _fake_report(*, language, context):
+    n = context.get("total_responses", 0)
+    return {
+        "headline": f"Informe sobre {n} respuestas",
+        "summary": "Resumen de prueba.",
+        "findings": [{"title": "Hallazgo", "detail": "Detalle", "evidence": []}],
+        "recommendations": ["Acción sugerida"],
+    }
+
+
 @pytest.fixture(scope="session", autouse=True)
 def _bootstrap():
     import app.grading
@@ -58,6 +68,7 @@ def _bootstrap():
     app.llm_calls.grade_open_answer = _fake_grade
     app.llm_calls.summarize_open_responses = _fake_sum
     app.llm_calls.generate_survey_questions = _fake_gen
+    app.llm_calls.generate_executive_report = _fake_report
     # Enter lifespan once to run migrations (creates the schema).
     with TestClient(fastapi_app):
         yield

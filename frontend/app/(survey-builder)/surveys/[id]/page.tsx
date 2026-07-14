@@ -34,6 +34,7 @@ import { GradesPanel } from "../../GradesPanel";
 import { GradebookPanel } from "../../GradebookPanel";
 import { InsightsPanel } from "../../InsightsPanel";
 import { FunnelCard, SummaryPanel } from "../../SummaryPanel";
+import { ReportPanel } from "../../ReportPanel";
 import { themeToAccent } from "../../builder/model";
 
 export default function SurveyDetailPage() {
@@ -65,7 +66,7 @@ export default function SurveyDetailPage() {
   const [copiedEmbed, setCopiedEmbed] = useState(false);
   const [exporting, setExporting] = useState<"csv" | "xlsx" | null>(null);
   const [duplicating, setDuplicating] = useState(false);
-  const [resultsTab, setResultsTab] = useState<"summary" | "responses">("summary");
+  const [resultsTab, setResultsTab] = useState<"summary" | "report" | "responses">("summary");
   const [evalTab, setEvalTab] = useState<"gradebook" | "grading">("gradebook");
 
   // Lista completa de respuestas: carga perezosa. `null` = todavía no pedida.
@@ -512,6 +513,7 @@ export default function SurveyDetailPage() {
                 {(
                   [
                     ["summary", t("surveys.tabSummary")],
+                    ["report", t("surveys.tabReport")],
                     [
                       "responses",
                       responses
@@ -551,6 +553,12 @@ export default function SurveyDetailPage() {
                 <FunnelCard surveyId={id} accent={themeToAccent(survey.theme)} />
                 <SummaryPanel surveyId={id} accent={themeToAccent(survey.theme)} />
               </div>
+            ) : resultsTab === "report" ? (
+              <ReportPanel
+                surveyId={id}
+                accent={themeToAccent(survey.theme)}
+                surveyTitle={survey.title || t("surveys.untitled")}
+              />
             ) : responses === null ? (
               <div className="text-sm text-neutral-400 dark:text-neutral-500">{t("surveys.loading")}</div>
             ) : responses.length === 0 ? (

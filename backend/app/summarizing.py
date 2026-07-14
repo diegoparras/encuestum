@@ -177,6 +177,74 @@ def _aggregate(el: dict, answers: list[dict]) -> dict:
     return {**base, "kind": "text", "values": [str(v) for v in vals][:200]}
 
 
+def build_report_context(schema: dict, responses: list, funnel: Optional[dict] = None) -> dict:
+    """Contexto COMPACTO y ya numérico para el informe ejecutivo por IA.
+
+    Clave del diseño anti-alucinación: acá se calculan todos los números (Python,
+    determinístico) y la IA solo los redacta. Para preguntas cerradas mandamos
+    conteos/porcentajes/promedios; para abiertas, una muestra de citas textuales
+    (que la IA podrá citar, nunca inventar)."""
+    summary = build_summary(schema, responses)
+    total = summary["total_responses"]
+    questions = []
+    for q in summary["questions"]:
+        item = {"title": q["title"], "kind": q["kind"], "answered": q["answered"]}
+        if q["kind"] == "choice":
+            item["options"] = [
+                {
+                    "label": o["label"],
+                    "count": o["count"],
+                    "percent": round(100 * o["count"] / q["answered"], 1) if q["answered"] else 0,
+                }
+                for o in q["options"]
+            ]
+        elif q["kind"] == "rating":
+            item["min"] = q["min"]
+            item["max"] = q["max"]
+            item["average"] = q["average"]
+            # NPS clásico si la escala es 0..10.
+            if q["min"] == 0 and q["max"] == 10:
+                item["nps"] = _nps_from_distribution(q["distribution"])
+        elif q["kind"] == "text":
+            # Muestra acotada de citas textuales (la IA solo puede citar de acá).
+            item["samples"] = [v for v in q["values"][:25]]
+        else:
+            continue  # archivos/otros no aportan al informe narrativo
+        questions.append(item)
+
+    ctx: dict = {"total_responses": total, "questions": questions}
+    if funnel:
+        views = funnel.get("views", 0) or 0
+        completed = funnel.get("completions", 0) or 0
+        ctx["funnel"] = {
+            "views": views,
+            "started": funnel.get("starts", 0),
+            "completed": completed,
+            "completion_rate": round(100 * completed / views, 1) if views else None,
+            "dropoff": [
+                {"question": d.get("title") or d.get("question"), "count": d.get("count", 0)}
+                for d in (funnel.get("dropoff") or [])[:3]
+            ],
+        }
+    return ctx
+
+
+def _nps_from_distribution(distribution: list[dict]) -> Optional[dict]:
+    """NPS = %promotores (9-10) - %detractores (0-6), sobre una escala 0..10."""
+    total = sum(d["count"] for d in distribution)
+    if not total:
+        return None
+    promoters = sum(d["count"] for d in distribution if d["value"] >= 9)
+    detractors = sum(d["count"] for d in distribution if d["value"] <= 6)
+    passives = total - promoters - detractors
+    return {
+        "score": round(100 * (promoters - detractors) / total),
+        "promoters": promoters,
+        "passives": passives,
+        "detractors": detractors,
+    }
+
+
 def build_summary(
     schema: dict,
     responses: list,
