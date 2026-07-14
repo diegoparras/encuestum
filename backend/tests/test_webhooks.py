@@ -1,6 +1,6 @@
 import app.routers.public as public_router
 import app.routers.webhooks_api as wa
-from app.webhooks import build_payload, sign
+from app.webhooks import sign
 from tests.conftest import new_client, register
 
 SCHEMA = {"pages": [{"name": "p", "elements": [{"type": "text", "name": "q1", "title": "x"}]}]}

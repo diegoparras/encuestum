@@ -122,7 +122,7 @@ function Celebration({
     const glyph = emoji && emoji.trim() ? emoji.trim() : "🎉";
 
     let parts: any[] = [];
-    let bursts: any[] = [];
+    const bursts: any[] = [];
     if (effect === "confetti" || effect === "emoji") {
       const N = effect === "emoji" ? 46 : 150;
       parts = Array.from({ length: N }, () => ({

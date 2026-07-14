@@ -10,9 +10,12 @@ concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
 
+permissions:
+  contents: read
+
 jobs:
   backend:
-    name: Backend (pytest)
+    name: Backend (ruff + pytest)
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -25,10 +28,12 @@ jobs:
           cache: pip
           cache-dependency-path: backend/requirements-dev.txt
       - run: pip install -r requirements-dev.txt
+      - name: Lint (ruff)
+        run: ruff check .
       - run: pytest
 
   frontend:
-    name: Frontend (build)
+    name: Frontend (lint + typecheck + build)
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -44,4 +49,44 @@ jobs:
           cache: npm
           cache-dependency-path: frontend/package-lock.json
       - run: npm ci
+      - name: Lint (eslint)
+        run: npm run lint
+      - name: Typecheck (tsc)
+        run: npm run typecheck
       - run: npx next build
+
+  secrets:
+    name: Secret scan (gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0 # gitleaks necesita el historial para escanear commits
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  audit:
+    name: Dependency audit (informativo)
+    runs-on: ubuntu-latest
+    # Informativo: reporta vulnerabilidades conocidas sin frenar el merge, para
+    # que un aviso en una dependencia transitiva no bloquee un fix urgente.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: npm audit
+        working-directory: frontend
+        run: npm audit --omit=dev
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: pip-audit
+        working-directory: backend
+        run: |
+          pip install pip-audit
+          pip-audit -r requirements.txt

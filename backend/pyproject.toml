@@ -15,3 +15,14 @@ dependencies = [
 
 [project.optional-dependencies]
 postgres = ["asyncpg>=0.29"]
+
+[tool.ruff.lint.per-file-ignores]
+# El conftest DEBE setear las variables de entorno antes de importar la app (el
+# engine y los settings leen env al importarse), así que sus imports no pueden ir
+# arriba del todo.
+"tests/conftest.py" = ["E402"]
+# Estilo compacto deliberado en los tests: `c = new_client(); register(c)`.
+"tests/*" = ["E702"]
+# Import tardío deliberado: los handlers de error de IA se registran después de
+# configurar los middlewares (ver comentario en el archivo).
+"app/main.py" = ["E402"]

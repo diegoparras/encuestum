@@ -40,6 +40,19 @@ def sign(secret: str, body: bytes) -> str:
 async def post_webhook(url: str, secret: str, payload: dict, event: str = "response.created") -> bool:
     import httpx
 
+    from app.net_guard import UnsafeUrlError, assert_public_url
+
+    # Revalidar en CADA entrega, no solo al registrar el webhook: si validáramos
+    # únicamente al crearlo, un dominio que resuelve a una IP pública en ese
+    # momento podría re-apuntarse luego (TTL bajo) a 169.254.169.254 o a la red
+    # interna, y cada respuesta nueva se convertiría en un SSRF persistente.
+    # Falla cerrado: si la URL dejó de ser segura, no se entrega.
+    try:
+        assert_public_url(url)
+    except UnsafeUrlError as exc:
+        LOGGER.warning("webhook %s bloqueado por el guard SSRF: %s", url, exc)
+        return False
+
     body = json.dumps(payload, ensure_ascii=False, default=str).encode("utf-8")
     headers = {
         "Content-Type": "application/json",
