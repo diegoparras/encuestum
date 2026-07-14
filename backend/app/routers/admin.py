@@ -3,7 +3,7 @@ import logging
 import re
 import uuid
 from datetime import datetime, timezone
-from typing import List
+from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import StreamingResponse
@@ -430,16 +430,37 @@ async def response_summary(
     sid: uuid.UUID,
     ctx: OrgContext = Depends(current_context),
     session: AsyncSession = Depends(get_session),
+    segment_by: Optional[str] = Query(None),
+    filters: Optional[str] = Query(None, description="JSON: [{name, values:[...]}]"),
 ):
-    """Per-question, chart-ready aggregation of all responses (the Resumen view)."""
+    """Per-question, chart-ready aggregation of all responses (the Resumen view).
+    Con `segment_by` cruza cada pregunta por otra (cross-tab); con `filters`
+    (JSON) restringe el universo a quienes respondieron ciertos valores."""
+    import json
+
     from app.summarizing import build_summary
+
     s = await _survey_or_404(sid, ctx.org.id, session)
+    parsed_filters: list[dict] = []
+    if filters:
+        try:
+            raw = json.loads(filters)
+            if isinstance(raw, list):
+                parsed_filters = [
+                    {"name": str(f["name"]), "values": list(f.get("values") or [])}
+                    for f in raw
+                    if isinstance(f, dict) and f.get("name")
+                ]
+        except (ValueError, TypeError, KeyError):
+            raise HTTPException(status_code=422, detail="filtros inválidos")
     responses = (
         await session.scalars(
             select(SurveyResponse).where(SurveyResponse.survey_id == sid)
         )
     ).all()
-    return build_summary(s.json_schema or {}, responses)
+    return build_summary(
+        s.json_schema or {}, responses, filters=parsed_filters, segment_by=segment_by
+    )
 
 
 @router.delete("/{sid}/responses/{rid}", status_code=204)

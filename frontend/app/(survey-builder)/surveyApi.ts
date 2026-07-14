@@ -72,6 +72,8 @@ interface SummaryQuestionBase {
   title: string;
   type: string;
   answered: number;
+  /** Desglose por valor del segmento (cross-tab), si se pidió segment_by. */
+  by_segment?: Record<string, SummaryQuestion>;
 }
 
 /** Unión discriminada por `kind` con la forma del gráfico de cada pregunta. */
@@ -91,8 +93,32 @@ export type SummaryQuestion =
   | (SummaryQuestionBase & { kind: "text"; values: string[] })
   | (SummaryQuestionBase & { kind: "files"; values: string[] });
 
+/** Pregunta categórica utilizable como filtro o segmento. */
+export interface FilterableQuestion {
+  name: string;
+  title: string;
+  type: string;
+  options: { value: string; label: string }[];
+}
+
+export interface SummarySegment {
+  name: string;
+  title: string;
+  values: { value: string; label: string; count: number }[];
+}
+
+/** Un filtro activo: una pregunta y los valores admitidos. */
+export interface SummaryFilter {
+  name: string;
+  values: string[];
+}
+
 export interface SummaryReport {
   total_responses: number;
+  filtered_responses: number;
+  filters: { name: string; title: string; values: string[] }[];
+  segment: SummarySegment | null;
+  filterable: FilterableQuestion[];
   questions: SummaryQuestion[];
 }
 
@@ -299,8 +325,16 @@ export const surveyApi = {
     request<void>(`/api/v1/survey/surveys/${id}/purge`, { method: "DELETE" }),
   responses: (id: string) =>
     request<ResponseItem[]>(`/api/v1/survey/surveys/${id}/responses`),
-  getSummary: (id: string) =>
-    request<SummaryReport>(`/api/v1/survey/surveys/${id}/summary`),
+  getSummary: (
+    id: string,
+    opts?: { segmentBy?: string | null; filters?: SummaryFilter[] }
+  ) => {
+    const qs = new URLSearchParams();
+    if (opts?.segmentBy) qs.set("segment_by", opts.segmentBy);
+    if (opts?.filters && opts.filters.length) qs.set("filters", JSON.stringify(opts.filters));
+    const suffix = qs.toString() ? `?${qs.toString()}` : "";
+    return request<SummaryReport>(`/api/v1/survey/surveys/${id}/summary${suffix}`);
+  },
   getFunnel: (id: string) =>
     request<Funnel>(`/api/v1/survey/surveys/${id}/funnel`),
   duplicateSurvey: (id: string) =>
