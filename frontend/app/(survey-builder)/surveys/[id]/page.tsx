@@ -16,6 +16,8 @@ import {
   Download,
   QrCode,
   Code2,
+  ChevronDown,
+  ChevronRight,
 } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import { toast } from "sonner";
@@ -60,6 +62,8 @@ export default function SurveyDetailPage() {
   const [busy, setBusy] = useState(false);
   const [copied, setCopied] = useState(false);
   const [copiedBranded, setCopiedBranded] = useState(false);
+  // El editor de JSON crudo asusta a quien no lo entiende: arranca colapsado.
+  const [schemaOpen, setSchemaOpen] = useState(false);
   const [me, setMe] = useState<Me | null>(null);
   const [showQr, setShowQr] = useState(false);
   const [showEmbed, setShowEmbed] = useState(false);
@@ -67,7 +71,9 @@ export default function SurveyDetailPage() {
   const [exporting, setExporting] = useState<"csv" | "xlsx" | null>(null);
   const [duplicating, setDuplicating] = useState(false);
   const [resultsTab, setResultsTab] = useState<"summary" | "report" | "responses">("summary");
-  const [evalTab, setEvalTab] = useState<"gradebook" | "grading">("gradebook");
+  const [evalTab, setEvalTab] = useState<
+    "gradebook" | "grading" | "summary" | "report"
+  >("gradebook");
 
   // Lista completa de respuestas: carga perezosa. `null` = todavía no pedida.
   const [responses, setResponses] = useState<ResponseItem[] | null>(null);
@@ -436,33 +442,54 @@ export default function SurveyDetailPage() {
       {notice && <p className="mt-3 text-sm text-green-700">{notice}</p>}
       {actionError && <p className="mt-3 text-sm text-red-700">{actionError}</p>}
 
-      {/* Schema editor */}
+      {/* Schema editor (avanzado): colapsado por defecto — el JSON crudo es
+          intimidante para quien no programa. El editor visual es el camino
+          recomendado; esto queda para ajustes finos. */}
       <div className="mt-8">
-        <div className="flex items-center justify-between mb-2">
-          <h2 className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">
-            {t("surveys.schemaHeading")}
-          </h2>
-          {parsed.error ? (
-            <span className="text-xs text-red-600">
-              {t("surveys.jsonInvalid", { error: parsed.error })}
-            </span>
+        <button
+          type="button"
+          onClick={() => setSchemaOpen((v) => !v)}
+          aria-expanded={schemaOpen}
+          className="flex w-full items-center gap-2 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-900 px-3 py-2 text-left hover:bg-neutral-100 dark:hover:bg-neutral-800"
+        >
+          {schemaOpen ? (
+            <ChevronDown className="h-4 w-4 shrink-0 text-neutral-400" />
           ) : (
-            <span className="text-xs text-green-600">{t("surveys.jsonValid")}</span>
+            <ChevronRight className="h-4 w-4 shrink-0 text-neutral-400" />
           )}
-        </div>
-        <textarea
-          value={schemaText}
-          onChange={(e) => setSchemaText(e.target.value)}
-          spellCheck={false}
-          className="w-full h-80 font-mono text-xs rounded-lg border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-800 dark:text-neutral-100 p-3 outline-none focus:border-neutral-400 dark:focus:border-neutral-600"
-        />
-        <p className="mt-2 text-xs text-neutral-400 dark:text-neutral-500">
-          {t("surveys.schemaHelpBefore")}{" "}
-          <Link href={`/surveys/${id}/edit`} className="underline">
-            {t("surveys.schemaHelpLink")}
-          </Link>
-          {t("surveys.schemaHelpAfter")}
-        </p>
+          <Code2 className="h-4 w-4 shrink-0 text-neutral-400" />
+          <span className="text-sm font-semibold text-neutral-700 dark:text-neutral-300">
+            {t("surveys.schemaHeading")}
+          </span>
+          <span className="ml-1 text-xs font-normal text-neutral-400">
+            {t("surveys.schemaAdvanced")}
+          </span>
+          {schemaOpen &&
+            (parsed.error ? (
+              <span className="ml-auto text-xs text-red-600">
+                {t("surveys.jsonInvalid", { error: parsed.error })}
+              </span>
+            ) : (
+              <span className="ml-auto text-xs text-green-600">{t("surveys.jsonValid")}</span>
+            ))}
+        </button>
+        {schemaOpen && (
+          <div className="mt-2">
+            <textarea
+              value={schemaText}
+              onChange={(e) => setSchemaText(e.target.value)}
+              spellCheck={false}
+              className="w-full h-80 font-mono text-xs rounded-lg border border-neutral-300 dark:border-neutral-700 bg-white dark:bg-neutral-800 dark:text-neutral-100 p-3 outline-none focus:border-neutral-400 dark:focus:border-neutral-600"
+            />
+            <p className="mt-2 text-xs text-neutral-400 dark:text-neutral-500">
+              {t("surveys.schemaHelpBefore")}{" "}
+              <Link href={`/surveys/${id}/edit`} className="underline">
+                {t("surveys.schemaHelpLink")}
+              </Link>
+              {t("surveys.schemaHelpAfter")}
+            </p>
+          </div>
+        )}
       </div>
 
       {/* Responses / grades */}
@@ -475,6 +502,8 @@ export default function SurveyDetailPage() {
                   [
                     ["gradebook", t("surveys.tabGrades")],
                     ["grading", t("surveys.tabGrading")],
+                    ["summary", t("surveys.tabSummary")],
+                    ["report", t("surveys.tabReport")],
                   ] as const
                 ).map(([key, label]) => {
                   const active = evalTab === key;
@@ -494,16 +523,30 @@ export default function SurveyDetailPage() {
                   );
                 })}
               </div>
-              <ExportButtons
-                exporting={exporting}
-                disabled={evalResponseCount === 0}
-                onExport={exportResponses}
-              />
+              {(evalTab === "gradebook" || evalTab === "grading") && (
+                <ExportButtons
+                  exporting={exporting}
+                  disabled={evalResponseCount === 0}
+                  onExport={exportResponses}
+                />
+              )}
             </div>
             {evalTab === "gradebook" ? (
               <GradebookPanel surveyId={id} accent={themeToAccent(survey.theme)} />
-            ) : (
+            ) : evalTab === "grading" ? (
               <GradesPanel surveyId={id} accent={themeToAccent(survey.theme)} />
+            ) : evalTab === "summary" ? (
+              <div className="space-y-4">
+                {/* Embudo de conversión: vistas → comenzaron → completaron */}
+                <FunnelCard surveyId={id} accent={themeToAccent(survey.theme)} />
+                <SummaryPanel surveyId={id} accent={themeToAccent(survey.theme)} />
+              </div>
+            ) : (
+              <ReportPanel
+                surveyId={id}
+                accent={themeToAccent(survey.theme)}
+                surveyTitle={survey.title || t("surveys.untitled")}
+              />
             )}
           </>
         ) : (

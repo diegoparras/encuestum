@@ -78,6 +78,7 @@ export const dict: Record<Lang, Record<string, string>> = {
     "surveys.closeSurvey": "Close",
     "surveys.duplicateDraftTitle": "Create a draft copy",
     "surveys.schemaHeading": "Form definition (SurveyJS JSON)",
+    "surveys.schemaAdvanced": "Advanced",
     "surveys.jsonInvalid": "Invalid JSON: {error}",
     "surveys.jsonValid": "Valid JSON",
     "surveys.schemaHelpBefore":
@@ -170,6 +171,7 @@ export const dict: Record<Lang, Record<string, string>> = {
     "surveys.closeSurvey": "Cerrar",
     "surveys.duplicateDraftTitle": "Crear una copia en borrador",
     "surveys.schemaHeading": "Definición del formulario (SurveyJS JSON)",
+    "surveys.schemaAdvanced": "Avanzado",
     "surveys.jsonInvalid": "JSON inválido: {error}",
     "surveys.jsonValid": "JSON válido",
     "surveys.schemaHelpBefore":
@@ -263,6 +265,7 @@ export const dict: Record<Lang, Record<string, string>> = {
     "surveys.closeSurvey": "Fermer",
     "surveys.duplicateDraftTitle": "Créer une copie en brouillon",
     "surveys.schemaHeading": "Définition du formulaire (JSON SurveyJS)",
+    "surveys.schemaAdvanced": "Avancé",
     "surveys.jsonInvalid": "JSON invalide : {error}",
     "surveys.jsonValid": "JSON valide",
     "surveys.schemaHelpBefore":
@@ -356,6 +359,7 @@ export const dict: Record<Lang, Record<string, string>> = {
     "surveys.closeSurvey": "Fechar",
     "surveys.duplicateDraftTitle": "Criar uma cópia em rascunho",
     "surveys.schemaHeading": "Definição do formulário (JSON do SurveyJS)",
+    "surveys.schemaAdvanced": "Avançado",
     "surveys.jsonInvalid": "JSON inválido: {error}",
     "surveys.jsonValid": "JSON válido",
     "surveys.schemaHelpBefore":
@@ -449,6 +453,7 @@ export const dict: Record<Lang, Record<string, string>> = {
     "surveys.closeSurvey": "Chiudi",
     "surveys.duplicateDraftTitle": "Crea una copia in bozza",
     "surveys.schemaHeading": "Definizione del modulo (JSON SurveyJS)",
+    "surveys.schemaAdvanced": "Avanzato",
     "surveys.jsonInvalid": "JSON non valido: {error}",
     "surveys.jsonValid": "JSON valido",
     "surveys.schemaHelpBefore":
@@ -538,6 +543,7 @@ export const dict: Record<Lang, Record<string, string>> = {
     "surveys.closeSurvey": "关闭",
     "surveys.duplicateDraftTitle": "创建草稿副本",
     "surveys.schemaHeading": "表单定义（SurveyJS JSON）",
+    "surveys.schemaAdvanced": "高级",
     "surveys.jsonInvalid": "JSON 无效：{error}",
     "surveys.jsonValid": "JSON 有效",
     "surveys.schemaHelpBefore": "SurveyJS 模型的高级编辑。大多数情况下请使用",
@@ -630,6 +636,7 @@ export const dict: Record<Lang, Record<string, string>> = {
     "surveys.closeSurvey": "終了",
     "surveys.duplicateDraftTitle": "下書きのコピーを作成",
     "surveys.schemaHeading": "フォーム定義（SurveyJS JSON）",
+    "surveys.schemaAdvanced": "詳細設定",
     "surveys.jsonInvalid": "無効な JSON：{error}",
     "surveys.jsonValid": "有効な JSON",
     "surveys.schemaHelpBefore": "SurveyJS モデルの高度な編集。ほとんどの場合は",
