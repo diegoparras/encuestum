@@ -114,3 +114,27 @@ def super_client() -> TestClient:
 @pytest.fixture
 def client():
     return new_client()
+
+
+@pytest.fixture
+def db_session():
+    """El sessionmaker async de la app, para tests que necesitan hablar con la
+    base directamente. `app.db` no expone un nombre público para esto — el
+    sessionmaker interno es `_session_maker` — así que el acoplamiento a ese
+    nombre privado vive acá y no en cada archivo de test."""
+    from app.db import _session_maker
+
+    return _session_maker
+
+
+@pytest.fixture
+def lti_on(monkeypatch):
+    """Enciende LTI para un test. get_settings está cacheado con lru_cache, así
+    que hay que limpiarlo antes y después."""
+    from app.config import get_settings
+
+    monkeypatch.setenv("LTI_ENABLED", "true")
+    get_settings.cache_clear()
+    yield
+    monkeypatch.delenv("LTI_ENABLED", raising=False)
+    get_settings.cache_clear()

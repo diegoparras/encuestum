@@ -5,15 +5,12 @@ import uuid
 import pytest
 from sqlmodel import select
 
-# app.db no expone un `async_session` público; el sessionmaker interno es
-# `_session_maker`. Lo importamos con el alias que usa el resto de este test.
-from app.db import _session_maker as async_session
 from app.models import LtiPlatform, SurveyResponse
 
 
 @pytest.mark.asyncio
-async def test_lti_platform_roundtrip():
-    async with async_session() as session:
+async def test_lti_platform_roundtrip(db_session):
+    async with db_session() as session:
         p = LtiPlatform(
             issuer="https://moodle.localhost",
             client_id="abc123",
