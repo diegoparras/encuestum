@@ -13,6 +13,7 @@ from dataclasses import dataclass
 import jwt
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
@@ -27,6 +28,18 @@ class ToolKey:
     public_pem: str
 
 
+def _public_pem(private_key) -> str:
+    """PEM `SubjectPublicKeyInfo` de la clave pública derivada de `private_key`."""
+    return (
+        private_key.public_key()
+        .public_bytes(
+            encoding=serialization.Encoding.PEM,
+            format=serialization.PublicFormat.SubjectPublicKeyInfo,
+        )
+        .decode()
+    )
+
+
 def _generate() -> tuple[str, str]:
     """Devuelve (private_pem, public_pem) de un par RSA 2048 nuevo."""
     private = rsa.generate_private_key(public_exponent=65537, key_size=2048)
@@ -35,15 +48,7 @@ def _generate() -> tuple[str, str]:
         format=serialization.PrivateFormat.PKCS8,
         encryption_algorithm=serialization.NoEncryption(),
     ).decode()
-    public_pem = (
-        private.public_key()
-        .public_bytes(
-            encoding=serialization.Encoding.PEM,
-            format=serialization.PublicFormat.SubjectPublicKeyInfo,
-        )
-        .decode()
-    )
-    return private_pem, public_pem
+    return private_pem, _public_pem(private)
 
 
 async def get_tool_key(session: AsyncSession) -> ToolKey:
@@ -54,22 +59,33 @@ async def get_tool_key(session: AsyncSession) -> ToolKey:
         private = serialization.load_pem_private_key(
             s.lti_private_key.encode(), password=None
         )
-        public_pem = (
-            private.public_key()
-            .public_bytes(
-                encoding=serialization.Encoding.PEM,
-                format=serialization.PublicFormat.SubjectPublicKeyInfo,
-            )
-            .decode()
+        return ToolKey(
+            kid=s.lti_key_id, private_pem=s.lti_private_key, public_pem=_public_pem(private)
         )
-        return ToolKey(kid=s.lti_key_id, private_pem=s.lti_private_key, public_pem=public_pem)
 
     row = (await session.scalars(select(LtiKey).where(LtiKey.kid == s.lti_key_id))).first()
     if row is None:
         private_pem, public_pem = _generate()
         row = LtiKey(kid=s.lti_key_id, private_pem=private_pem, public_pem=public_pem)
         session.add(row)
-        await session.commit()
+        try:
+            await session.commit()
+        except IntegrityError:
+            # Dos requests llegaron antes de que existiera la fila: ambas vieron
+            # `row is None`, generaron su propia clave y quisieron insertarla.
+            # La que llega acá perdió la carrera -- la otra ya insertó y su
+            # commit chocó contra el unique constraint de `kid`. Deshacemos
+            # nuestro intento y releemos la fila que efectivamente quedó
+            # persistida, para que ambos llamantes terminen usando la misma
+            # clave. Si ni así aparece, no es la carrera benigna que esperamos
+            # -- dejamos que el error se propague en vez de devolver una clave
+            # nueva sin persistir: dos claves distintas en circulación
+            # romperían la verificación de firmas de un modo mucho más difícil
+            # de diagnosticar que un 500 puntual.
+            await session.rollback()
+            row = (await session.scalars(select(LtiKey).where(LtiKey.kid == s.lti_key_id))).first()
+            if row is None:
+                raise
     return ToolKey(kid=row.kid, private_pem=row.private_pem, public_pem=row.public_pem)
 
 
