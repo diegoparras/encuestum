@@ -37,17 +37,31 @@ export function proxy(req: NextRequest) {
   );
   const isAuthPage = AUTH_PAGES.includes(pathname);
 
-  // Not logged in trying to reach a protected route → send to login.
+  // Not logged in trying to reach a protected route → send to login, recordando
+  // a dónde quería ir para volver ahí después de entrar.
   if (isProtected && !hasSession) {
     const url = req.nextUrl.clone();
     url.pathname = "/login";
+    url.search = "";
+    url.searchParams.set("next", `${pathname}${req.nextUrl.search}`);
     return NextResponse.redirect(url);
   }
 
-  // Already logged in but on login/register → send to the app.
+  // Already logged in but on login/register → send to the app. Si venía con un
+  // `next` interno (p. ej. /accept-invite?token=…), respetarlo: si no, se perdía
+  // la invitación y el usuario terminaba en su propio espacio.
   if (isAuthPage && hasSession) {
+    const raw = req.nextUrl.searchParams.get("next");
     const url = req.nextUrl.clone();
-    url.pathname = "/surveys";
+    url.search = "";
+    // Solo rutas internas: un `next` externo sería un open redirect.
+    if (raw && raw.startsWith("/") && !raw.startsWith("//") && !raw.startsWith("/\\")) {
+      const [path, query] = raw.split("?");
+      url.pathname = path;
+      if (query) url.search = `?${query}`;
+    } else {
+      url.pathname = "/surveys";
+    }
     return NextResponse.redirect(url);
   }
 

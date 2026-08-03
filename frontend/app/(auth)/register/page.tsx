@@ -1,19 +1,23 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Loader2 } from "lucide-react";
 import { register } from "@/utils/auth";
 import { getApiUrl } from "@/utils/api";
+import { safeNext } from "@/utils/nextUrl";
 import { useI18n } from "@/lib/i18n";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/input";
 
-export default function RegisterPage() {
+function RegisterForm() {
   const { t } = useI18n();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  // A dónde volver después del alta (p. ej. /accept-invite?token=…).
+  const next = safeNext(searchParams.get("next"));
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
@@ -29,10 +33,11 @@ export default function RegisterPage() {
     fetch(getApiUrl("/api/v1/auth/config"), { cache: "no-store" })
       .then((r) => r.json())
       .then((d) => {
-        if (d?.sso) router.replace("/login");
+        // En federado no hay alta local: al login (preservando el destino).
+        if (d?.sso) router.replace(`/login?next=${encodeURIComponent(next)}`);
       })
       .catch(() => undefined);
-  }, [router]);
+  }, [router, next]);
 
   async function onSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -49,7 +54,7 @@ export default function RegisterPage() {
         name: name.trim() || undefined,
         orgName: orgName.trim() || undefined,
       });
-      router.push("/surveys");
+      router.push(next);
       router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : t("auth.errors.registerFailed"));
@@ -144,11 +149,29 @@ export default function RegisterPage() {
 
         <p className="mt-6 text-center text-sm text-neutral-500 dark:text-neutral-400">
           {t("auth.register.haveAccount")}{" "}
-          <Link href="/login" className="font-medium text-primary hover:underline">
+          <Link
+            href={`/login?next=${encodeURIComponent(next)}`}
+            className="font-medium text-primary hover:underline"
+          >
             {t("auth.actions.login")}
           </Link>
         </p>
       </CardContent>
     </Card>
+  );
+}
+
+export default function RegisterPage() {
+  // useSearchParams necesita un límite de Suspense en el App Router.
+  return (
+    <Suspense
+      fallback={
+        <div className="flex min-h-[40vh] items-center justify-center text-neutral-400 dark:text-neutral-500">
+          <Loader2 className="h-6 w-6 animate-spin" />
+        </div>
+      }
+    >
+      <RegisterForm />
+    </Suspense>
   );
 }

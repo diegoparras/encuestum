@@ -1,19 +1,23 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useEffect, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { Loader2, LogIn } from "lucide-react";
 import { login } from "@/utils/auth";
 import { getApiUrl } from "@/utils/api";
+import { safeNext } from "@/utils/nextUrl";
 import { useI18n } from "@/lib/i18n";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input, Label } from "@/components/ui/input";
 
-export default function LoginPage() {
+function LoginForm() {
   const { t } = useI18n();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  // A dónde volver después de entrar (p. ej. /accept-invite?token=…).
+  const next = safeNext(searchParams.get("next"));
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [loading, setLoading] = useState(false);
@@ -40,7 +44,7 @@ export default function LoginPage() {
     setLoading(true);
     try {
       await login(email.trim(), password);
-      router.push("/surveys");
+      router.push(next);
       router.refresh();
     } catch (err) {
       setError(err instanceof Error ? err.message : t("auth.errors.loginFailed"));
@@ -70,7 +74,7 @@ export default function LoginPage() {
           // ── Modo federado (Lockatus SSO) ──
           <div className="mt-6">
             <a
-              href={getApiUrl("/api/v1/auth/sso/login")}
+              href={`${getApiUrl("/api/v1/auth/sso/login")}?next=${encodeURIComponent(next)}`}
               className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white hover:opacity-90"
             >
               <LogIn className="h-4 w-4" />
@@ -129,7 +133,10 @@ export default function LoginPage() {
 
             <p className="mt-6 text-center text-sm text-neutral-500 dark:text-neutral-400">
               {t("auth.login.noAccount")}{" "}
-              <Link href="/register" className="font-medium text-primary hover:underline">
+              <Link
+                href={`/register?next=${encodeURIComponent(next)}`}
+                className="font-medium text-primary hover:underline"
+              >
                 {t("auth.actions.createAccount")}
               </Link>
             </p>
@@ -137,5 +144,20 @@ export default function LoginPage() {
         )}
       </CardContent>
     </Card>
+  );
+}
+
+export default function LoginPage() {
+  // useSearchParams necesita un límite de Suspense en el App Router.
+  return (
+    <Suspense
+      fallback={
+        <div className="flex min-h-[40vh] items-center justify-center text-neutral-400 dark:text-neutral-500">
+          <Loader2 className="h-6 w-6 animate-spin" />
+        </div>
+      }
+    >
+      <LoginForm />
+    </Suspense>
   );
 }

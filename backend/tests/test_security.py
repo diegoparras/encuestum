@@ -115,6 +115,29 @@ def test_ssrf_allows_public_ips():
         assert _is_blocked_ip(ip) is False, ip
 
 
+def test_sso_next_only_allows_internal_paths():
+    """El `next` del SSO vuelve al front tras loguear (p. ej. una invitación).
+    Debe aceptar solo rutas internas: cualquier otra cosa es un open redirect."""
+    from app.routers.auth import _safe_next
+
+    # Rutas internas legítimas → se respetan.
+    assert _safe_next("/accept-invite?token=abc") == "/accept-invite?token=abc"
+    assert _safe_next("/surveys") == "/surveys"
+
+    # Cualquier intento de salir del sitio → destino por defecto.
+    for bad in [
+        "https://evil.com",
+        "http://evil.com",
+        "//evil.com",           # protocol-relative
+        "/\\evil.com",          # backslash: varios navegadores lo tratan como host
+        "javascript:alert(1)",
+        "evil.com",
+        "",
+        None,
+    ]:
+        assert _safe_next(bad) == "/surveys", bad
+
+
 def test_superadmin_needs_verified_email():
     from app.models import User
     from app.deps import is_superadmin

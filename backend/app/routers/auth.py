@@ -63,6 +63,19 @@ def _frontend_url(path: str) -> str:
     return f"{get_settings().public_base_url.rstrip('/')}{path}"
 
 
+def _safe_next(raw: str | None) -> str:
+    """Destino interno al que volver tras el login (p. ej. /accept-invite?token=…).
+
+    Solo rutas absolutas del propio front: cualquier otra cosa (host ajeno,
+    `//host` protocol-relative, `/\\host`) sería un open redirect."""
+    if not raw:
+        return "/surveys"
+    value = raw.strip()
+    if not value.startswith("/") or value.startswith("//") or value.startswith("/\\"):
+        return "/surveys"
+    return value
+
+
 @router.get("/config")
 async def auth_config():
     """El frontend consulta esto para saber si mostrar el login local o el botón SSO."""
@@ -71,14 +84,20 @@ async def auth_config():
 
 
 @router.get("/sso/login")
-async def sso_login(response: Response):
+async def sso_login(response: Response, next: str | None = None):
     s = get_settings()
     if not s.is_federated or _lk is None:
         raise HTTPException(status_code=404, detail="SSO no habilitado")
     verifier, challenge = _lk.pkce()
     state = secrets.token_urlsafe(16)
     nonce = secrets.token_urlsafe(16)
-    txn = _lk.sign({"v": verifier, "s": state, "n": nonce, "exp": int((time.time() + 600) * 1000)})
+    # El destino viaja en la transacción FIRMADA (no en un parámetro suelto):
+    # el callback lo necesita para volver, p. ej., a /accept-invite?token=…
+    txn = _lk.sign({
+        "v": verifier, "s": state, "n": nonce,
+        "r": _safe_next(next),
+        "exp": int((time.time() + 600) * 1000),
+    })
     resp = RedirectResponse(_lk.authorize_url(state, nonce, challenge), status_code=302)
     resp.set_cookie(
         _OIDC_COOKIE, txn, max_age=600, httponly=True,
@@ -118,7 +137,7 @@ async def sso_callback(
 
     is_admin = bool(role) and role == s.lockatus_admin_role
     user, org_id = await find_or_create_federated_user(session, email=email, name=name, is_admin=is_admin)
-    resp = RedirectResponse(_frontend_url("/surveys"), status_code=302)
+    resp = RedirectResponse(_frontend_url(_safe_next(txn.get("r"))), status_code=302)
     set_session_cookies(resp, user.id, org_id)
     resp.delete_cookie(_OIDC_COOKIE, path="/")
     return resp
