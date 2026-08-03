@@ -6,6 +6,7 @@ contra el JWKS de la contraparte, con caché de una hora.
 
 from __future__ import annotations
 
+import copy
 import logging
 import time
 
@@ -13,7 +14,6 @@ import httpx
 import jwt
 from cryptography.hazmat.primitives.asymmetric.rsa import RSAPublicKey
 from jwt.algorithms import RSAAlgorithm
-from jwt.exceptions import InvalidKeyError
 
 from app.models import LtiPlatform
 
@@ -62,14 +62,14 @@ async def fetch_jwks(url: str, kid: str | None = None) -> list[dict]:
     if hit and time.time() - hit[0] < _JWKS_TTL_S:
         cached = hit[1]
         if kid is None or any(k.get("kid") == kid for k in cached if isinstance(k, dict)):
-            return list(cached)
+            return copy.deepcopy(cached)
 
     keys = await _fetch_jwks_uncached(url)
     if keys:
         # Nunca cachear un resultado vacío: un JWKS temporalmente roto o sin
         # `keys` no debe dejar todos los lanzamientos rechazados una hora.
         _jwks_cache[url] = (time.time(), keys)
-    return list(keys)
+    return copy.deepcopy(keys)
 
 
 async def _fetch_jwks_uncached(url: str) -> list[dict]:
@@ -87,9 +87,13 @@ def _key_for(keys: list[dict], kid: str | None) -> RSAPublicKey | None:
     """La clave cuyo kid coincide; si el token no trae kid y hay una sola, esa.
 
     Un JWKS legítimamente mezcla tipos de clave (rotaciones, distintos usos
-    para el mismo `kid`), y una entrada puede venir malformada. Ninguna
-    entrada inservible debe abortar la búsqueda: se salta y se sigue mirando
-    el resto en vez de dejar escapar el `InvalidKeyError` de PyJWT.
+    para el mismo `kid`), y una entrada puede venir malformada de maneras muy
+    distintas: PyJWT solo levanta `InvalidKeyError` para algunas (otro `kty`,
+    RSA sin `n`/`e`); para RSA con `n`/`e` presentes pero no decodificables
+    puede levantar `binascii.Error`, `TypeError` o `ValueError` sin envolver
+    nada. Da igual el motivo — una entrada que no se puede convertir en clave
+    es inservible, y ninguna debe abortar la búsqueda: se salta y se sigue
+    mirando el resto.
     """
     usable = [k for k in keys if isinstance(k, dict)]
     if kid:
@@ -102,7 +106,8 @@ def _key_for(keys: list[dict], kid: str | None) -> RSAPublicKey | None:
     for k in candidates:
         try:
             return RSAAlgorithm.from_jwk(k)
-        except InvalidKeyError:
+        except Exception:  # noqa: BLE001 — cualquier entrada rota se salta, no solo InvalidKeyError
+            LOGGER.debug("entrada de JWKS inservible, se salta (kid=%r)", k.get("kid"))
             continue
     return None
 
@@ -150,7 +155,10 @@ async def validate_launch(
     # es "aceptar sin verificar". El llamador (Task 4) lo saca de una cookie de
     # estado firmada; si esa cookie falta o venció, debe fallar cerrado, no
     # convertirse silenciosamente en un lanzamiento sin protección anti-replay.
-    if expected_nonce is None or claims.get("nonce") != expected_nonce:
+    # `not expected_nonce` cubre toda la clase falsy (None y "" incluidos): una
+    # cookie que decodificó a cadena vacía no debe poder "coincidir" con un
+    # token cuyo claim `nonce` también sea "".
+    if not expected_nonce or claims.get("nonce") != expected_nonce:
         LOGGER.warning("lanzamiento LTI rechazado: nonce no coincide")
         raise LtiValidationError("nonce no coincide")
 

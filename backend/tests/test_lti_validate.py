@@ -323,6 +323,36 @@ async def test_jwks_con_entrada_malformada_no_crashea(monkeypatch, platform_key,
 
 
 @pytest.mark.asyncio
+async def test_jwks_con_clave_rsa_malformada_junto_a_la_valida(monkeypatch, platform_key, platform):
+    """Una entrada RSA malformada (n/e no decodificables en base64url) que
+    comparte kid con la clave válida y aparece ANTES de ella en el JWKS no
+    debe tumbar la búsqueda con un binascii.Error de PyJWT escapando del
+    módulo — debe saltarse esa entrada y seguir hasta la utilizable.
+
+    El orden importa: si el catch solo mira `InvalidKeyError` (que PyJWT no
+    levanta para esta forma en particular), el `binascii.Error` se propaga y
+    ni siquiera se llega a mirar la clave válida que sigue en la lista.
+    """
+    entrada_rsa_malformada = {"kty": "RSA", "kid": "platform-key", "n": "x", "e": "AQAB"}
+    _patch_jwks(monkeypatch, platform_key, extra_keys=[entrada_rsa_malformada])
+    token = _sign(_launch_claims(), platform_key)
+    claims = await validate_launch(token, platform, expected_nonce="n-1")
+    assert claims["sub"] == "moodle-user-42"
+
+
+@pytest.mark.asyncio
+async def test_rechaza_nonce_esperado_vacio(monkeypatch, platform_key, platform):
+    """`expected_nonce=""` (p. ej. una cookie de estado que decodificó a
+    vacío) no debe aceptarse solo porque el claim `nonce` del token también
+    sea `""` — comparar dos cadenas vacías "iguales" no es verificar nada, y
+    deja el lanzamiento sin protección anti-replay real."""
+    _patch_jwks(monkeypatch, platform_key)
+    token = _sign(_launch_claims(nonce=""), platform_key)
+    with pytest.raises(LtiValidationError):
+        await validate_launch(token, platform, expected_nonce="")
+
+
+@pytest.mark.asyncio
 async def test_rechaza_si_la_unica_clave_con_ese_kid_es_inservible(monkeypatch, platform):
     """Si el kid del token solo matchea una entrada y esa entrada no sirve
     (otro `kty`, JSON incompleto), el rechazo debe ser un LtiValidationError
