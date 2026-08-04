@@ -1660,3 +1660,55 @@ async def test_dynamic_registration_reintento_actualiza_la_fila_existente(
         ).all()
         assert len(filas) == 1  # no duplicó la fila
         assert filas[0].jwks_url == f"{issuer}/mod/lti/certs-v2.php"  # y la actualizó
+
+
+# ── Important 3: el scope declarado tiene que cubrir todo lo que AGS pide ────
+#
+# El registro declaraba `lineitem score`, pero `ags.py` pide
+# `lineitem.readonly` en cada entrega (dos veces: `ensure_lineitem` y
+# `get_lineitem_max`). Moodle lo tolera (mapea el par a sync completo), pero
+# una plataforma que valide scopes de verdad rechazaría cada entrega con
+# `invalid_scope`.
+
+
+@pytest.mark.asyncio
+async def test_scope_declarado_cubre_todos_los_scopes_que_pide_ags(monkeypatch, lti_on, db_session):
+    """El `scope` que se declara al registrarse dinámicamente tiene que
+    contener cada scope que `app/lti/ags.py` llega a pedir -- se compara
+    contra `ALL_SCOPES`, la lista que ese módulo expone para no poder driftear
+    en silencio de nuevo."""
+    from app.lti.ags import ALL_SCOPES
+
+    issuer = "https://moodle.scope-check"
+    await _limpiar_previa(db_session, issuer)
+    admin = new_client()
+    register(admin)
+    _, enc = _mint(admin)
+    enviado = {}
+
+    async def fake_get(self, url, **kw):
+        return _resp("GET", url, 200, _fake_conf(issuer))
+
+    async def fake_post(self, url, **kw):
+        enviado["json"] = kw.get("json")
+        return _resp("POST", url, 201, {
+            "client_id": "cid-scope-check",
+            "https://purl.imsglobal.org/spec/lti-tool-configuration": {"deployment_id": "1"},
+        })
+
+    monkeypatch.setattr(httpx.AsyncClient, "get", fake_get)
+    monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
+
+    client = TestClient(app)
+    r = client.get(
+        "/lti/register",
+        params={
+            "openid_configuration": f"{issuer}/mod/lti/openid-configuration.php",
+            "enc": enc,
+        },
+    )
+    assert r.status_code == 200, r.text
+
+    declarado = set(enviado["json"]["scope"].split())
+    assert set(ALL_SCOPES) <= declarado
+    assert "https://purl.imsglobal.org/spec/lti-ags/scope/lineitem.readonly" in declarado

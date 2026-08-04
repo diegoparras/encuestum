@@ -234,6 +234,53 @@ async def test_post_score_manda_la_nota_en_el_formato_de_ags(monkeypatch, lti_on
 
 
 @pytest.mark.asyncio
+async def test_post_score_preserva_el_query_string_del_lineitem(monkeypatch, lti_on, ags_setup):
+    """Las URLs de line item de Moodle llevan `?type_id=N` (identifica el tipo
+    de herramienta). `/scores` tiene que insertarse ANTES del query, no
+    después de descartarlo -- perderlo es un 403/404 en el último paso del
+    flujo, el más difícil de atribuir porque todo lo anterior salió bien."""
+    lineitem_con_query = f"{LINEITEM}?type_id=3"
+    ags_setup["link"].lineitem_url = lineitem_con_query
+    enviado = {}
+
+    async def fake_post(self, url, **kw):
+        if url == TOKEN_URL:
+            return _resp("POST", url, 200, {"access_token": "tok", "expires_in": 3600})
+        enviado["url"] = url
+        return _resp("POST", url, 200, {})
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
+
+    await post_score(ags_setup["platform"], ags_setup["link"], ags_setup["key"],
+                     sub="u-42", score=8.5, score_maximum=10.0)
+
+    assert enviado["url"] == f"{LINEITEM}/scores?type_id=3"
+
+
+@pytest.mark.asyncio
+async def test_post_score_manda_pendingmanual_si_necesita_revision(monkeypatch, lti_on, ags_setup):
+    """AGS define `PendingManual` para una nota todavía no definitiva. Una
+    respuesta marcada `needs_review` tiene que publicarse así, no como
+    `FullyGraded` -- si no, el docente ve la nota como cerrada en el libro de
+    calificaciones del LMS cuando en realidad sigue pendiente de revisión."""
+    ags_setup["link"].lineitem_url = LINEITEM
+    enviado = {}
+
+    async def fake_post(self, url, **kw):
+        if url == TOKEN_URL:
+            return _resp("POST", url, 200, {"access_token": "tok", "expires_in": 3600})
+        enviado["json"] = kw.get("json")
+        return _resp("POST", url, 200, {})
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
+
+    await post_score(ags_setup["platform"], ags_setup["link"], ags_setup["key"],
+                     sub="u-42", score=8.5, score_maximum=10.0, needs_review=True)
+
+    assert enviado["json"]["gradingProgress"] == "PendingManual"
+
+
+@pytest.mark.asyncio
 async def test_get_lineitem_max_lee_la_escala_del_libro(monkeypatch, lti_on, ags_setup):
     async def fake_post(self, url, **kw):
         return _resp("POST", url, 200, {"access_token": "tok", "expires_in": 3600})
@@ -302,6 +349,47 @@ async def test_la_nota_se_reescala_a_la_escala_del_libro(monkeypatch, lti_on, ag
     await _deliver(response_id)
     assert enviado["json"]["scoreGiven"] == 17.0
     assert enviado["json"]["scoreMaximum"] == 20.0
+
+
+@pytest.mark.asyncio
+async def test_deliver_manda_pendingmanual_si_la_respuesta_necesita_revision(
+    monkeypatch, lti_on, ags_setup, db_session
+):
+    """`_deliver` tiene que pasarle `r.needs_review` a `post_score` -- si no,
+    una respuesta que quedó pendiente de revisión se publica igual como
+    `FullyGraded`."""
+    from app.lti.ags import _deliver
+    from app.models import Survey, SurveyResponse
+
+    ags_setup["link"].lineitem_url = LINEITEM
+    enviado = {}
+
+    async def fake_post(self, url, **kw):
+        if url == TOKEN_URL:
+            return _resp("POST", url, 200, {"access_token": "tok", "expires_in": 3600})
+        enviado["json"] = kw.get("json")
+        return _resp("POST", url, 200, {})
+
+    async def fake_get(self, url, **kw):
+        return _resp("GET", url, 200, {"id": LINEITEM, "scoreMaximum": 10.0})
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
+    monkeypatch.setattr(httpx.AsyncClient, "get", fake_get)
+
+    async with db_session() as session:
+        session.add(ags_setup["link"])
+        survey = Survey(id=ags_setup["link"].survey_id, org_id=uuid.uuid4(),
+                        title="Examen", json_schema={})
+        session.add(survey)
+        r = SurveyResponse(survey_id=survey.id, answers={}, score=5.0, max_score=10.0,
+                           needs_review=True,
+                           lti_link_id=ags_setup["link"].id, lti_sub="u-42")
+        session.add(r)
+        await session.commit()
+        response_id = r.id
+
+    await _deliver(response_id)
+    assert enviado["json"]["gradingProgress"] == "PendingManual"
 
 
 @pytest.mark.asyncio
@@ -568,3 +656,132 @@ async def test_submit_no_agenda_nota_lti_sin_evaluacion(monkeypatch, lti_on, ags
     r = c.post(f"/api/v1/survey/public/{sv['slug']}/submit", json={"answers": {"cap": "Paris"}})
     assert r.status_code == 201
     assert llamados == []
+
+
+# ── Important 1: grade passback en las rutas de corrección manual ────────────
+#
+# `schedule_score` tenía un solo trigger: `submit()`, gateado en que hubiera
+# `score` al momento del envío. Un docente corrigiendo una nota de IA en
+# `override_grade` (precisamente el workflow de `needs_review`), o re-corriendo
+# con `grade_one`/`grade_all`, dejaba a Moodle mostrando la nota vieja para
+# siempre -- ninguno de los tres avisaba al LMS.
+
+
+@pytest.mark.asyncio
+async def test_override_en_respuesta_lti_dispara_entrega(monkeypatch, lti_on, ags_setup):
+    from tests.conftest import new_client, register
+
+    import app.lti.ags as ags_module
+    import app.routers.public as public_router
+
+    llamados = []
+    monkeypatch.setattr(ags_module, "schedule_score", lambda rid: llamados.append(rid))
+    monkeypatch.setattr(
+        public_router, "_lti_context",
+        lambda request, s: {"link_id": str(ags_setup["link"].id), "sub": "u-42", "email": None, "slug": s.slug},
+    )
+
+    c = new_client()
+    register(c)
+    sv = c.post("/api/v1/survey/surveys",
+                json={"title": "E", "json_schema": _SCHEMA, "evaluation": _EVAL}).json()
+    c.post(f"/api/v1/survey/surveys/{sv['id']}/publish")
+    r = c.post(f"/api/v1/survey/public/{sv['slug']}/submit", json={"answers": {"cap": "Paris"}})
+    assert r.status_code == 201
+    rid = r.json()["id"]
+    # El submit ya disparó su propia entrega (score presente + contexto LTI):
+    # se aísla lo que dispara puntualmente el override.
+    llamados.clear()
+
+    ov = c.post(f"/api/v1/survey/surveys/{sv['id']}/responses/{rid}/override", json={"total": 2})
+    assert ov.status_code == 200, ov.text
+    assert len(llamados) == 1
+    assert str(llamados[0]) == rid
+
+
+@pytest.mark.asyncio
+async def test_override_en_respuesta_no_lti_no_dispara_entrega(monkeypatch, lti_on):
+    """Una respuesta que no vino de un lanzamiento LTI no tiene link al que
+    avisar -- el override no debe intentar nada."""
+    from tests.conftest import new_client, register
+
+    import app.lti.ags as ags_module
+
+    llamados = []
+    monkeypatch.setattr(ags_module, "schedule_score", lambda rid: llamados.append(rid))
+
+    c = new_client()
+    register(c)
+    sv = c.post("/api/v1/survey/surveys",
+                json={"title": "E", "json_schema": _SCHEMA, "evaluation": _EVAL}).json()
+    c.post(f"/api/v1/survey/surveys/{sv['id']}/publish")
+    r = c.post(f"/api/v1/survey/public/{sv['slug']}/submit", json={"answers": {"cap": "Paris"}})
+    assert r.status_code == 201
+    rid = r.json()["id"]
+
+    ov = c.post(f"/api/v1/survey/surveys/{sv['id']}/responses/{rid}/override", json={"total": 2})
+    assert ov.status_code == 200, ov.text
+    assert llamados == []
+
+
+@pytest.mark.asyncio
+async def test_grade_one_en_respuesta_lti_dispara_entrega(monkeypatch, lti_on, ags_setup, db_session):
+    from tests.conftest import new_client, register
+
+    import app.lti.ags as ags_module
+    from app.models import SurveyResponse
+
+    llamados = []
+    monkeypatch.setattr(ags_module, "schedule_score", lambda rid: llamados.append(rid))
+
+    c = new_client()
+    register(c)
+    sv = c.post("/api/v1/survey/surveys",
+                json={"title": "E", "json_schema": _SCHEMA, "evaluation": _EVAL}).json()
+    c.post(f"/api/v1/survey/surveys/{sv['id']}/publish")
+
+    async with db_session() as session:
+        r = SurveyResponse(survey_id=uuid.UUID(sv["id"]), answers={"cap": "Paris"},
+                           lti_link_id=ags_setup["link"].id, lti_sub="u-42")
+        session.add(r)
+        await session.commit()
+        rid = r.id
+
+    resp = c.post(f"/api/v1/survey/surveys/{sv['id']}/responses/{rid}/grade")
+    assert resp.status_code == 200, resp.text
+    assert llamados == [rid]
+
+
+@pytest.mark.asyncio
+async def test_grade_all_dispara_entrega_solo_para_las_lti(monkeypatch, lti_on, ags_setup, db_session):
+    """`grade-all` corrige en lote: sólo las respuestas con `lti_link_id`
+    tienen que disparar una entrega, y recién después del commit final del
+    lote (no adentro del loop, donde la fila todavía no quedó persistida)."""
+    from tests.conftest import new_client, register
+
+    import app.lti.ags as ags_module
+    from app.models import SurveyResponse
+
+    llamados = []
+    monkeypatch.setattr(ags_module, "schedule_score", lambda rid: llamados.append(rid))
+
+    c = new_client()
+    register(c)
+    sv = c.post("/api/v1/survey/surveys",
+                json={"title": "E", "json_schema": _SCHEMA, "evaluation": _EVAL}).json()
+    c.post(f"/api/v1/survey/surveys/{sv['id']}/publish")
+
+    async with db_session() as session:
+        r_lti = SurveyResponse(survey_id=uuid.UUID(sv["id"]), answers={"cap": "Paris"},
+                               lti_link_id=ags_setup["link"].id, lti_sub="u-42")
+        r_sin_lti = SurveyResponse(survey_id=uuid.UUID(sv["id"]), answers={"cap": "Paris"})
+        session.add(r_lti)
+        session.add(r_sin_lti)
+        await session.commit()
+        rid_lti = r_lti.id
+
+    resp = c.post(f"/api/v1/survey/surveys/{sv['id']}/grade-all")
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["graded"] == 2
+
+    assert llamados == [rid_lti]

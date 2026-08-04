@@ -13,6 +13,7 @@ import logging
 import time
 import uuid
 from datetime import datetime, timezone
+from urllib.parse import urlsplit, urlunsplit
 
 import httpx
 
@@ -25,6 +26,16 @@ LOGGER = logging.getLogger(__name__)
 SCOPE_LINEITEM = "https://purl.imsglobal.org/spec/lti-ags/scope/lineitem"
 SCOPE_LINEITEM_RO = "https://purl.imsglobal.org/spec/lti-ags/scope/lineitem.readonly"
 SCOPE_SCORE = "https://purl.imsglobal.org/spec/lti-ags/scope/score"
+
+# Todos los scopes AGS que este módulo llega a pedir (lineitem para crear el
+# ítem, lineitem.readonly para leerlo/buscarlo, score para publicar la nota).
+# `app/routers/lti.py` deriva de acá el `scope` que declara al registrarse
+# dinámicamente contra la plataforma -- así una plataforma estricta que
+# de verdad valide scopes (a diferencia de Moodle, que en la práctica mapea
+# el par lineitem/score a sync completo) no rechaza la entrega con
+# `invalid_scope` por faltar uno que este módulo pide pero el registro nunca
+# declaró.
+ALL_SCOPES = (SCOPE_LINEITEM, SCOPE_LINEITEM_RO, SCOPE_SCORE)
 
 _ASSERTION_TYPE = "urn:ietf:params:oauth:client-assertion-type:jwt-bearer"
 
@@ -157,6 +168,18 @@ async def get_lineitem_max(platform: LtiPlatform, lineitem_url: str, key: ToolKe
     return float(maximo) if maximo is not None else DEFAULT_SCORE_MAXIMUM
 
 
+def _scores_url(lineitem_url: str) -> str:
+    """La URL de `/scores` de un line item, tal como la pide la spec de AGS:
+    `/scores` se inserta ANTES del query string, que se preserva -- no se
+    descarta. Las URLs de line item de Moodle llevan `?type_id=N`, que
+    identifica el tipo de herramienta; perderlo (como hacía
+    `lineitem.split('?')[0]`) hace que el POST le pegue a una URL que Moodle
+    ya no reconoce -- un 403 o 404 en el último paso del flujo, después de que
+    todo lo anterior (token, line item, nota calculada) salió bien."""
+    parts = urlsplit(lineitem_url)
+    return urlunsplit(parts._replace(path=parts.path + "/scores"))
+
+
 async def post_score(
     platform: LtiPlatform,
     link: LtiResourceLink,
@@ -166,6 +189,7 @@ async def post_score(
     score: float,
     score_maximum: float,
     comment: str | None = None,
+    needs_review: bool = False,
 ) -> None:
     """Publica la nota de un alumno en el line item de la actividad."""
     lineitem = link.lineitem_url
@@ -178,7 +202,11 @@ async def post_score(
         "scoreGiven": float(score),
         "scoreMaximum": float(score_maximum),
         "activityProgress": "Completed",
-        "gradingProgress": "FullyGraded",
+        # AGS define `PendingManual` para una nota todavía no definitiva --
+        # exactamente el caso de una respuesta marcada `needs_review`. Publicar
+        # `FullyGraded` ahí le mentiría al libro de calificaciones del docente
+        # sobre qué notas son provisorias.
+        "gradingProgress": "PendingManual" if needs_review else "FullyGraded",
         "timestamp": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
     }
     if comment:
@@ -186,7 +214,7 @@ async def post_score(
 
     async with httpx.AsyncClient(timeout=15) as client:
         resp = await client.post(
-            f"{lineitem.split('?')[0]}/scores",
+            _scores_url(lineitem),
             headers={
                 "Authorization": f"Bearer {token}",
                 "Content-Type": "application/vnd.ims.lis.v1.score+json",
@@ -244,6 +272,7 @@ async def _deliver(response_id: uuid.UUID) -> None:
                 score=given,
                 score_maximum=maximum,
                 comment=(r.grade or {}).get("feedback") if isinstance(r.grade, dict) else None,
+                needs_review=bool(r.needs_review),
             )
     except Exception as exc:  # noqa: BLE001 — el LMS no puede romper el submit del alumno
         # Este catch también atrapa errores de programación, no sólo fallas de
