@@ -61,12 +61,15 @@ async def _limpiar_previa(db_session, issuer: str) -> None:
             await session.commit()
 
 
-def _fake_conf(issuer: str) -> dict:
+def _fake_conf(issuer: str, *, sufijo: str = "") -> dict:
+    """`sufijo` deja armar un documento con URLs distintas para el mismo
+    `issuer` -- lo usa el test cross-tenant para que el documento del
+    "atacante" no sea byte-idéntico al de la víctima (ver el comentario ahí)."""
     return {
         "issuer": issuer,
-        "authorization_endpoint": f"{issuer}/mod/lti/auth.php",
-        "token_endpoint": f"{issuer}/mod/lti/token.php",
-        "jwks_uri": f"{issuer}/mod/lti/certs.php",
+        "authorization_endpoint": f"{issuer}/mod/lti/auth{sufijo}.php",
+        "token_endpoint": f"{issuer}/mod/lti/token{sufijo}.php",
+        "jwks_uri": f"{issuer}/mod/lti/certs{sufijo}.php",
         "registration_endpoint": f"{issuer}/mod/lti/openid-registration.php",
     }
 
@@ -518,7 +521,16 @@ async def test_dynamic_registration_no_adopta_fila_de_otra_organizacion(
     # Organización B es genuinamente distinta -- otro admin, otra cuenta. El
     # atacante apunta su propio `openid_configuration` a un documento que él
     # mismo controla, y ese documento devuelve -- a propósito -- el issuer y
-    # el client_id que YA usa la organización A.
+    # el client_id que YA usa la organización A. `sufijo="-atacante"` hace que
+    # `auth_login_url`, `auth_token_url` y `jwks_url` NO sean byte-idénticas a
+    # las de A (antes, las dos organizaciones armaban su documento con el
+    # mismo `_fake_conf(issuer)`, así que esas tres URLs coincidían siempre --
+    # las comparaciones de más abajo no podían fallar ni bajo adopción total
+    # de la fila). Con URLs propias, esas tres comparaciones sí tienen dientes
+    # -- en particular `jwks_url`, que es el premio que el comentario de más
+    # arriba nombra explícitamente: si el ownership check no cortara, el
+    # atacante dejaría sus propias claves ahí para poder forjar lanzamientos
+    # contra el issuer de A.
     admin_b = new_client()
     _, _, me_b = register(admin_b)
     org_b = me_b["orgs"][0]["id"]
@@ -526,7 +538,7 @@ async def test_dynamic_registration_no_adopta_fila_de_otra_organizacion(
     _, enc_b = _mint(admin_b)
 
     async def fake_get_b(self, url, **kw):
-        return _resp("GET", url, 200, _fake_conf(issuer))
+        return _resp("GET", url, 200, _fake_conf(issuer, sufijo="-atacante"))
 
     async def fake_post_b(self, url, **kw):
         return _resp("POST", url, 201, {
@@ -694,6 +706,192 @@ async def test_dynamic_registration_client_id_no_string_da_502(
     assert r.status_code == 502, r.text  # no un 500 crudo (ni un IntegrityError en el commit)
     assert "client_id" in r.json()["detail"]
     assert await _no_hay_plataforma(db_session, issuer)
+
+
+# ── Minor 1b: contenedores de extensión no-dict, deployment_id y name hostiles
+#
+# `_texto_no_vacio` ya cubre los campos de nivel superior del documento
+# (issuer, *_endpoint, jwks_uri, client_id), pero tres puntos seguían leyendo
+# `(doc.get(EXTENSION) or {}).get(campo)` asumiendo que el valor de la
+# extensión es un dict cuando es truthy. Un documento hostil que devuelva,
+# p. ej., `"lti-tool-configuration": "x"` hace que `"x".get(...)` reviente con
+# AttributeError -- un 500 crudo, no el 502 que el resto del endpoint ya
+# garantiza. `deployment_id` y `name` (`product_family_code`) tampoco
+# validaban que el valor final fuera un string usable.
+
+
+@pytest.mark.asyncio
+async def test_dynamic_registration_tool_config_no_dict_da_502(
+    monkeypatch, lti_on, db_session
+):
+    """`registered[_TOOL_CONFIG]` no es un dict -- antes del guard, leer
+    `.get("deployment_id")` sobre un string revienta con AttributeError (500
+    crudo). Con el guard, se trata como si la extensión no viniera: falta
+    deployment_id, mismo 502 de siempre."""
+    issuer = "https://moodle.tool-config-no-dict"
+    await _limpiar_previa(db_session, issuer)
+    admin = new_client()
+    register(admin)
+    _, enc = _mint(admin)
+
+    async def fake_get(self, url, **kw):
+        return _resp("GET", url, 200, _fake_conf(issuer))
+
+    async def fake_post(self, url, **kw):
+        return _resp("POST", url, 201, {
+            "client_id": "cid-tool-config-no-dict",
+            # Extensión hostil: un string en vez de un objeto.
+            "https://purl.imsglobal.org/spec/lti-tool-configuration": "x",
+        })
+
+    monkeypatch.setattr(httpx.AsyncClient, "get", fake_get)
+    monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
+
+    client = TestClient(app)
+    r = client.get(
+        "/lti/register",
+        params={
+            "openid_configuration": f"{issuer}/mod/lti/openid-configuration.php",
+            "enc": enc,
+        },
+    )
+    assert r.status_code == 502, r.text  # no un 500 crudo
+    assert "deployment_id" in r.json()["detail"]
+    assert await _no_hay_plataforma(db_session, issuer)
+
+
+@pytest.mark.asyncio
+async def test_dynamic_registration_platform_config_no_dict_omite_name(
+    monkeypatch, lti_on, db_session
+):
+    """`conf[_PLATFORM_CONFIG]` no es un dict -- mismo AttributeError que el
+    caso anterior, pero del lado del documento de configuración (afecta
+    `name`, no `deployment_id`). El registro tiene que seguir andando: `name`
+    queda en None en vez de tumbar el endpoint."""
+    issuer = "https://moodle.platform-config-no-dict"
+    await _limpiar_previa(db_session, issuer)
+    admin = new_client()
+    register(admin)
+    _, enc = _mint(admin)
+
+    async def fake_get(self, url, **kw):
+        conf = _fake_conf(issuer)
+        # Extensión hostil: un string en vez de un objeto.
+        conf["https://purl.imsglobal.org/spec/lti-platform-configuration"] = "x"
+        return _resp("GET", url, 200, conf)
+
+    async def fake_post(self, url, **kw):
+        return _resp("POST", url, 201, {
+            "client_id": "cid-platform-config-no-dict",
+            "https://purl.imsglobal.org/spec/lti-tool-configuration": {"deployment_id": "1"},
+        })
+
+    monkeypatch.setattr(httpx.AsyncClient, "get", fake_get)
+    monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
+
+    client = TestClient(app)
+    r = client.get(
+        "/lti/register",
+        params={
+            "openid_configuration": f"{issuer}/mod/lti/openid-configuration.php",
+            "enc": enc,
+        },
+    )
+    assert r.status_code == 200, r.text  # no un 500 crudo -- el registro igual anda
+
+    async with db_session() as session:
+        p = (await session.scalars(
+            select(LtiPlatform).where(LtiPlatform.issuer == issuer)
+        )).first()
+        assert p is not None
+        assert p.name is None  # omitido, no un valor basura
+
+
+@pytest.mark.asyncio
+async def test_dynamic_registration_deployment_id_no_string_da_502(
+    monkeypatch, lti_on, db_session
+):
+    """`deployment_id` no-string (ej. un número) persistiría sin problema en la
+    columna JSON y nunca matchearía el claim string del lanzamiento --
+    exactamente el escenario "registro exitoso, plataforma inerte" que el
+    chequeo de ausencia ya existía para evitar. Mismo trato: 502, no fila."""
+    issuer = "https://moodle.deployment-id-no-string"
+    await _limpiar_previa(db_session, issuer)
+    admin = new_client()
+    register(admin)
+    _, enc = _mint(admin)
+
+    async def fake_get(self, url, **kw):
+        return _resp("GET", url, 200, _fake_conf(issuer))
+
+    async def fake_post(self, url, **kw):
+        return _resp("POST", url, 201, {
+            "client_id": "cid-deployment-id-no-string",
+            "https://purl.imsglobal.org/spec/lti-tool-configuration": {"deployment_id": 123},
+        })
+
+    monkeypatch.setattr(httpx.AsyncClient, "get", fake_get)
+    monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
+
+    client = TestClient(app)
+    r = client.get(
+        "/lti/register",
+        params={
+            "openid_configuration": f"{issuer}/mod/lti/openid-configuration.php",
+            "enc": enc,
+        },
+    )
+    assert r.status_code == 502, r.text
+    assert "deployment_id" in r.json()["detail"]
+    assert await _no_hay_plataforma(db_session, issuer)
+
+
+@pytest.mark.asyncio
+async def test_dynamic_registration_name_no_string_omite_name(
+    monkeypatch, lti_on, db_session
+):
+    """`product_family_code` no-string (ej. una lista) guarda bien en SQLite
+    pero rompe el driver de Postgres en el commit -- error que `except
+    IntegrityError` no atrapa (500 crudo). El registro tiene que completarse
+    igual, con `name` en None en vez de ese valor basura."""
+    issuer = "https://moodle.name-no-string"
+    await _limpiar_previa(db_session, issuer)
+    admin = new_client()
+    register(admin)
+    _, enc = _mint(admin)
+
+    async def fake_get(self, url, **kw):
+        conf = _fake_conf(issuer)
+        conf["https://purl.imsglobal.org/spec/lti-platform-configuration"] = {
+            "product_family_code": ["no", "es", "un", "string"],
+        }
+        return _resp("GET", url, 200, conf)
+
+    async def fake_post(self, url, **kw):
+        return _resp("POST", url, 201, {
+            "client_id": "cid-name-no-string",
+            "https://purl.imsglobal.org/spec/lti-tool-configuration": {"deployment_id": "1"},
+        })
+
+    monkeypatch.setattr(httpx.AsyncClient, "get", fake_get)
+    monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
+
+    client = TestClient(app)
+    r = client.get(
+        "/lti/register",
+        params={
+            "openid_configuration": f"{issuer}/mod/lti/openid-configuration.php",
+            "enc": enc,
+        },
+    )
+    assert r.status_code == 200, r.text  # no un 500 crudo -- el registro igual anda
+
+    async with db_session() as session:
+        p = (await session.scalars(
+            select(LtiPlatform).where(LtiPlatform.issuer == issuer)
+        )).first()
+        assert p is not None
+        assert p.name is None  # omitido, no un valor basura
 
 
 # ── Minor 2: las respuestas de error también tienen que ser frameables ───────

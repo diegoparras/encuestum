@@ -190,6 +190,9 @@ Todo se configura por env con prefijo `ENCUESTUM_*`. Ver [`.env.example`](.env.e
 | `ENCUESTUM_SMTP_HOST` … | — | Email para invitaciones/links/notificaciones (ver abajo). |
 | `ENCUESTUM_BASE_DOMAIN` | — | Habilita subdominios por organización (`acme.tudominio.com`). |
 | `ENCUESTUM_ALLOW_PRIVATE_OUTBOUND` | `false` | Permite webhooks/LLM/**LTI** (JWKS de la plataforma y token endpoint de AGS) hacia IPs internas (ej. Ollama o un Moodle en tu propia red). Dejalo en `false` si es multi-tenant. El registro dinámico de LTI igual exige que la plataforma esté en HTTPS, sin importar esta variable. |
+| `LTI_ENABLED` | `false` | Prende la integración **LTI 1.3** (Moodle, Canvas, Blackboard…). Apagado por defecto: nada cambia para instalaciones que no usan un LMS. |
+| `LTI_PRIVATE_KEY` | *(generada)* | Clave privada RSA (PEM) con la que el tool firma sus JWT. Sin definirla, se genera una al arrancar y se guarda en la base. |
+| `LTI_KEY_ID` | `encuestum-lti-1` | `kid` publicado en el JWKS. Cambiarlo obliga a las plataformas ya registradas a releer las claves. |
 
 ---
 

@@ -398,6 +398,21 @@ def _texto_no_vacio(valor: object) -> bool:
     return isinstance(valor, str) and bool(valor.strip())
 
 
+def _campo_extension(doc: dict, clave_extension: str, campo: str) -> object:
+    """Lee `doc[clave_extension][campo]`, tratando un contenedor de extensión
+    que no sea dict como si estuviera ausente. `_TOOL_CONFIG` y
+    `_PLATFORM_CONFIG` son objetos anidados dentro de documentos que no
+    controlamos (la respuesta de registro de la plataforma y su configuración
+    OpenID); un documento hostil puede mandar, p. ej.,
+    `{"lti-tool-configuration": "x"}` en vez de un objeto, y
+    `"x".get("deployment_id")` reventaría con AttributeError -- un 500 crudo
+    en vez del 502 que el resto de este endpoint ya garantiza."""
+    contenedor = doc.get(clave_extension)
+    if not isinstance(contenedor, dict):
+        return None
+    return contenedor.get(campo)
+
+
 def _frameable(exc: HTTPException) -> HTTPException:
     """Reempaqueta un HTTPException con los mismos headers que vuelven
     frameable a `_DONE_HTML` (ver el comentario ahí sobre por qué). Sin esto,
@@ -643,14 +658,16 @@ async def dynamic_registration(
                 detail="La plataforma no devolvió un client_id.",
             )
 
-        deployment_id = (registered.get(_TOOL_CONFIG) or {}).get("deployment_id")
-        if not deployment_id:
-            # Sin deployment_id, `validate_launch` compara contra `deployment_ids`
-            # y una lista vacía nunca matchea nada -- rechaza TODOS los
-            # lanzamientos. Guardar la fila igual dejaría una plataforma
-            # "registrada con éxito" pero inerte para siempre (Moodle sí manda
-            # este campo; esto protege contra un LMS que no lo haga). Falla acá,
-            # antes de persistir nada.
+        deployment_id = _campo_extension(registered, _TOOL_CONFIG, "deployment_id")
+        if not _texto_no_vacio(deployment_id):
+            # Sin deployment_id (o con uno que no sea un string usable -- p.
+            # ej. un número), `validate_launch` compara contra
+            # `deployment_ids` y ese valor nunca matchea el claim string del
+            # lanzamiento -- rechaza TODOS los lanzamientos. Guardar la fila
+            # igual dejaría una plataforma "registrada con éxito" pero inerte
+            # para siempre (Moodle sí manda este campo como string; esto
+            # protege contra un LMS que no lo haga, o que lo haga mal). Falla
+            # acá, antes de persistir nada.
             raise HTTPException(
                 status_code=502,
                 detail=(
@@ -660,6 +677,14 @@ async def dynamic_registration(
                 ),
             )
 
+        # `name` es puramente informativo (no lo usa ningún guard ni ninguna
+        # comparación), a diferencia de `deployment_id` -- así que un valor no
+        # usable no amerita fallar el registro entero, sólo omitirlo. Sin este
+        # chequeo, un `product_family_code` no-string (p. ej. una lista) entra
+        # bien en SQLite (no valida tipos) pero rompe el driver de Postgres en
+        # el commit -- un error que el `except IntegrityError` de abajo no
+        # atrapa: 500 crudo.
+        nombre = _campo_extension(conf, _PLATFORM_CONFIG, "product_family_code")
         platform = LtiPlatform(
             issuer=conf["issuer"],
             client_id=registered["client_id"],
@@ -668,7 +693,7 @@ async def dynamic_registration(
             auth_token_url=conf["token_endpoint"],
             jwks_url=conf["jwks_uri"],
             org_id=org_id,
-            name=(conf.get(_PLATFORM_CONFIG) or {}).get("product_family_code"),
+            name=nombre if _texto_no_vacio(nombre) else None,
         )
         session.add(platform)
         try:
