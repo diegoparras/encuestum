@@ -233,6 +233,23 @@ async def _deliver(response_id: uuid.UUID) -> None:
 
     try:
         async with _session_maker() as session:
+            # `get_tool_key` corre PRIMERO, antes de cargar `r`/`link`/
+            # `platform`/`survey`: mismo hallazgo del rollback sweep del fix
+            # de la carrera de `LtiResourceLink` en `app/routers/lti.py` (ver
+            # `_upsert_lti_user`/`_link_from_deep_link_claims` ahí). Si
+            # todavía no existe la fila de `LtiKey` (primer arranque) y dos
+            # entregas piden una clave casi a la vez, `get_tool_key`
+            # (`app/lti/keys.py`) hace su propio `session.rollback()` para
+            # recuperarse -- y ese rollback expira TODO el identity map de la
+            # sesión. Si `platform`/`link`/`survey` ya estuvieran cargados en
+            # ese momento, `ensure_lineitem`/`get_access_token` (que leen sus
+            # atributos de forma síncrona, sin `await`) reventarían con
+            # `MissingGreenlet` -- silenciado acá por el `except Exception`
+            # de más abajo, pero la nota nunca se publicaría. Pidiendo la
+            # clave antes de cargar nada más, ese rollback no tiene nada que
+            # invalidar.
+            key = await get_tool_key(session)
+
             r = await session.get(SurveyResponse, response_id)
             if r is None or r.lti_link_id is None or r.score is None or not r.lti_sub:
                 # `lti_sub` es nullable: sin él no hay a quién asignarle la
@@ -247,7 +264,6 @@ async def _deliver(response_id: uuid.UUID) -> None:
             if platform is None:
                 return
             survey = await session.get(Survey, r.survey_id)
-            key = await get_tool_key(session)
 
             link.lineitem_url = await ensure_lineitem(
                 platform, link, key,

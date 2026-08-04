@@ -536,6 +536,116 @@ async def test_deliver_no_propaga_el_error_si_la_plataforma_esta_caida(
 
 
 @pytest.mark.asyncio
+async def test_deliver_sobrevive_a_una_carrera_de_clave_del_tool(
+    monkeypatch, lti_on, ags_setup, db_session, request
+):
+    """Rollback sweep del fix de la carrera de `LtiResourceLink`
+    (`app/routers/lti.py::_upsert_lti_user`/`_link_from_deep_link_claims`):
+    `get_tool_key` (`app/lti/keys.py`) también se recupera de una carrera de
+    inserción con su propio `session.rollback()`, que expira TODO el
+    identity map de la sesión -- no sólo la clave. `_deliver` carga
+    `r`/`link`/`platform`/`survey` en la MISMA sesión con la que después pide
+    la clave: antes de reordenar `_deliver` para pedirla primero (ver el
+    comentario ahí), ese rollback los dejaba expirados, y
+    `ensure_lineitem`/`get_access_token` (que leen sus atributos sin
+    `await`) reventaban con `MissingGreenlet` -- silenciado por el `except
+    Exception` de `_deliver` (ver
+    `test_deliver_no_propaga_el_error_si_la_plataforma_esta_caida` arriba),
+    así que el síntoma real era una nota que nunca se publicaba, sin ningún
+    error visible para el alumno ni el docente.
+
+    Un `LTI_KEY_ID` propio evita interferir con la clave que `ags_setup` ya
+    dejó persistida para el kid por default, y garantiza que la fila de
+    `LtiKey` para ESTE kid todavía no exista -- condición para que
+    `get_tool_key` tome la rama de la carrera."""
+    from sqlalchemy.exc import IntegrityError
+
+    import app.db as db_module
+    from app.config import get_settings
+    from app.lti.ags import _deliver
+    from app.lti.keys import _generate
+    from app.models import LtiKey, Survey, SurveyResponse
+
+    monkeypatch.setenv("LTI_KEY_ID", f"race-deliver-{uuid.uuid4().hex}")
+    get_settings.cache_clear()
+    request.addfinalizer(get_settings.cache_clear)
+    settings = get_settings()
+
+    winning_private_pem, winning_public_pem = _generate()
+    real_session_maker = db_module._session_maker
+
+    def fake_session_maker():
+        # `_deliver` hace `from app.db import _session_maker` DENTRO de la
+        # función, así que parchear el atributo del módulo alcanza -- cada
+        # llamada relee el atributo actual, no el que había al importar.
+        session = real_session_maker()
+        real_commit = session.commit
+        state = {"first_call": True}
+
+        async def fake_commit():
+            if state["first_call"]:
+                state["first_call"] = False
+                # Soltamos nuestra transacción antes de que la "otra
+                # entrega" inserte y confirme -- misma técnica
+                # determinística que el resto de esta suite, sin
+                # concurrencia real.
+                await session.rollback()
+                async with real_session_maker() as other:
+                    other.add(
+                        LtiKey(
+                            kid=settings.lti_key_id,
+                            private_pem=winning_private_pem,
+                            public_pem=winning_public_pem,
+                        )
+                    )
+                    await other.commit()
+                raise IntegrityError(
+                    "insert", {}, Exception("UNIQUE constraint failed: lti_keys.kid")
+                )
+            await real_commit()
+
+        session.commit = fake_commit
+        return session
+
+    monkeypatch.setattr(db_module, "_session_maker", fake_session_maker)
+
+    ags_setup["link"].lineitem_url = LINEITEM
+    enviado = {}
+
+    async def fake_post(self, url, **kw):
+        if url == TOKEN_URL:
+            return _resp("POST", url, 200, {"access_token": "tok", "expires_in": 3600})
+        enviado["json"] = kw.get("json")
+        return _resp("POST", url, 200, {})
+
+    async def fake_get(self, url, **kw):
+        return _resp("GET", url, 200, {"id": LINEITEM, "scoreMaximum": 20.0})
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
+    monkeypatch.setattr(httpx.AsyncClient, "get", fake_get)
+
+    async with db_session() as session:
+        session.add(ags_setup["link"])
+        survey = Survey(id=ags_setup["link"].survey_id, org_id=uuid.uuid4(),
+                        title="Examen", json_schema={})
+        session.add(survey)
+        r = SurveyResponse(survey_id=survey.id, answers={}, score=8.5, max_score=10.0,
+                           lti_link_id=ags_setup["link"].id, lti_sub="u-42")
+        session.add(r)
+        await session.commit()
+        response_id = r.id
+
+    await _deliver(response_id)
+
+    # Si `MissingGreenlet` hubiera reventado adentro (y `_deliver` se lo
+    # hubiera tragado, como es su contrato), `enviado["json"]` nunca se
+    # habría poblado -- la nota se publica o el test lo detecta.
+    assert enviado.get("json") is not None, "la nota nunca se publicó"
+    assert enviado["json"]["scoreGiven"] == 17.0
+    assert enviado["json"]["scoreMaximum"] == 20.0
+
+
+@pytest.mark.asyncio
 async def test_schedule_score_dispara_deliver_de_verdad(monkeypatch, lti_on, ags_setup, db_session):
     """El único punto donde `schedule_score` corre de verdad, de punta a
     punta: los tests de `submit()` la monkeypatchean para no repetir el envío
@@ -800,24 +910,30 @@ async def test_grade_all_dispara_entrega_solo_para_las_lti(monkeypatch, lti_on, 
 # fuerce explícitamente -- que es justo lo que se prueba acá.
 
 
-def _lti_apagado(monkeypatch):
+def _lti_apagado(monkeypatch, request):
+    """Simétrico con el fixture `lti_on` de `conftest.py`: ese limpia la
+    `lru_cache` de `get_settings` tanto al entrar como al salir. Acá, sin el
+    `addfinalizer`, la cache quedaba limpia sólo a la entrada -- inofensivo
+    hoy porque el valor cacheado coincide con el default ambiente, pero es el
+    único lugar de la suite que deja una cache sucia al terminar."""
     from app.config import get_settings
 
     monkeypatch.delenv("LTI_ENABLED", raising=False)
     get_settings.cache_clear()
+    request.addfinalizer(get_settings.cache_clear)
     assert get_settings().lti_enabled is False
 
 
 @pytest.mark.asyncio
 async def test_override_en_respuesta_lti_no_dispara_entrega_si_lti_esta_apagado(
-    monkeypatch, ags_setup, db_session
+    monkeypatch, ags_setup, db_session, request
 ):
     from tests.conftest import new_client, register
 
     import app.lti.ags as ags_module
     from app.models import SurveyResponse
 
-    _lti_apagado(monkeypatch)
+    _lti_apagado(monkeypatch, request)
     llamados = []
     monkeypatch.setattr(ags_module, "schedule_score", lambda rid: llamados.append(rid))
 
@@ -841,14 +957,14 @@ async def test_override_en_respuesta_lti_no_dispara_entrega_si_lti_esta_apagado(
 
 @pytest.mark.asyncio
 async def test_grade_one_en_respuesta_lti_no_dispara_entrega_si_lti_esta_apagado(
-    monkeypatch, ags_setup, db_session
+    monkeypatch, ags_setup, db_session, request
 ):
     from tests.conftest import new_client, register
 
     import app.lti.ags as ags_module
     from app.models import SurveyResponse
 
-    _lti_apagado(monkeypatch)
+    _lti_apagado(monkeypatch, request)
     llamados = []
     monkeypatch.setattr(ags_module, "schedule_score", lambda rid: llamados.append(rid))
 
@@ -872,14 +988,14 @@ async def test_grade_one_en_respuesta_lti_no_dispara_entrega_si_lti_esta_apagado
 
 @pytest.mark.asyncio
 async def test_grade_all_no_dispara_entrega_si_lti_esta_apagado(
-    monkeypatch, ags_setup, db_session
+    monkeypatch, ags_setup, db_session, request
 ):
     from tests.conftest import new_client, register
 
     import app.lti.ags as ags_module
     from app.models import SurveyResponse
 
-    _lti_apagado(monkeypatch)
+    _lti_apagado(monkeypatch, request)
     llamados = []
     monkeypatch.setattr(ags_module, "schedule_score", lambda rid: llamados.append(rid))
 

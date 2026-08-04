@@ -231,26 +231,48 @@ async def _upsert_lti_user(session: AsyncSession, platform: LtiPlatform, claims:
     `platform` ya estaba cargado en esta misma sesión antes de entrar acá
     (`launch()` lo trae con `session.get`), y un rollback expira TODOS los
     objetos del identity map de la sesión, `platform` incluido -- no sólo lo
-    que esta función tocó. Sin el `session.refresh(platform)` de más abajo, el
-    próximo acceso a un atributo suyo (acá mismo, `platform.id`; más abajo en
-    `launch()`, otra vez `platform.id`/`platform.org_id` dentro de
-    `_deep_linking_redirect`/`_resource_link_redirect`) dispara un
-    lazy-load síncrono que en contexto async revienta con `MissingGreenlet` en
-    vez de recuperarse -- justo el caso concurrente que este manejo existe
-    para cubrir."""
+    que esta función tocó.
+
+    `platform.id` se captura en el local `platform_id` ANTES de intentar el
+    primer commit, y de ahí en más esta función sólo lee `platform_id` --
+    nunca `platform.id` -- así que su propio `_buscar()` no depende de que
+    `platform` siga sin expirar después del rollback de más abajo. Esto no
+    es sólo prolijidad: hasta hace poco, en el momento en que corre esta
+    función la sesión no tenía cargado nada más que `platform` (por eso
+    alcanzaba con refrescarla a ELLA para que todo lo que esta función
+    tocaba siguiera vivo), pero esa garantía era del orden de llamada de
+    `launch()`, no algo que esta función controle -- y ese orden ya cambió
+    una vez: hoy la sesión también carga a `user` (el valor de retorno de
+    esta misma función) y lo sigue leyendo después de que esta función
+    retorne, en `_resource_link_redirect` (ver el comentario ahí). Capturar
+    el local en vez de apoyarse en "total, acá no hay nada más cargado" hace
+    que esta función no dependa de esa garantía externa la próxima vez que
+    cambie.
+
+    El `session.refresh(platform)` de más abajo, en cambio, sigue haciendo
+    falta -- pero ya no para uso propio (que usa `platform_id`), sino para
+    quien llama: `launch()` sigue usando el objeto `platform` después de que
+    esta función retorna (`platform.id`/`platform.org_id`, dentro de
+    `_deep_linking_redirect`/`_resource_link_redirect`), y sin refrescarlo acá
+    esos accesos revientan con `MissingGreenlet`. (Si la fila de `platform`
+    hubiera sido borrada en el medio de la carrera -- no alcanzable hoy, nada
+    borra plataformas -- este refresh levantaría `InvalidRequestError` en vez
+    de recuperarse; el pedido ya está condenado en ese escenario de cualquier
+    forma, así que no hace falta manejarlo acá.)"""
     sub = claims["sub"]
+    platform_id = platform.id
 
     async def _buscar() -> LtiUser | None:
         return (
             await session.scalars(
-                select(LtiUser).where(LtiUser.platform_id == platform.id, LtiUser.sub == sub)
+                select(LtiUser).where(LtiUser.platform_id == platform_id, LtiUser.sub == sub)
             )
         ).first()
 
     user = await _buscar()
     es_nuevo = user is None
     if es_nuevo:
-        user = LtiUser(platform_id=platform.id, sub=sub)
+        user = LtiUser(platform_id=platform_id, sub=sub)
     user.email = claims.get("email")
     user.name = claims.get("name")
     user.roles = claims.get(CLAIM["ROLES"]) or []
@@ -264,8 +286,10 @@ async def _upsert_lti_user(session: AsyncSession, platform: LtiPlatform, claims:
             # esperada.
             raise
         await session.rollback()
-        # Ver el docstring: sin esto, `platform.id` de `_buscar()` (dos líneas
-        # más abajo) revienta con `MissingGreenlet`.
+        # Ver el docstring: este refresh ya no hace falta para nuestro propio
+        # `_buscar()` (usa `platform_id`, capturado arriba) -- hace falta para
+        # que `platform` siga viva para quien nos llama, después de que esta
+        # función retorne.
         await session.refresh(platform)
         user = await _buscar()
         if user is None:
@@ -316,12 +340,20 @@ async def _link_from_deep_link_claims(
     misma sesión antes de entrar (`launch()` lo trae con `session.get`), y
     `session.rollback()` expira TODOS los objetos del identity map de la
     sesión -- `platform` incluido, no sólo la fila que este helper intentó
-    insertar. Sin el `session.refresh(platform)` del bloque `except` de más
-    abajo, el próximo acceso a un atributo de `platform` -- acá mismo,
-    `platform.id` para releer; en el caller, `_resource_link_redirect`,
-    `platform.org_id` para el chequeo de tenant del link ya creado -- dispara
-    un lazy-load síncrono que en contexto async revienta con
-    `MissingGreenlet` en vez de recuperarse."""
+    insertar.
+
+    `platform.id` se captura en el local `platform_id` ANTES del primer
+    commit (ver el mismo razonamiento en el docstring de `_upsert_lti_user`),
+    así que la releída de más abajo no depende de que `platform` siga sin
+    expirar en ese punto. El `session.refresh(platform)` del bloque `except`
+    sigue haciendo falta igual -- no para esta función (que ya no toca
+    `platform.id` de nuevo), sino para el caller: `_resource_link_redirect`
+    lee `platform.org_id` después de que este helper retorna, para el chequeo
+    de tenant del link ya creado. Sin refrescarlo acá, ese acceso revienta
+    con `MissingGreenlet`. (Si la fila de `platform` hubiera sido borrada en
+    el medio de la carrera -- no alcanzable hoy -- este refresh levantaría
+    `InvalidRequestError` en vez de recuperarse; el pedido ya está condenado
+    en ese escenario de cualquier forma.)"""
     survey_id = _survey_id_from_custom_claim(claims)
     if survey_id is None:
         return None
@@ -346,8 +378,9 @@ async def _link_from_deep_link_claims(
     if not isinstance(context_id, str):
         context_id = None
 
+    platform_id = platform.id
     link = LtiResourceLink(
-        platform_id=platform.id,
+        platform_id=platform_id,
         resource_link_id=resource_link_id,
         survey_id=survey.id,
         context_id=context_id,
@@ -362,14 +395,15 @@ async def _link_from_deep_link_claims(
         # `_upsert_lti_user` arriba y `get_tool_key`: deshacer el intento
         # propio y seguir con la fila que ganó la carrera.
         await session.rollback()
-        # Ver el docstring: sin esto, `platform.id` de la releída de abajo (y
-        # `platform.org_id` más tarde en el caller) revienta con
-        # `MissingGreenlet`.
+        # Ver el docstring: este refresh ya no hace falta para nuestra propia
+        # releída (usa `platform_id`, capturado arriba) -- hace falta para
+        # `_resource_link_redirect`, que lee `platform.org_id` después de que
+        # este helper retorne.
         await session.refresh(platform)
         link = (
             await session.scalars(
                 select(LtiResourceLink).where(
-                    LtiResourceLink.platform_id == platform.id,
+                    LtiResourceLink.platform_id == platform_id,
                     LtiResourceLink.resource_link_id == resource_link_id,
                 )
             )
@@ -380,7 +414,30 @@ async def _link_from_deep_link_claims(
 
 
 async def _resource_link_redirect(claims, platform, user, session):
-    """Lanzamiento normal: buscar la encuesta atada a esta actividad y entrar."""
+    """Lanzamiento normal: buscar la encuesta atada a esta actividad y entrar.
+
+    `user.sub`/`user.email`/`user.name` se capturan en locales ACÁ ARRIBA,
+    antes de tocar la sesión para cualquier otra cosa. Motivo: más abajo, si
+    la actividad todavía no tiene `LtiResourceLink`,
+    `_link_from_deep_link_claims` puede hacer su propio `session.rollback()`
+    para recuperarse de una carrera de inserción (ver su docstring) -- y ese
+    rollback expira TODO el identity map de la sesión, no sólo lo que ese
+    helper tocó. `user` se cargó en `_upsert_lti_user`, ANTES de que esta
+    función arrancara (`launch()` la llama primero), así que -- a diferencia
+    de `link`/`survey`, que esta función carga DESPUÉS de cualquier rollback
+    posible, con queries frescas -- nada la refresca automáticamente. Y a
+    diferencia de `platform`, que sigue viva más allá de esta función (se
+    sigue leyendo unas líneas más abajo, y `_link_from_deep_link_claims`
+    la refresca por eso), a `user` sólo la lee este bloque, una vez, al
+    final: no hace falta refrescarla, alcanza con leer sus tres atributos acá,
+    antes de que exista la chance de un rollback, y usar esos locales de ahí
+    en más -- exactamente el mismo caso que `_upsert_lti_user` ya cubría para
+    `platform` (ver su docstring), sólo que ahí alcanzaba con refrescar el
+    objeto porque `_upsert_lti_user` no lo necesita para nada más después."""
+    user_sub = user.sub
+    user_email = user.email
+    user_name = user.name
+
     resource_link_id = (claims.get(CLAIM["RESOURCE_LINK"]) or {}).get("id")
     if not resource_link_id:
         raise HTTPException(status_code=400, detail="El lanzamiento no trae resource_link.")
@@ -434,9 +491,9 @@ async def _resource_link_redirect(claims, platform, user, session):
         {
             "slug": survey.slug,
             "link_id": str(link.id),
-            "sub": user.sub,
-            "email": user.email,
-            "name": user.name,
+            "sub": user_sub,
+            "email": user_email,
+            "name": user_name,
         },
         ttl_minutes=ACCESS_TTL_S / 60,
     )
@@ -534,14 +591,26 @@ async def select_return(
     request: Request,
     session: AsyncSession = Depends(get_session),
 ) -> dict:
-    """Firma el content item de la encuesta elegida y dice a dónde postearlo."""
+    """Firma el content item de la encuesta elegida y dice a dónde postearlo.
+
+    `get_tool_key` corre PRIMERO, antes de cargar `platform`/`survey`: mismo
+    hallazgo del rollback sweep del fix de la carrera de `LtiResourceLink`
+    (ver `_upsert_lti_user`/`_link_from_deep_link_claims` más arriba). Si
+    todavía no existe la fila de `LtiKey` (primer arranque) y dos requests
+    piden una clave casi a la vez, `get_tool_key` (`app/lti/keys.py`) hace su
+    propio `session.rollback()` para recuperarse -- y ese rollback expira
+    TODO el identity map de la sesión. Si `platform`/`survey` ya estuvieran
+    cargados en ese momento, `build_response_jwt` (que lee sus atributos de
+    forma síncrona, sin `await`) reventaría con `MissingGreenlet`. Pidiendo
+    la clave antes de cargar nada más, ese rollback no tiene nada que
+    invalidar."""
+    key = await get_tool_key(session)
     platform, data = await _dl_platform(session, payload.dl)
 
     survey = await session.get(Survey, payload.survey_id)
     if survey is None or survey.deleted_at is not None or survey.org_id != platform.org_id:
         raise HTTPException(status_code=404, detail="Encuesta no encontrada.")
 
-    key = await get_tool_key(session)
     # No `request.url_for()`: acá adentro nginx habla http plano y esa URL
     # calcularía scheme http://, que Moodle rechaza al no matchear la
     # registrada (mismo motivo que en login(), ver comentario ahí).

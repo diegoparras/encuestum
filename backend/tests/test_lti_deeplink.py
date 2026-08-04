@@ -262,3 +262,85 @@ async def test_el_retorno_rechaza_una_encuesta_de_otra_organizacion(lti_on, dl_s
     dl = r.headers["location"].split("dl=", 1)[1]
     ret = client.post("/lti/select/return", json={"dl": dl, "survey_id": str(ajena_id)})
     assert ret.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_select_return_sobrevive_a_una_carrera_de_clave_del_tool(
+    lti_on, dl_setup, db_session, monkeypatch, request
+):
+    """Rollback sweep del fix de la carrera de `LtiResourceLink`
+    (`app/routers/lti.py::_upsert_lti_user`/`_link_from_deep_link_claims`):
+    `get_tool_key` (`app/lti/keys.py`) también se recupera de una carrera de
+    inserción con su propio `session.rollback()`, y ese rollback expira TODO
+    el identity map de la sesión de la request -- no sólo la clave. Antes de
+    reordenar `select_return` para pedir la clave ANTES de cargar
+    `platform`/`survey`, esos dos ya estaban cargados en esa sesión cuando el
+    rollback corría, y `build_response_jwt` (que lee sus atributos sin
+    `await`) reventaba con `MissingGreenlet`. Simula la carrera de forma
+    determinística, igual que
+    `test_get_tool_key_sobrevive_a_una_carrera_de_insercion`
+    (`test_lti_jwks.py`), pero disparada a través del endpoint HTTP -- para
+    que la sesión de la request tenga lo mismo que tiene la sesión real."""
+    from sqlalchemy.exc import IntegrityError
+
+    from app.config import get_settings
+    from app.db import get_session
+    from app.lti.keys import _generate
+    from app.main import app as fastapi_app
+    from app.models import LtiKey
+
+    # `lti_keys` es compartida entre tests -- un kid propio evita pisar ni
+    # depender de otros tests (mismo motivo que en test_lti_jwks.py).
+    monkeypatch.setenv("LTI_KEY_ID", f"race-select-return-{uuid.uuid4().hex}")
+    get_settings.cache_clear()
+    request.addfinalizer(get_settings.cache_clear)
+    settings = get_settings()
+
+    winning_private_pem, winning_public_pem = _generate()
+
+    async def _session_override():
+        async with db_session() as session:
+            real_commit = session.commit
+            state = {"first_call": True}
+
+            async def fake_commit():
+                if state["first_call"]:
+                    state["first_call"] = False
+                    await session.rollback()
+                    async with db_session() as other:
+                        other.add(
+                            LtiKey(
+                                kid=settings.lti_key_id,
+                                private_pem=winning_private_pem,
+                                public_pem=winning_public_pem,
+                            )
+                        )
+                        await other.commit()
+                    raise IntegrityError(
+                        "insert", {}, Exception("UNIQUE constraint failed: lti_keys.kid")
+                    )
+                await real_commit()
+
+            session.commit = fake_commit
+            yield session
+
+    client = _client()
+    r = _launch_deeplink(client, dl_setup)
+    dl = r.headers["location"].split("dl=", 1)[1]
+
+    fastapi_app.dependency_overrides[get_session] = _session_override
+    try:
+        ret = client.post(
+            "/lti/select/return", json={"dl": dl, "survey_id": str(dl_setup["survey"].id)}
+        )
+    finally:
+        fastapi_app.dependency_overrides.pop(get_session, None)
+
+    assert ret.status_code == 200, ret.text
+    body = ret.json()
+    assert body["action"] == RETURN_URL
+
+    jwks = client.get("/lti/jwks.json").json()
+    public_key = RSAAlgorithm.from_jwk(jwks["keys"][0])
+    claims = jwt.decode(body["jwt"], public_key, algorithms=["RS256"], audience=ISSUER)
+    assert claims[CLAIM["MESSAGE_TYPE"]] == "LtiDeepLinkingResponse"

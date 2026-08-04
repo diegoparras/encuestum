@@ -351,3 +351,92 @@ async def test_creacion_del_link_sobrevive_a_una_carrera_de_insercion(
             )
         ).all()
         assert len(filas) == 1
+
+
+@pytest.mark.asyncio
+async def test_launch_sobrevive_a_una_carrera_de_link_con_user_ya_cargado(
+    lti_on, setup, db_session
+):
+    """El mismo agujero que el test de arriba, pero disparado de punta a
+    punta a través de `launch()` -- no llamando a
+    `_link_from_deep_link_claims` directo.
+
+    En el pedido real, `launch()` llama primero a `_upsert_lti_user` (que
+    carga/crea `user` en la sesión, con todos sus atributos poblados) y
+    RECIÉN DESPUÉS a `_resource_link_redirect` -> `_link_from_deep_link_claims`.
+    El test de arriba arranca `_link_from_deep_link_claims` con una sesión
+    que nunca tuvo un `user` cargado, así que nunca podía detectar que el
+    `session.rollback()` de la carrera expira TODO el identity map -- no
+    sólo `platform` (a la que ese test sí refresca), también `user` (al que
+    nadie refresca). Este test reproduce el orden real de `launch()`
+    disparando el HTTP end-to-end contra un `get_session` con el mismo
+    fake_commit determinístico que el resto de esta suite usa para simular
+    la carrera sin concurrencia real -- pero acá el override vive un nivel
+    más arriba (la dependencia de FastAPI), porque necesitamos que la MISMA
+    sesión que usa `launch()` para cargar a `user` sea la que después
+    dispare el rollback de la carrera del link."""
+    from sqlalchemy.exc import IntegrityError
+    from sqlmodel import select
+
+    from app.db import get_session
+    from app.main import app as fastapi_app
+    from app.models import LtiResourceLink
+
+    rl_id = f"rl-{uuid.uuid4().hex[:8]}"
+
+    async def _session_override():
+        async with db_session() as session:
+            real_commit = session.commit
+            state = {"n": 0}
+
+            async def fake_commit():
+                state["n"] += 1
+                # El primer commit real de la request es el upsert de
+                # `_upsert_lti_user` -- tiene que ir bien, para que la sesión
+                # termine con un `user` persistente y cargado, igual que en
+                # el pedido real. El segundo es el insert de
+                # `LtiResourceLink` dentro de `_link_from_deep_link_claims`
+                # -- ese es el que se hace chocar contra `uq_lti_link`.
+                if state["n"] == 2:
+                    await session.rollback()
+                    async with db_session() as other:
+                        other.add(
+                            LtiResourceLink(
+                                platform_id=setup["platform"].id,
+                                resource_link_id=rl_id,
+                                survey_id=setup["survey"].id,
+                                context_id="course-race-winner",
+                            )
+                        )
+                        await other.commit()
+                    raise IntegrityError(
+                        "insert", {},
+                        Exception("UNIQUE constraint failed: lti_resource_links"),
+                    )
+                await real_commit()
+
+            session.commit = fake_commit
+            yield session
+
+    fastapi_app.dependency_overrides[get_session] = _session_override
+    try:
+        client = _client()
+        r = _login_y_launch(client, setup, rl_id, setup["survey"].id, context_id="course-race")
+    finally:
+        fastapi_app.dependency_overrides.pop(get_session, None)
+
+    assert r.status_code == 302, r.text
+    assert r.headers["location"] == f"/s/{setup['survey'].slug}"
+
+    async with db_session() as session:
+        filas = (
+            await session.scalars(
+                select(LtiResourceLink).where(
+                    LtiResourceLink.platform_id == setup["platform"].id,
+                    LtiResourceLink.resource_link_id == rl_id,
+                )
+            )
+        ).all()
+        # La fila que "perdimos" la carrera es la que ganó -- no una segunda.
+        assert len(filas) == 1
+        assert filas[0].context_id == "course-race-winner"
