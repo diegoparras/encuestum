@@ -446,6 +446,354 @@ async def test_register_ignora_org_id_que_mande_el_llamador(monkeypatch, lti_on,
         assert str(p.org_id) != org_ajeno
 
 
+# ── Critical: no adoptar una fila que ya pertenece a otra organización ───────
+#
+# `(issuer, client_id)` sale enteramente de datos que controla quien llama:
+# `issuer` es un string suelto dentro del JSON que sirve el host al que el
+# propio admin apunta `openid_configuration` (nada lo ata a ese host), y
+# `client_id` sale de la respuesta del `registration_endpoint` de ESE MISMO
+# host -- también bajo control del llamador. Un admin de la organización A
+# podía mintear su propio `enc`, apuntar el registro a un host HTTPS propio, y
+# hacer que ese host devolviera el `issuer` y el `client_id` de la
+# organización B a propósito: el manejo de `uq_lti_platform_issuer_client` de
+# más arriba adoptaba la fila de B sin chequear que ya perteneciera a otro
+# `org_id` -- reasignándole `org_id`, `jwks_url`, `auth_token_url` y
+# `auth_login_url` al atacante. Compromiso total de la confianza LTI de B.
+
+
+@pytest.mark.asyncio
+async def test_dynamic_registration_no_adopta_fila_de_otra_organizacion(
+    monkeypatch, lti_on, db_session
+):
+    issuer = "https://moodle.cross-tenant"
+    client_id_compartido = "client-compartido"
+    await _limpiar_previa(db_session, issuer)
+
+    # Organización A registra su plataforma legítimamente.
+    admin_a = new_client()
+    _, _, me_a = register(admin_a)
+    org_a = me_a["orgs"][0]["id"]
+    _, enc_a = _mint(admin_a)
+
+    async def fake_get_a(self, url, **kw):
+        return _resp("GET", url, 200, _fake_conf(issuer))
+
+    async def fake_post_a(self, url, **kw):
+        return _resp("POST", url, 201, {
+            "client_id": client_id_compartido,
+            "https://purl.imsglobal.org/spec/lti-tool-configuration": {"deployment_id": "1"},
+        })
+
+    monkeypatch.setattr(httpx.AsyncClient, "get", fake_get_a)
+    monkeypatch.setattr(httpx.AsyncClient, "post", fake_post_a)
+
+    client = TestClient(app)
+    r1 = client.get(
+        "/lti/register",
+        params={
+            "openid_configuration": f"{issuer}/mod/lti/openid-configuration.php",
+            "enc": enc_a,
+        },
+    )
+    assert r1.status_code == 200, r1.text
+
+    async with db_session() as session:
+        fila_original = (
+            await session.scalars(select(LtiPlatform).where(LtiPlatform.issuer == issuer))
+        ).first()
+        assert fila_original is not None
+        assert str(fila_original.org_id) == org_a
+        snapshot = {
+            "id": fila_original.id,
+            "issuer": fila_original.issuer,
+            "client_id": fila_original.client_id,
+            "deployment_ids": list(fila_original.deployment_ids),
+            "auth_login_url": fila_original.auth_login_url,
+            "auth_token_url": fila_original.auth_token_url,
+            "jwks_url": fila_original.jwks_url,
+            "org_id": fila_original.org_id,
+            "name": fila_original.name,
+        }
+
+    # Organización B es genuinamente distinta -- otro admin, otra cuenta. El
+    # atacante apunta su propio `openid_configuration` a un documento que él
+    # mismo controla, y ese documento devuelve -- a propósito -- el issuer y
+    # el client_id que YA usa la organización A.
+    admin_b = new_client()
+    _, _, me_b = register(admin_b)
+    org_b = me_b["orgs"][0]["id"]
+    assert org_b != org_a
+    _, enc_b = _mint(admin_b)
+
+    async def fake_get_b(self, url, **kw):
+        return _resp("GET", url, 200, _fake_conf(issuer))
+
+    async def fake_post_b(self, url, **kw):
+        return _resp("POST", url, 201, {
+            "client_id": client_id_compartido,  # coincide a propósito con el de A
+            "https://purl.imsglobal.org/spec/lti-tool-configuration": {"deployment_id": "666"},
+        })
+
+    monkeypatch.setattr(httpx.AsyncClient, "get", fake_get_b)
+    monkeypatch.setattr(httpx.AsyncClient, "post", fake_post_b)
+
+    r2 = client.get(
+        "/lti/register",
+        params={
+            "openid_configuration": f"{issuer}/mod/lti/openid-configuration.php",
+            "enc": enc_b,
+        },
+    )
+    assert r2.status_code == 409, r2.text
+    assert "issuer" in r2.json()["detail"]
+    assert "client_id" in r2.json()["detail"]
+
+    async with db_session() as session:
+        fila_final = (
+            await session.scalars(select(LtiPlatform).where(LtiPlatform.issuer == issuer))
+        ).first()
+        assert fila_final is not None
+        # La fila de la organización A queda intacta -- campo por campo, no
+        # sólo el status code. En particular org_id y jwks_url: si el ownership
+        # check no corriera, estos dos serían justo los que el atacante
+        # reescribiría (org_id -> su propia org; jwks_url -> sus propias
+        # claves, para poder forjar lanzamientos contra el issuer de A).
+        assert fila_final.id == snapshot["id"]
+        assert fila_final.issuer == snapshot["issuer"]
+        assert fila_final.client_id == snapshot["client_id"]
+        assert fila_final.deployment_ids == snapshot["deployment_ids"]
+        assert fila_final.auth_login_url == snapshot["auth_login_url"]
+        assert fila_final.auth_token_url == snapshot["auth_token_url"]
+        assert fila_final.jwks_url == snapshot["jwks_url"]
+        assert fila_final.org_id == snapshot["org_id"]
+        assert str(fila_final.org_id) == org_a
+        assert fila_final.name == snapshot["name"]
+
+    # No se creó una segunda fila -- el intento de B murió en el 409, no en
+    # una fila nueva suelta.
+    async with db_session() as session:
+        filas = (
+            await session.scalars(select(LtiPlatform).where(LtiPlatform.issuer == issuer))
+        ).all()
+        assert len(filas) == 1
+
+
+# ── Minor 1: campos no-string en el documento también dan 502, no 500 ────────
+#
+# El chequeo de "faltantes" sólo probaba truthiness: un documento hostil que
+# devuelva, p. ej., `{"jwks_uri": 123}` lo pasaba igual (123 es truthy) y
+# después reventaba el guard SSRF -- `(123 or "").strip()` explota con
+# AttributeError -- o el commit del modelo (SQLModel con `table=True` no
+# valida tipos). Mismo problema para un `issuer` o `client_id` no-string.
+
+
+@pytest.mark.asyncio
+async def test_dynamic_registration_jwks_uri_no_string_da_502(
+    monkeypatch, lti_on, db_session
+):
+    issuer = "https://moodle.jwks-no-string"
+    await _limpiar_previa(db_session, issuer)
+    admin = new_client()
+    register(admin)
+    _, enc = _mint(admin)
+    llamadas_post = []
+
+    async def fake_get(self, url, **kw):
+        conf = _fake_conf(issuer)
+        conf["jwks_uri"] = 123  # no-string, pero truthy
+        return _resp("GET", url, 200, conf)
+
+    async def fake_post(self, url, **kw):
+        llamadas_post.append(url)
+        return _resp("POST", url, 201, {"client_id": "no-deberia-registrarse"})
+
+    monkeypatch.setattr(httpx.AsyncClient, "get", fake_get)
+    monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
+
+    client = TestClient(app)
+    r = client.get(
+        "/lti/register",
+        params={
+            "openid_configuration": f"{issuer}/mod/lti/openid-configuration.php",
+            "enc": enc,
+        },
+    )
+    assert r.status_code == 502, r.text  # no un 500 crudo
+    assert "jwks_uri" in r.json()["detail"]
+    assert not llamadas_post
+    assert await _no_hay_plataforma(db_session, issuer)
+
+
+@pytest.mark.asyncio
+async def test_dynamic_registration_issuer_no_string_da_502(
+    monkeypatch, lti_on, db_session
+):
+    issuer = "https://moodle.issuer-no-string"
+    await _limpiar_previa(db_session, issuer)
+    admin = new_client()
+    register(admin)
+    _, enc = _mint(admin)
+    llamadas_post = []
+
+    async def fake_get(self, url, **kw):
+        conf = _fake_conf(issuer)
+        conf["issuer"] = ["no", "es", "un", "string"]
+        return _resp("GET", url, 200, conf)
+
+    async def fake_post(self, url, **kw):
+        llamadas_post.append(url)
+        return _resp("POST", url, 201, {"client_id": "no-deberia-registrarse"})
+
+    monkeypatch.setattr(httpx.AsyncClient, "get", fake_get)
+    monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
+
+    client = TestClient(app)
+    r = client.get(
+        "/lti/register",
+        params={
+            "openid_configuration": f"{issuer}/mod/lti/openid-configuration.php",
+            "enc": enc,
+        },
+    )
+    assert r.status_code == 502, r.text
+    assert "issuer" in r.json()["detail"]
+    assert not llamadas_post
+    assert await _no_hay_plataforma(db_session, issuer)
+
+
+@pytest.mark.asyncio
+async def test_dynamic_registration_client_id_no_string_da_502(
+    monkeypatch, lti_on, db_session
+):
+    issuer = "https://moodle.client-id-no-string"
+    await _limpiar_previa(db_session, issuer)
+    admin = new_client()
+    register(admin)
+    _, enc = _mint(admin)
+
+    async def fake_get(self, url, **kw):
+        return _resp("GET", url, 200, _fake_conf(issuer))
+
+    async def fake_post(self, url, **kw):
+        return _resp("POST", url, 201, {
+            "client_id": 42,  # no-string, pero truthy
+            "https://purl.imsglobal.org/spec/lti-tool-configuration": {"deployment_id": "1"},
+        })
+
+    monkeypatch.setattr(httpx.AsyncClient, "get", fake_get)
+    monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
+
+    client = TestClient(app)
+    r = client.get(
+        "/lti/register",
+        params={
+            "openid_configuration": f"{issuer}/mod/lti/openid-configuration.php",
+            "enc": enc,
+        },
+    )
+    assert r.status_code == 502, r.text  # no un 500 crudo (ni un IntegrityError en el commit)
+    assert "client_id" in r.json()["detail"]
+    assert await _no_hay_plataforma(db_session, issuer)
+
+
+# ── Minor 2: las respuestas de error también tienen que ser frameables ───────
+#
+# Sólo la página de éxito (`_DONE_HTML`) tenía el tratamiento frameable. Un
+# 400/403/404/502 renderizado adentro del iframe de registro de Moodle
+# quedaba bloqueado por el `X-Frame-Options: DENY` por default de `main.py`
+# -- el admin veía un iframe en blanco en vez del motivo del fallo, el mismo
+# síntoma de "asistente colgado" que el fix original resolvió sólo para el
+# camino feliz.
+
+
+@pytest.mark.asyncio
+async def test_dynamic_registration_error_403_es_frameable(lti_on):
+    client = TestClient(app)
+    r = client.get(
+        "/lti/register",
+        params={"openid_configuration": "https://moodle.no-importa/conf.php"},
+    )
+    assert r.status_code == 403
+    assert r.headers.get("x-frame-options") == ""
+    assert r.headers.get("content-security-policy") == "frame-ancestors *"
+
+
+@pytest.mark.asyncio
+async def test_dynamic_registration_error_502_es_frameable(monkeypatch, lti_on, db_session):
+    issuer = "https://moodle.error-502-frameable"
+    await _limpiar_previa(db_session, issuer)
+    admin = new_client()
+    register(admin)
+    _, enc = _mint(admin)
+
+    async def fake_get(self, url, **kw):
+        return _resp("GET", url, 500, {"error": "server_error"})
+
+    monkeypatch.setattr(httpx.AsyncClient, "get", fake_get)
+
+    client = TestClient(app)
+    r = client.get(
+        "/lti/register",
+        params={
+            "openid_configuration": f"{issuer}/mod/lti/openid-configuration.php",
+            "enc": enc,
+        },
+    )
+    assert r.status_code == 502
+    assert r.headers.get("x-frame-options") == ""
+    assert r.headers.get("content-security-policy") == "frame-ancestors *"
+
+
+@pytest.mark.asyncio
+async def test_dynamic_registration_error_409_es_frameable(monkeypatch, lti_on, db_session):
+    """El propio 409 del hallazgo crítico (fila de otra organización) también
+    tiene que ser frameable -- es el error que más importa que el admin vea,
+    porque significa que su LMS quedó sin registrar."""
+    issuer = "https://moodle.error-409-frameable"
+    client_id_compartido = "client-409-frameable"
+    await _limpiar_previa(db_session, issuer)
+
+    admin_a = new_client()
+    register(admin_a)
+    _, enc_a = _mint(admin_a)
+
+    async def fake_get(self, url, **kw):
+        return _resp("GET", url, 200, _fake_conf(issuer))
+
+    async def fake_post(self, url, **kw):
+        return _resp("POST", url, 201, {
+            "client_id": client_id_compartido,
+            "https://purl.imsglobal.org/spec/lti-tool-configuration": {"deployment_id": "1"},
+        })
+
+    monkeypatch.setattr(httpx.AsyncClient, "get", fake_get)
+    monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
+
+    client = TestClient(app)
+    r1 = client.get(
+        "/lti/register",
+        params={
+            "openid_configuration": f"{issuer}/mod/lti/openid-configuration.php",
+            "enc": enc_a,
+        },
+    )
+    assert r1.status_code == 200, r1.text
+
+    admin_b = new_client()
+    register(admin_b)
+    _, enc_b = _mint(admin_b)
+    r2 = client.get(
+        "/lti/register",
+        params={
+            "openid_configuration": f"{issuer}/mod/lti/openid-configuration.php",
+            "enc": enc_b,
+        },
+    )
+    assert r2.status_code == 409, r2.text
+    assert r2.headers.get("x-frame-options") == ""
+    assert r2.headers.get("content-security-policy") == "frame-ancestors *"
+
+
 @pytest.mark.asyncio
 async def test_alta_manual_requiere_sesion(lti_on):
     client = TestClient(app)

@@ -189,7 +189,7 @@ Todo se configura por env con prefijo `ENCUESTUM_*`. Ver [`.env.example`](.env.e
 | `ENCUESTUM_STORAGE` | `local` | `s3` para subir a Cloudflare R2 / S3 (ver abajo). |
 | `ENCUESTUM_SMTP_HOST` … | — | Email para invitaciones/links/notificaciones (ver abajo). |
 | `ENCUESTUM_BASE_DOMAIN` | — | Habilita subdominios por organización (`acme.tudominio.com`). |
-| `ENCUESTUM_ALLOW_PRIVATE_OUTBOUND` | `false` | Permite webhooks/LLM hacia IPs internas (ej. Ollama en `localhost`). Dejalo en `false` si es multi-tenant. |
+| `ENCUESTUM_ALLOW_PRIVATE_OUTBOUND` | `false` | Permite webhooks/LLM/**LTI** (JWKS de la plataforma y token endpoint de AGS) hacia IPs internas (ej. Ollama o un Moodle en tu propia red). Dejalo en `false` si es multi-tenant. El registro dinámico de LTI igual exige que la plataforma esté en HTTPS, sin importar esta variable. |
 
 ---
 

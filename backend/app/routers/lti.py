@@ -390,6 +390,33 @@ _DONE_HTML = """<!doctype html><meta charset="utf-8"><title>Encuestum</title>
 </script>"""
 
 
+def _texto_no_vacio(valor: object) -> bool:
+    """True sólo si `valor` es un string no vacío (más allá de espacios). A
+    diferencia de un chequeo de truthiness, un `123` o un `[]` no pasan --
+    ambos son el tipo de campo que un documento LTI hostil puede devolver en
+    lugar de la URL/string que se espera."""
+    return isinstance(valor, str) and bool(valor.strip())
+
+
+def _frameable(exc: HTTPException) -> HTTPException:
+    """Reempaqueta un HTTPException con los mismos headers que vuelven
+    frameable a `_DONE_HTML` (ver el comentario ahí sobre por qué). Sin esto,
+    un error acá (400/403/404/502) queda bloqueado por el
+    `X-Frame-Options: DENY` por default de `main.py` si Moodle encapsula este
+    paso del asistente en un iframe -- el admin ve un iframe en blanco en vez
+    del motivo del fallo, el mismo síntoma de "asistente colgado" que el
+    tratamiento de `_DONE_HTML` ya resuelve para el caso de éxito.
+    `HTTPException.headers` los pasa Starlette sin cambios al armar la
+    respuesta (`http_exception_handler`), así que alcanza con reconstruir la
+    excepción con ellos adentro."""
+    headers = {
+        **(exc.headers or {}),
+        "X-Frame-Options": "",
+        "Content-Security-Policy": "frame-ancestors *",
+    }
+    return HTTPException(status_code=exc.status_code, detail=exc.detail, headers=headers)
+
+
 @router.get(
     "/register",
     response_class=HTMLResponse,
@@ -441,237 +468,274 @@ async def dynamic_registration(
     `registration_token` de la plataforma como bearer, y sin HTTPS viajaría en
     claro.
 
-    Una respuesta hostil o no conforme del LMS (JSON roto, campos faltantes,
-    status de error) se traduce a un 502 con el campo que faltó, no a un 500
-    crudo. Y si el commit choca contra `uq_lti_platform_issuer_client`
-    -- el admin recargó este paso o reintentó un registro que ya había
-    completado contra el LMS, el caso que el párrafo de arriba nombra como
-    soportado -- se actualiza la fila existente en vez de devolver un 500:
-    para cuando llegamos a ese commit, el registro contra el LMS ya tuvo
-    éxito, así que fallar le mentiría al admin sobre el estado real."""
-    data = read_purpose_token(LTI_REGISTER_PURPOSE, enc or "")
-    if not data:
-        raise HTTPException(
-            status_code=403,
-            detail="Link de registro vencido o inválido. Generá uno nuevo desde Encuestum.",
-        )
+    Una respuesta hostil o no conforme del LMS (JSON roto, campos faltantes o
+    de un tipo que no sea string, status de error) se traduce a un 502 con el
+    campo que faltó, no a un 500 crudo. Y si el commit choca contra
+    `uq_lti_platform_issuer_client` -- el admin recargó este paso o reintentó
+    un registro que ya había completado contra el LMS, el caso que el párrafo
+    de arriba nombra como soportado -- se actualiza la fila existente en vez
+    de devolver un 500: para cuando llegamos a ese commit, el registro contra
+    el LMS ya tuvo éxito, así que fallar le mentiría al admin sobre el estado
+    real.
+
+    Esa fila sólo se actualiza si ya era nuestra: `issuer` y `client_id` son
+    el par que la fila usa para reconocer un reintento, pero ambos salen
+    enteramente de datos que controla quien llama a este mismo endpoint --
+    `issuer` de un documento que sirve el host al que el propio admin apunta
+    `openid_configuration`, `client_id` de la respuesta del
+    `registration_endpoint` de ese mismo host. Un admin de una organización
+    podía chocar a propósito contra la fila de OTRA organización con esos dos
+    valores y, si el manejo del choque no chequeara dueño, quedarse la fila:
+    `org_id`, `jwks_url`, `auth_token_url` y `auth_login_url` pasarían a ser
+    los suyos. Si la fila existente pertenece a otro `org_id`, no se adopta:
+    mismo 409 que `create_platform` (alta manual) para el mismo choque de
+    unicidad, y por el mismo motivo -- no hay nada razonable para adoptar en
+    silencio cuando la fila no es tuya."""
     try:
-        org_id = uuid.UUID(data["org_id"])
-    except (KeyError, TypeError, ValueError) as exc:
-        raise HTTPException(
-            status_code=403,
-            detail="Link de registro vencido o inválido. Generá uno nuevo desde Encuestum.",
-        ) from exc
-
-    org = await session.get(Organization, org_id)
-    if org is None:
-        raise HTTPException(status_code=404, detail="La organización ya no existe.")
-
-    try:
-        assert_public_url(openid_configuration)
-    except UnsafeUrlError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-    async with httpx.AsyncClient(timeout=15) as client:
-        try:
-            conf_resp = await client.get(openid_configuration)
-        except httpx.HTTPError as exc:
+        data = read_purpose_token(LTI_REGISTER_PURPOSE, enc or "")
+        if not data:
             raise HTTPException(
-                status_code=502,
-                detail=f"No se pudo leer la configuración de la plataforma: {exc}",
-            ) from exc
-    if conf_resp.is_error:
-        raise HTTPException(
-            status_code=502,
-            detail=(
-                "La plataforma devolvió un error al pedir su configuración "
-                f"({conf_resp.status_code})."
-            ),
-        )
-    try:
-        conf = conf_resp.json()
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=502,
-            detail="La configuración de la plataforma no es JSON válido.",
-        ) from exc
-    if not isinstance(conf, dict):
-        raise HTTPException(
-            status_code=502,
-            detail="La configuración de la plataforma no es JSON válido.",
-        )
-
-    # Campos que esta fila persiste y que después se vuelven a pedir sin
-    # ningún guard propio (ver el docstring): faltando cualquiera de estos,
-    # ni siquiera tiene sentido seguir.
-    faltantes = [
-        campo
-        for campo in ("issuer", "authorization_endpoint", "token_endpoint", "jwks_uri")
-        if not conf.get(campo)
-    ]
-    if faltantes:
-        raise HTTPException(
-            status_code=502,
-            detail=f"La configuración de la plataforma no trae: {', '.join(faltantes)}.",
-        )
-
-    registration_endpoint = conf.get("registration_endpoint") or ""
-    try:
-        # `require_https`: a esta URL le mandamos el `registration_token` de
-        # la plataforma como bearer más abajo -- sin HTTPS viajaría en claro.
-        assert_public_url(registration_endpoint, require_https=True)
-    except UnsafeUrlError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-    for campo in ("authorization_endpoint", "token_endpoint", "jwks_uri"):
-        try:
-            assert_public_url(conf[campo])
-        except UnsafeUrlError as exc:
-            raise HTTPException(status_code=400, detail=f"{campo}: {exc}") from exc
-
-    # Origen público del tool, no el de este `request`: acá adentro nginx
-    # habla http plano (TLS termina en el proxy), y lo que le mandamos a
-    # Moodle en este paso queda persistido de su lado. Si saliera de
-    # `request.base_url` quedaría un registro con scheme http:// que Moodle
-    # rechaza al no matchear el dominio público real (mismo motivo que en
-    # login() y select_return(), ver comentarios ahí).
-    base = get_settings().public_base_url
-    login_url = f"{base}{request.app.url_path_for('lti_login')}"
-    launch_url = f"{base}{request.app.url_path_for('launch')}"
-    jwks_url = f"{base}{request.app.url_path_for('jwks')}"
-    tool = {
-        "application_type": "web",
-        "response_types": ["id_token"],
-        "grant_types": ["client_credentials", "implicit"],
-        "initiate_login_uri": login_url,
-        "redirect_uris": [launch_url],
-        "client_name": "Encuestum",
-        "jwks_uri": jwks_url,
-        "token_endpoint_auth_method": "private_key_jwt",
-        "scope": " ".join([SCOPE_LINEITEM, SCOPE_SCORE]),
-        _TOOL_CONFIG: {
-            "domain": urlparse(base).netloc,
-            "target_link_uri": launch_url,
-            "claims": ["iss", "sub", "name", "email"],
-            "messages": [
-                {
-                    "type": "LtiDeepLinkingRequest",
-                    "target_link_uri": launch_url,
-                    "label": "Elegir una encuesta de Encuestum",
-                }
-            ],
-        },
-    }
-
-    headers = {"Content-Type": "application/json"}
-    if registration_token:
-        headers["Authorization"] = f"Bearer {registration_token}"
-    async with httpx.AsyncClient(timeout=15) as client:
-        try:
-            resp = await client.post(registration_endpoint, headers=headers, json=tool)
-        except httpx.HTTPError as exc:
-            raise HTTPException(
-                status_code=502,
-                detail=f"No se pudo completar el registro contra la plataforma: {exc}",
-            ) from exc
-    if resp.is_error:
-        raise HTTPException(
-            status_code=502,
-            detail=f"La plataforma rechazó el registro ({resp.status_code}).",
-        )
-    try:
-        registered = resp.json()
-    except ValueError as exc:
-        raise HTTPException(
-            status_code=502,
-            detail="La respuesta de registro de la plataforma no es JSON válido.",
-        ) from exc
-    if not isinstance(registered, dict) or not registered.get("client_id"):
-        raise HTTPException(
-            status_code=502,
-            detail="La plataforma no devolvió un client_id.",
-        )
-
-    deployment_id = (registered.get(_TOOL_CONFIG) or {}).get("deployment_id")
-    if not deployment_id:
-        # Sin deployment_id, `validate_launch` compara contra `deployment_ids`
-        # y una lista vacía nunca matchea nada -- rechaza TODOS los
-        # lanzamientos. Guardar la fila igual dejaría una plataforma
-        # "registrada con éxito" pero inerte para siempre (Moodle sí manda
-        # este campo; esto protege contra un LMS que no lo haga). Falla acá,
-        # antes de persistir nada.
-        raise HTTPException(
-            status_code=502,
-            detail=(
-                "La plataforma no devolvió un deployment_id en el registro "
-                f"({_TOOL_CONFIG}.deployment_id): sin eso ningún lanzamiento "
-                "va a poder validarse contra esta plataforma."
-            ),
-        )
-
-    platform = LtiPlatform(
-        issuer=conf["issuer"],
-        client_id=registered["client_id"],
-        deployment_ids=[deployment_id],
-        auth_login_url=conf["authorization_endpoint"],
-        auth_token_url=conf["token_endpoint"],
-        jwks_url=conf["jwks_uri"],
-        org_id=org_id,
-        name=(conf.get(_PLATFORM_CONFIG) or {}).get("product_family_code"),
-    )
-    session.add(platform)
-    try:
-        await session.commit()
-    except IntegrityError:
-        # El admin recargó este paso o reintentó un registro que ya había
-        # completado del lado del LMS (ver el docstring de arriba): el
-        # commit choca contra `uq_lti_platform_issuer_client`. Actualizamos
-        # la fila existente en vez de devolver un 500 -- para cuando
-        # llegamos acá, el POST de registro YA tuvo éxito contra el LMS, así
-        # que "fallar" le mentiría al admin sobre el estado real, y un 500
-        # puntual en el reintento es justo el tropiezo que el diseño
-        # no-de-un-solo-uso del `enc` quiso evitar.
-        await session.rollback()
-        existing = (
-            await session.scalars(
-                select(LtiPlatform).where(
-                    LtiPlatform.issuer == platform.issuer,
-                    LtiPlatform.client_id == platform.client_id,
-                )
+                status_code=403,
+                detail="Link de registro vencido o inválido. Generá uno nuevo desde Encuestum.",
             )
-        ).first()
-        if existing is None:
-            # No era la carrera esperada (la fila desapareció entre el fallo
-            # y la relectura) -- no hay nada razonable para adoptar en
-            # silencio.
-            raise
-        existing.deployment_ids = platform.deployment_ids
-        existing.auth_login_url = platform.auth_login_url
-        existing.auth_token_url = platform.auth_token_url
-        existing.jwks_url = platform.jwks_url
-        existing.org_id = org_id
-        existing.name = platform.name
-        session.add(existing)
-        await session.commit()
-        platform = existing
-    LOGGER.info("plataforma LTI registrada: %s (%s)", platform.issuer, platform.client_id)
-    response = HTMLResponse(_DONE_HTML)
-    # Frameable a propósito en esta respuesta puntual: `main.py` manda
-    # `X-Frame-Options: DENY` en todo el backend vía `setdefault` (pensado
-    # para una API JSON, que nunca debería vivir en un frame). Esta página sí
-    # necesita ser frameable -- si Moodle encapsula este paso del asistente
-    # en un iframe en vez de abrir un popup, y el navegador bloquea el frame
-    # entero, el branch `window.parent.postMessage(...)` de `_DONE_HTML`
-    # jamás corre y el asistente se queda esperando el `org.imsglobal.lti.close`
-    # que no va a llegar -- con el registro ya persistido del lado de Moodle.
-    # Vacío, no ausente: `setdefault` sólo agrega el header si la clave no
-    # está presente, y una clave con valor vacío ya cuenta como presente
-    # (ver `MutableHeaders.setdefault` en Starlette) -- así que esto alcanza
-    # para que `main.py` no lo pise con DENY. Mismo tratamiento que nginx le
-    # da a `/lti-select` (`proxy_hide_header` + `frame-ancestors *`).
-    response.headers["X-Frame-Options"] = ""
-    response.headers["Content-Security-Policy"] = "frame-ancestors *"
-    return response
+        try:
+            org_id = uuid.UUID(data["org_id"])
+        except (KeyError, TypeError, ValueError) as exc:
+            raise HTTPException(
+                status_code=403,
+                detail="Link de registro vencido o inválido. Generá uno nuevo desde Encuestum.",
+            ) from exc
+
+        org = await session.get(Organization, org_id)
+        if org is None:
+            raise HTTPException(status_code=404, detail="La organización ya no existe.")
+
+        try:
+            assert_public_url(openid_configuration)
+        except UnsafeUrlError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        async with httpx.AsyncClient(timeout=15) as client:
+            try:
+                conf_resp = await client.get(openid_configuration)
+            except httpx.HTTPError as exc:
+                raise HTTPException(
+                    status_code=502,
+                    detail=f"No se pudo leer la configuración de la plataforma: {exc}",
+                ) from exc
+        if conf_resp.is_error:
+            raise HTTPException(
+                status_code=502,
+                detail=(
+                    "La plataforma devolvió un error al pedir su configuración "
+                    f"({conf_resp.status_code})."
+                ),
+            )
+        try:
+            conf = conf_resp.json()
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=502,
+                detail="La configuración de la plataforma no es JSON válido.",
+            ) from exc
+        if not isinstance(conf, dict):
+            raise HTTPException(
+                status_code=502,
+                detail="La configuración de la plataforma no es JSON válido.",
+            )
+
+        # Campos que esta fila persiste y que después se vuelven a pedir sin
+        # ningún guard propio (ver el docstring): faltando cualquiera de estos, ni
+        # siquiera tiene sentido seguir. `_texto_no_vacio` exige que sean *string*
+        # no vacío, no sólo truthy: un documento hostil que devuelva, por ejemplo,
+        # `{"jwks_uri": 123}` pasaría el chequeo de truthiness pero después
+        # rompería el guard SSRF (`(123 or "").strip()` explota con AttributeError)
+        # o el commit del modelo (SQLModel con `table=True` no valida tipos) -- un
+        # 500 crudo por el mismo tipo de respuesta hostil que este bloque ya
+        # existía para atajar.
+        faltantes = [
+            campo
+            for campo in ("issuer", "authorization_endpoint", "token_endpoint", "jwks_uri")
+            if not _texto_no_vacio(conf.get(campo))
+        ]
+        if faltantes:
+            raise HTTPException(
+                status_code=502,
+                detail=f"La configuración de la plataforma no trae: {', '.join(faltantes)}.",
+            )
+
+        registration_endpoint = conf.get("registration_endpoint")
+        if not isinstance(registration_endpoint, str):
+            registration_endpoint = ""
+        try:
+            # `require_https`: a esta URL le mandamos el `registration_token` de
+            # la plataforma como bearer más abajo -- sin HTTPS viajaría en claro.
+            assert_public_url(registration_endpoint, require_https=True)
+        except UnsafeUrlError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        for campo in ("authorization_endpoint", "token_endpoint", "jwks_uri"):
+            try:
+                assert_public_url(conf[campo])
+            except UnsafeUrlError as exc:
+                raise HTTPException(status_code=400, detail=f"{campo}: {exc}") from exc
+
+        # Origen público del tool, no el de este `request`: acá adentro nginx
+        # habla http plano (TLS termina en el proxy), y lo que le mandamos a
+        # Moodle en este paso queda persistido de su lado. Si saliera de
+        # `request.base_url` quedaría un registro con scheme http:// que Moodle
+        # rechaza al no matchear el dominio público real (mismo motivo que en
+        # login() y select_return(), ver comentarios ahí).
+        base = get_settings().public_base_url
+        login_url = f"{base}{request.app.url_path_for('lti_login')}"
+        launch_url = f"{base}{request.app.url_path_for('launch')}"
+        jwks_url = f"{base}{request.app.url_path_for('jwks')}"
+        tool = {
+            "application_type": "web",
+            "response_types": ["id_token"],
+            "grant_types": ["client_credentials", "implicit"],
+            "initiate_login_uri": login_url,
+            "redirect_uris": [launch_url],
+            "client_name": "Encuestum",
+            "jwks_uri": jwks_url,
+            "token_endpoint_auth_method": "private_key_jwt",
+            "scope": " ".join([SCOPE_LINEITEM, SCOPE_SCORE]),
+            _TOOL_CONFIG: {
+                "domain": urlparse(base).netloc,
+                "target_link_uri": launch_url,
+                "claims": ["iss", "sub", "name", "email"],
+                "messages": [
+                    {
+                        "type": "LtiDeepLinkingRequest",
+                        "target_link_uri": launch_url,
+                        "label": "Elegir una encuesta de Encuestum",
+                    }
+                ],
+            },
+        }
+
+        headers = {"Content-Type": "application/json"}
+        if registration_token:
+            headers["Authorization"] = f"Bearer {registration_token}"
+        async with httpx.AsyncClient(timeout=15) as client:
+            try:
+                resp = await client.post(registration_endpoint, headers=headers, json=tool)
+            except httpx.HTTPError as exc:
+                raise HTTPException(
+                    status_code=502,
+                    detail=f"No se pudo completar el registro contra la plataforma: {exc}",
+                ) from exc
+        if resp.is_error:
+            raise HTTPException(
+                status_code=502,
+                detail=f"La plataforma rechazó el registro ({resp.status_code}).",
+            )
+        try:
+            registered = resp.json()
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=502,
+                detail="La respuesta de registro de la plataforma no es JSON válido.",
+            ) from exc
+        if not isinstance(registered, dict) or not _texto_no_vacio(registered.get("client_id")):
+            raise HTTPException(
+                status_code=502,
+                detail="La plataforma no devolvió un client_id.",
+            )
+
+        deployment_id = (registered.get(_TOOL_CONFIG) or {}).get("deployment_id")
+        if not deployment_id:
+            # Sin deployment_id, `validate_launch` compara contra `deployment_ids`
+            # y una lista vacía nunca matchea nada -- rechaza TODOS los
+            # lanzamientos. Guardar la fila igual dejaría una plataforma
+            # "registrada con éxito" pero inerte para siempre (Moodle sí manda
+            # este campo; esto protege contra un LMS que no lo haga). Falla acá,
+            # antes de persistir nada.
+            raise HTTPException(
+                status_code=502,
+                detail=(
+                    "La plataforma no devolvió un deployment_id en el registro "
+                    f"({_TOOL_CONFIG}.deployment_id): sin eso ningún lanzamiento "
+                    "va a poder validarse contra esta plataforma."
+                ),
+            )
+
+        platform = LtiPlatform(
+            issuer=conf["issuer"],
+            client_id=registered["client_id"],
+            deployment_ids=[deployment_id],
+            auth_login_url=conf["authorization_endpoint"],
+            auth_token_url=conf["token_endpoint"],
+            jwks_url=conf["jwks_uri"],
+            org_id=org_id,
+            name=(conf.get(_PLATFORM_CONFIG) or {}).get("product_family_code"),
+        )
+        session.add(platform)
+        try:
+            await session.commit()
+        except IntegrityError:
+            # El admin recargó este paso o reintentó un registro que ya había
+            # completado del lado del LMS (ver el docstring de arriba): el
+            # commit choca contra `uq_lti_platform_issuer_client`. Actualizamos
+            # la fila existente en vez de devolver un 500 -- para cuando
+            # llegamos acá, el POST de registro YA tuvo éxito contra el LMS, así
+            # que "fallar" le mentiría al admin sobre el estado real, y un 500
+            # puntual en el reintento es justo el tropiezo que el diseño
+            # no-de-un-solo-uso del `enc` quiso evitar.
+            await session.rollback()
+            existing = (
+                await session.scalars(
+                    select(LtiPlatform).where(
+                        LtiPlatform.issuer == platform.issuer,
+                        LtiPlatform.client_id == platform.client_id,
+                    )
+                )
+            ).first()
+            if existing is None:
+                # No era la carrera esperada (la fila desapareció entre el fallo
+                # y la relectura) -- no hay nada razonable para adoptar en
+                # silencio.
+                raise
+            if existing.org_id != org_id:
+                # La fila ya es de OTRA organización (ver el docstring de arriba):
+                # no la adoptamos. Mismo 409 -- mismo mensaje -- que el alta
+                # manual (`create_platform`) para el mismo choque de unicidad.
+                raise HTTPException(
+                    status_code=409,
+                    detail="Ya existe una plataforma registrada con ese issuer y client_id.",
+                )
+            existing.deployment_ids = platform.deployment_ids
+            existing.auth_login_url = platform.auth_login_url
+            existing.auth_token_url = platform.auth_token_url
+            existing.jwks_url = platform.jwks_url
+            existing.org_id = org_id
+            existing.name = platform.name
+            session.add(existing)
+            await session.commit()
+            platform = existing
+        LOGGER.info("plataforma LTI registrada: %s (%s)", platform.issuer, platform.client_id)
+        response = HTMLResponse(_DONE_HTML)
+        # Frameable a propósito en esta respuesta puntual: `main.py` manda
+        # `X-Frame-Options: DENY` en todo el backend vía `setdefault` (pensado
+        # para una API JSON, que nunca debería vivir en un frame). Esta página sí
+        # necesita ser frameable -- si Moodle encapsula este paso del asistente
+        # en un iframe en vez de abrir un popup, y el navegador bloquea el frame
+        # entero, el branch `window.parent.postMessage(...)` de `_DONE_HTML`
+        # jamás corre y el asistente se queda esperando el `org.imsglobal.lti.close`
+        # que no va a llegar -- con el registro ya persistido del lado de Moodle.
+        # Vacío, no ausente: `setdefault` sólo agrega el header si la clave no
+        # está presente, y una clave con valor vacío ya cuenta como presente
+        # (ver `MutableHeaders.setdefault` en Starlette) -- así que esto alcanza
+        # para que `main.py` no lo pise con DENY. Mismo tratamiento que nginx le
+        # da a `/lti-select` (`proxy_hide_header` + `frame-ancestors *`).
+        response.headers["X-Frame-Options"] = ""
+        response.headers["Content-Security-Policy"] = "frame-ancestors *"
+        return response
+    except HTTPException as exc:
+        # Cualquier error de acá para abajo (403/404/400/502/409) tiene que
+        # poder verse dentro del iframe del asistente de Moodle -- ver
+        # `_frameable` y el comentario en la respuesta de éxito más abajo.
+        raise _frameable(exc) from exc
 
 
 class PlatformIn(BaseModel):
