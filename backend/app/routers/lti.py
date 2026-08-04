@@ -32,12 +32,30 @@ from app.lti.validate import (
     LtiValidationError,
     validate_launch,
 )
-from app.models import ROLE_ADMIN, ROLE_RANK, LtiPlatform, LtiResourceLink, LtiUser, Survey
+from app.models import (
+    ROLE_ADMIN,
+    ROLE_RANK,
+    LtiPlatform,
+    LtiResourceLink,
+    LtiUser,
+    Organization,
+    Survey,
+)
 from app.net_guard import UnsafeUrlError, assert_public_url
 from app.security import create_purpose_token, read_purpose_token
 
 LOGGER = logging.getLogger(__name__)
 router = APIRouter(prefix="/lti", tags=["lti"])
+
+# Propósito del token que autoriza `GET /lti/register` a registrar una
+# plataforma contra un `org_id` puntual. Distinto de `registration_token`
+# (query param que ya recibe y reenvía el endpoint): ese es el bearer que la
+# *plataforma* exige para su propio endpoint de registro; este es un secreto
+# nuestro, minteado por `POST /api/v1/lti/registration-url` y nunca visible
+# para Moodle. Nombres separados a propósito, para no confundir un secreto
+# con el otro.
+LTI_REGISTER_PURPOSE = "lti_register"
+LTI_REGISTER_TOKEN_TTL_MIN = 30
 
 
 def require_lti() -> None:
@@ -371,22 +389,63 @@ _DONE_HTML = """<!doctype html><meta charset="utf-8"><title>Encuestum</title>
 </script>"""
 
 
-@router.get("/register", response_class=HTMLResponse, dependencies=[Depends(require_lti)])
+@router.get(
+    "/register",
+    response_class=HTMLResponse,
+    dependencies=[Depends(require_lti)],
+    name="dynamic_registration",
+)
 async def dynamic_registration(
     request: Request,
     openid_configuration: str,
-    org_id: uuid.UUID,
+    enc: str | None = None,
     registration_token: str | None = None,
     session: AsyncSession = Depends(get_session),
 ) -> HTMLResponse:
     """LTI Dynamic Registration: leemos la configuración del LMS, nos damos de
     alta contra su endpoint de registro y guardamos lo que nos devuelve.
 
+    Este endpoint es necesariamente anónimo -- lo llama el navegador del admin
+    de Moodle a mitad del asistente, sin ninguna sesión de Encuestum -- así que
+    no puede tomar `org_id` como parámetro suelto: cualquiera que conociera o
+    adivinara el UUID de una organización podría registrar ahí una plataforma
+    propia y, desde el picker de deep-linking, leer su contenido (IDOR sobre
+    el único endpoint cuyo trabajo es crear confianza). En cambio, recibe
+    `enc`: un token de propósito minteado por
+    `POST /api/v1/lti/registration-url`, que sólo un admin autenticado de esa
+    organización puede pedir. El `org_id` sale únicamente de ese token --
+    nunca de un parámetro que controle quien llama.
+
+    Deliberadamente no es de un solo uso: no hay tabla de tokens consumidos.
+    Se evaluó y se descartó, porque la superficie de reuso ya está acotada por
+    otros dos lados -- expira en `LTI_REGISTER_TOKEN_TTL_MIN` minutos y sólo lo
+    pudo emitir un admin de esa organización -- y exigir un solo uso rompería
+    el caso normal de que Moodle recargue el paso del asistente o el admin
+    reintente un registro fallido sin tener que volver a pedir un link nuevo.
+
     `openid_configuration` (y, adentro de esa respuesta, `registration_endpoint`)
     son URLs que trae quien llama al endpoint, no algo que hayamos validado
     antes: pasan por el guard SSRF antes de que hagamos ningún pedido, igual
     que cualquier otra URL saliente controlada por el llamador (webhooks,
     proveedor LLM)."""
+    data = read_purpose_token(LTI_REGISTER_PURPOSE, enc or "")
+    if not data:
+        raise HTTPException(
+            status_code=403,
+            detail="Link de registro vencido o inválido. Generá uno nuevo desde Encuestum.",
+        )
+    try:
+        org_id = uuid.UUID(data["org_id"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise HTTPException(
+            status_code=403,
+            detail="Link de registro vencido o inválido. Generá uno nuevo desde Encuestum.",
+        ) from exc
+
+    org = await session.get(Organization, org_id)
+    if org is None:
+        raise HTTPException(status_code=404, detail="La organización ya no existe.")
+
     try:
         assert_public_url(openid_configuration)
     except UnsafeUrlError as exc:
@@ -489,3 +548,34 @@ async def create_platform(
     session.add(platform)
     await session.commit()
     return {"id": str(platform.id)}
+
+
+class RegistrationUrlOut(BaseModel):
+    url: str
+
+
+@admin_router.post("/registration-url", dependencies=[Depends(require_lti)])
+async def registration_url(
+    request: Request,
+    ctx: OrgContext = Depends(current_context),
+) -> RegistrationUrlOut:
+    """El link que el admin pega en el asistente de "registro dinámico" de
+    Moodle. Requiere sesión y rango de admin de la organización -- mismo chequeo
+    que `create_platform` arriba -- porque es la única puerta de entrada que
+    decide a qué organización queda atada la plataforma que se registre en
+    `GET /lti/register` (ver el comentario ahí sobre por qué ese endpoint
+    anónimo no puede tomar el `org_id` de un parámetro propio)."""
+    if ROLE_RANK.get(ctx.role, 0) < ROLE_RANK[ROLE_ADMIN]:
+        raise HTTPException(status_code=403, detail="Necesitás ser admin de la organización.")
+    token = create_purpose_token(
+        LTI_REGISTER_PURPOSE,
+        {"org_id": str(ctx.org.id)},
+        ttl_minutes=LTI_REGISTER_TOKEN_TTL_MIN,
+    )
+    # `public_base_url`, no `request.base_url`/`request.url_for`: mismo motivo
+    # que el resto de las URLs LTI que construye este router (ver login(),
+    # select_return() y dynamic_registration()) -- acá adentro nginx habla http
+    # plano y el link tiene que ser el dominio público real, no el interno.
+    base = get_settings().public_base_url
+    path = request.app.url_path_for("dynamic_registration")
+    return RegistrationUrlOut(url=f"{base}{path}?{urlencode({'enc': token})}")
