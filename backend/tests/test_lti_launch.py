@@ -457,3 +457,162 @@ async def test_la_respuesta_queda_atribuida_al_alumno(lti_on, registered, db_ses
         assert r.lti_sub == "u-42"
         assert r.lti_link_id == registered["link"].id
         assert r.respondent_email == "alumno@escuela.test"
+
+
+# ── Important 4: resolución determinística de plataforma sin client_id ──────
+#
+# `_platform_for` tomaba `.first()` de una consulta sin ORDER BY cuando el
+# login no traía `client_id` para desambiguar. Moodle sí lo manda -- así que
+# es latente en el flujo normal -- pero es el mecanismo que agrava el
+# squatting de issuer (ítem deferred, no se resuelve acá): una fila squatting
+# podía ganar la selección tan fácil como cualquier otra.
+
+
+@pytest.mark.asyncio
+async def test_platform_for_es_deterministico_sin_client_id(lti_on, db_session, monkeypatch):
+    """Con dos filas para el mismo issuer y sin `client_id` para desambiguar,
+    la selección tiene que ser siempre la misma fila (la más vieja) -- y
+    avisar por log, porque la ambigüedad en sí no se resuelve acá."""
+    from datetime import datetime, timedelta, timezone
+
+    from sqlmodel import select as _select
+
+    from app.routers import lti as lti_router
+    from app.routers.lti import _platform_for
+
+    issuer = "https://moodle.ambiguo"
+
+    async with db_session() as session:
+        previas = (
+            await session.scalars(_select(LtiPlatform).where(LtiPlatform.issuer == issuer))
+        ).all()
+        for p in previas:
+            await session.delete(p)
+        await session.commit()
+
+        vieja = LtiPlatform(
+            issuer=issuer, client_id="cid-ambiguo-a", deployment_ids=["1"],
+            auth_login_url=f"{issuer}/a1", auth_token_url=f"{issuer}/t1",
+            jwks_url=f"{issuer}/j1",
+            created_at=datetime.now(timezone.utc) - timedelta(minutes=10),
+        )
+        nueva = LtiPlatform(
+            issuer=issuer, client_id="cid-ambiguo-b", deployment_ids=["1"],
+            auth_login_url=f"{issuer}/a2", auth_token_url=f"{issuer}/t2",
+            jwks_url=f"{issuer}/j2",
+            created_at=datetime.now(timezone.utc),
+        )
+        session.add(vieja)
+        session.add(nueva)
+        await session.commit()
+        vieja_id = vieja.id
+
+    logueado = {}
+    monkeypatch.setattr(
+        lti_router.LOGGER, "warning",
+        lambda msg, *args, **kwargs: logueado.update(msg=msg % args if args else msg),
+    )
+
+    async with db_session() as session:
+        elegida = await _platform_for(session, issuer, None)
+    async with db_session() as session:
+        elegida_otra_vez = await _platform_for(session, issuer, None)
+
+    # Determinístico: la misma fila (la más vieja) las dos veces.
+    assert elegida.id == vieja_id
+    assert elegida_otra_vez.id == vieja_id
+    # Y avisa por log -- sin esto, la ambigüedad queda invisible para un
+    # admin mirando por qué un lanzamiento fue a la org equivocada.
+    assert issuer in logueado.get("msg", "")
+
+
+@pytest.mark.asyncio
+async def test_platform_for_no_avisa_cuando_client_id_desambigua(
+    lti_on, registered, db_session, monkeypatch
+):
+    """Con `client_id` (lo normal: Moodle lo manda en el login initiation), la
+    consulta ya filtra a una sola fila -- no hay ambigüedad que loguear."""
+    from app.routers import lti as lti_router
+    from app.routers.lti import _platform_for
+
+    logueado = []
+    monkeypatch.setattr(lti_router.LOGGER, "warning", lambda *a, **kw: logueado.append(a))
+
+    async with db_session() as session:
+        elegida = await _platform_for(session, ISSUER, CLIENT_ID)
+
+    assert elegida.id == registered["platform"].id
+    assert logueado == []
+
+
+# ── Minor: alta de LtiUser sobrevive a una carrera de inserción ─────────────
+#
+# `LtiUser` se creaba sin manejo de `IntegrityError`, a diferencia de las
+# otras dos carreras de inserción de esta rama (`get_tool_key` en
+# `app/lti/keys.py`, y la creación de `LtiResourceLink` en el hallazgo
+# crítico). Dos tabs del mismo alumno lanzando casi a la vez -> 500.
+
+
+@pytest.mark.asyncio
+async def test_upsert_lti_user_sobrevive_a_una_carrera_de_insercion(
+    lti_on, registered, db_session, monkeypatch
+):
+    """Mismo patrón de prueba que
+    `test_get_tool_key_sobrevive_a_una_carrera_de_insercion`
+    (`test_lti_jwks.py`): se simula el resultado de la carrera de forma
+    determinística, sin concurrencia real."""
+    from sqlalchemy.exc import IntegrityError
+    from sqlmodel import select
+
+    from app.models import LtiUser
+    from app.routers.lti import _upsert_lti_user
+
+    platform = registered["platform"]
+    claims = {
+        "sub": "u-race",
+        "email": "de-este-lanzamiento@escuela.test",
+        "name": "Este Lanzamiento",
+        CLAIM["ROLES"]: ["http://purl.imsglobal.org/vocab/lis/v2/membership#Learner"],
+    }
+
+    async with db_session() as session:
+        real_commit = session.commit
+        state = {"first_call": True}
+
+        async def fake_commit():
+            if state["first_call"]:
+                state["first_call"] = False
+                # Soltamos nuestra transacción antes de que la "otra tab"
+                # inserte y confirme -- misma técnica que el test de
+                # get_tool_key, sin necesidad de concurrencia real.
+                await session.rollback()
+                async with db_session() as other:
+                    other.add(
+                        LtiUser(
+                            platform_id=platform.id, sub="u-race",
+                            email="de-la-otra-tab@escuela.test", name="Otra Tab", roles=[],
+                        )
+                    )
+                    await other.commit()
+                raise IntegrityError(
+                    "insert", {},
+                    Exception("UNIQUE constraint failed: lti_users.platform_id, lti_users.sub"),
+                )
+            await real_commit()
+
+        monkeypatch.setattr(session, "commit", fake_commit)
+        user = await _upsert_lti_user(session, platform, claims)
+
+    # La fila que "ganó" la carrera (la de la otra tab), pero actualizada con
+    # los datos de ESTE lanzamiento tras releerla -- no se pierden.
+    assert user.email == "de-este-lanzamiento@escuela.test"
+
+    async with db_session() as session:
+        filas = (
+            await session.scalars(
+                select(LtiUser).where(LtiUser.platform_id == platform.id, LtiUser.sub == "u-race")
+            )
+        ).all()
+        # Una sola fila -- no dos usuarios en circulación para el mismo sub.
+        assert len(filas) == 1
+        assert filas[0].email == "de-este-lanzamiento@escuela.test"

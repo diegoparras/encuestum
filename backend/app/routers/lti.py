@@ -15,7 +15,7 @@ from starlette.responses import HTMLResponse, RedirectResponse
 from app.config import get_settings
 from app.db import get_session
 from app.deps import OrgContext, current_context
-from app.lti.ags import SCOPE_LINEITEM, SCOPE_SCORE
+from app.lti.ags import ALL_SCOPES
 from app.lti.deeplink import DL_PURPOSE, build_response_jwt
 from app.lti.keys import get_tool_key, public_jwk
 from app.lti.state import (
@@ -93,10 +93,33 @@ async def _platform_for(session: AsyncSession, issuer: str, client_id: str | Non
     q = select(LtiPlatform).where(LtiPlatform.issuer == issuer)
     if client_id:
         q = q.where(LtiPlatform.client_id == client_id)
-    platform = (await session.scalars(q)).first()
-    if platform is None:
+    # Orden determinístico: sin ORDER BY, `.first()` sobre esta consulta no
+    # tiene ninguna garantía de qué fila devuelve el motor -- con varias filas
+    # para el mismo issuer (dos deployments del mismo Moodle bajo dos orgs, o
+    # una fila squatting -- ver el comentario de abajo) eso volvía el login
+    # impredecible entre corridas.
+    q = q.order_by(LtiPlatform.created_at, LtiPlatform.id)
+    rows = (await session.scalars(q)).all()
+    if not rows:
         raise HTTPException(status_code=400, detail="Plataforma LTI no registrada.")
-    return platform
+    if client_id is None and len(rows) > 1:
+        # Moodle manda `client_id` en el login initiation, así que esto es
+        # latente en el flujo normal -- pero si alguna vez no lo manda (u otro
+        # LMS no lo hace), la fila que gana ya no es arbitraria (queda fija en
+        # la más vieja) pero sigue siendo ambigua: dos organizaciones
+        # registrando el mismo Moodle, o -- peor -- una fila squatting del
+        # issuer de otra org (ítem deferred, no se resuelve acá), y el login
+        # redirigiría el login_hint de la víctima al auth_login_url de
+        # cualquiera de las dos filas. Rediseñar el registro para eliminar la
+        # ambigüedad queda fuera de este fix; lo que sí toca es dejar de
+        # fallar en silencio.
+        LOGGER.warning(
+            "más de una plataforma LTI matchea el issuer %r sin client_id para "
+            "desambiguar (%d filas); se usa la más antigua -- posible "
+            "login enviado a la organización equivocada",
+            issuer, len(rows),
+        )
+    return rows[0]
 
 
 @router.api_route(
@@ -185,25 +208,137 @@ async def launch(
         LOGGER.warning("lanzamiento LTI rechazado (%s): %s", platform.issuer, exc)
         raise HTTPException(status_code=400, detail="Lanzamiento LTI inválido.") from exc
 
-    # Alta o actualización del usuario del LMS.
-    sub = claims["sub"]
-    user = (
-        await session.scalars(
-            select(LtiUser).where(LtiUser.platform_id == platform.id, LtiUser.sub == sub)
-        )
-    ).first()
-    if user is None:
-        user = LtiUser(platform_id=platform.id, sub=sub)
-    user.email = claims.get("email")
-    user.name = claims.get("name")
-    user.roles = claims.get(CLAIM["ROLES"]) or []
-    session.add(user)
-    await session.commit()
+    user = await _upsert_lti_user(session, platform, claims)
 
     if claims.get(CLAIM["MESSAGE_TYPE"]) == MESSAGE_DEEP_LINKING:
         return await _deep_linking_redirect(claims, platform, session)
 
     return await _resource_link_redirect(claims, platform, user, session)
+
+
+async def _upsert_lti_user(session: AsyncSession, platform: LtiPlatform, claims: dict) -> LtiUser:
+    """Alta o actualización del usuario del LMS que lanzó.
+
+    `sub` es único por plataforma (`uq_lti_user`). Dos tabs del mismo alumno
+    lanzando casi a la vez ven ambas `user is None`, arman su propia fila e
+    intentan insertarla: la que pierde la carrera choca contra esa unique
+    constraint. Mismo patrón insert-then-reread que `get_tool_key`
+    (`app/lti/keys.py`) y `_link_from_deep_link_claims` más abajo: se deshace
+    el intento propio y se sigue con la fila que efectivamente ganó,
+    actualizándola con los datos de este lanzamiento en vez de perderlos."""
+    sub = claims["sub"]
+
+    async def _buscar() -> LtiUser | None:
+        return (
+            await session.scalars(
+                select(LtiUser).where(LtiUser.platform_id == platform.id, LtiUser.sub == sub)
+            )
+        ).first()
+
+    user = await _buscar()
+    es_nuevo = user is None
+    if es_nuevo:
+        user = LtiUser(platform_id=platform.id, sub=sub)
+    user.email = claims.get("email")
+    user.name = claims.get("name")
+    user.roles = claims.get(CLAIM["ROLES"]) or []
+    session.add(user)
+    try:
+        await session.commit()
+    except IntegrityError:
+        if not es_nuevo:
+            # Una fila que ya veníamos actualizando no debería poder chocar
+            # contra su propia unique constraint -- no es la carrera
+            # esperada.
+            raise
+        await session.rollback()
+        user = await _buscar()
+        if user is None:
+            raise
+        user.email = claims.get("email")
+        user.name = claims.get("name")
+        user.roles = claims.get(CLAIM["ROLES"]) or []
+        session.add(user)
+        await session.commit()
+    return user
+
+
+def _survey_id_from_custom_claim(claims: dict) -> uuid.UUID | None:
+    """Lee `custom.survey_id` del lanzamiento -- Moodle lo devuelve tal cual
+    Encuestum lo mandó en el content item del deep linking (ver
+    `app/lti/deeplink.py`). Un valor ausente o no parseable como UUID se trata
+    igual que si no hubiera custom claim: la actividad todavía no está
+    configurada, no un error."""
+    custom = claims.get(CLAIM["CUSTOM"])
+    if not isinstance(custom, dict):
+        return None
+    survey_id = custom.get("survey_id")
+    if not isinstance(survey_id, str):
+        return None
+    try:
+        return uuid.UUID(survey_id)
+    except ValueError:
+        return None
+
+
+async def _link_from_deep_link_claims(
+    claims: dict, platform: LtiPlatform, resource_link_id: str, session: AsyncSession
+) -> LtiResourceLink | None:
+    """Primer lanzamiento de una actividad que el docente configuró por deep
+    linking: todavía no hay fila en `lti_resource_links` -- nada en el código
+    la creaba (el hallazgo crítico del review de esta rama). Se arma acá, a
+    partir de `custom.survey_id` (que `deeplink.py` ya deja en el content
+    item) y del `context_id` del lanzamiento -- el único lugar de todo el flujo
+    que lo persiste.
+
+    Devuelve `None` cuando no hay nada razonable que crear: sin `survey_id`
+    parseable, o con una encuesta borrada/inexistente/de otra organización --
+    mismo 404 en los tres casos (ver `_resource_link_redirect`), para no
+    revelar si una encuesta con ese id existe en otro tenant."""
+    survey_id = _survey_id_from_custom_claim(claims)
+    if survey_id is None:
+        return None
+
+    survey = await session.get(Survey, survey_id)
+    if survey is None or survey.deleted_at is not None:
+        return None
+    # Mismo chequeo (y el mismo `is not None` de defensa en profundidad) que
+    # el que ya corre más abajo en `_resource_link_redirect` para un link
+    # existente, y que `select_return` aplica del lado del deep linking.
+    if platform.org_id is not None and survey.org_id != platform.org_id:
+        return None
+
+    context_id = (claims.get(CLAIM["CONTEXT"]) or {}).get("id")
+    if not isinstance(context_id, str):
+        context_id = None
+
+    link = LtiResourceLink(
+        platform_id=platform.id,
+        resource_link_id=resource_link_id,
+        survey_id=survey.id,
+        context_id=context_id,
+    )
+    session.add(link)
+    try:
+        await session.commit()
+    except IntegrityError:
+        # Dos alumnos entrando casi a la vez a la misma actividad recién
+        # configurada: ambos ven "no hay fila" y ambos intentan crearla -- el
+        # segundo commit choca contra `uq_lti_link`. Mismo patrón que
+        # `_upsert_lti_user` arriba y `get_tool_key`: deshacer el intento
+        # propio y seguir con la fila que ganó la carrera.
+        await session.rollback()
+        link = (
+            await session.scalars(
+                select(LtiResourceLink).where(
+                    LtiResourceLink.platform_id == platform.id,
+                    LtiResourceLink.resource_link_id == resource_link_id,
+                )
+            )
+        ).first()
+        if link is None:
+            raise
+    return link
 
 
 async def _resource_link_redirect(claims, platform, user, session):
@@ -220,6 +355,13 @@ async def _resource_link_redirect(claims, platform, user, session):
             )
         )
     ).first()
+    if link is None:
+        # Todavía no hay fila para esta actividad concreta -- puede ser el
+        # primer lanzamiento después de un deep linking (ver
+        # `_link_from_deep_link_claims`) o una actividad que de verdad nunca
+        # se configuró. Se intenta crear a partir de los claims; si no se
+        # puede, es el mismo 404 de siempre.
+        link = await _link_from_deep_link_claims(claims, platform, resource_link_id, session)
     if link is None:
         raise HTTPException(
             status_code=404,
@@ -614,7 +756,12 @@ async def dynamic_registration(
             "client_name": "Encuestum",
             "jwks_uri": jwks_url,
             "token_endpoint_auth_method": "private_key_jwt",
-            "scope": " ".join([SCOPE_LINEITEM, SCOPE_SCORE]),
+            # Declarado a partir de los mismos scopes que `ags.py` pide en
+            # cada entrega (`ALL_SCOPES`), no de una lista propia: una lista
+            # separada es la que dejó a esta rama pidiendo `lineitem.readonly`
+            # sin haberlo declarado nunca al registrarse (ver el comentario
+            # en `ALL_SCOPES`).
+            "scope": " ".join(ALL_SCOPES),
             _TOOL_CONFIG: {
                 "domain": urlparse(base).netloc,
                 "target_link_uri": launch_url,
