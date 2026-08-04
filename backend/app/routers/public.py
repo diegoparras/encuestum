@@ -1,4 +1,5 @@
 import logging
+import uuid
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -56,6 +57,21 @@ def _valid_access(s: Survey, token: str | None) -> bool:
         return False
     data = read_purpose_token(_ACCESS_PURPOSE, token)
     return bool(data and data.get("slug") == s.slug)
+
+
+def _lti_context(request: Request, s: Survey) -> dict | None:
+    """Identidad que trajo un lanzamiento LTI para *esta* encuesta, si la hay.
+
+    Cuando existe, la encuesta ya no pide PIN ni figurar en la lista: quien
+    autenticó al alumno fue el LMS."""
+    from app.lti.state import LTI_COOKIE, LTI_PURPOSE
+
+    if not get_settings().lti_enabled:
+        return None
+    data = read_purpose_token(LTI_PURPOSE, request.cookies.get(LTI_COOKIE) or "")
+    if not data or data.get("slug") != s.slug:
+        return None
+    return data
 
 
 async def _visible(slug: str, session: AsyncSession) -> Survey:
@@ -150,11 +166,16 @@ def _public_payload(s: Survey, available: bool, reason: str | None, gated: bool)
 
 @router.get("/{slug}", response_model=PublicSurvey)
 async def get_public_survey(
-    slug: str, access_token: str | None = None, session: AsyncSession = Depends(get_session)
+    slug: str,
+    request: Request,
+    access_token: str | None = None,
+    session: AsyncSession = Depends(get_session),
 ):
     s = await _visible(slug, session)
     available, reason = await _availability(s, session)
-    gated = available and not _valid_access(s, access_token)
+    # Si llegó por un lanzamiento LTI, el LMS ya autenticó al alumno: no hay
+    # puerta que tocar.
+    gated = available and not _valid_access(s, access_token) and not _lti_context(request, s)
     return _public_payload(s, available, reason, gated)
 
 
@@ -264,7 +285,10 @@ async def submit(
 
     # Gated surveys require a valid access token; capture respondent identity.
     resp_email = resp_code = None
-    if getattr(s, "access_mode", "public") != "public":
+    lti = _lti_context(request, s)
+    if lti:
+        resp_email = lti.get("email")
+    elif getattr(s, "access_mode", "public") != "public":
         if not _valid_access(s, payload.access_token):
             raise HTTPException(status_code=403, detail="Necesitás acceso para responder esta encuesta.")
         data = read_purpose_token(_ACCESS_PURPOSE, payload.access_token or "") or {}
@@ -273,6 +297,8 @@ async def submit(
     r = SurveyResponse(
         survey_id=s.id, answers=payload.answers or {}, completed=payload.completed, meta=payload.meta,
         respondent_email=resp_email, respondent_code=resp_code,
+        lti_link_id=uuid.UUID(lti["link_id"]) if lti else None,
+        lti_sub=lti.get("sub") if lti else None,
     )
     session.add(r)
 
@@ -323,6 +349,11 @@ async def submit(
 
     # Fire webhooks with the final (graded) state — never blocks the respondent.
     schedule_response_delivery(s.id, r.id)
+    # Si vino de un LMS y quedó una nota, se la devolvemos al libro de calificaciones.
+    if lti and r.score is not None:
+        from app.lti.ags import schedule_score
+
+        schedule_score(r.id)
     # Email the owner(s) if configured (fire-and-forget).
     if getattr(s, "notify_emails", None):
         from app.notify import schedule_response_notification

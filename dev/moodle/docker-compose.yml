@@ -1,0 +1,239 @@
+# Entorno de desarrollo para la integración LTI: un Moodle y un Encuestum que se
+# ven entre sí por HTTPS, que es condición para que el lanzamiento embebido
+# funcione (las cookies SameSite=None exigen Secure).
+#
+# Arquitectura: Caddy es el único punto de entrada TLS. Se registra como alias
+# de red de *ambos* nombres (moodle.localhost y encuestum.localhost), así que
+# incluso el tráfico interno entre contenedores (Encuestum pidiendo el JWKS de
+# Moodle, Moodle llamando de vuelta al token endpoint de Encuestum) pasa por
+# Caddy y ve el mismo hostname/certificado que el navegador. Sin esto, Moodle
+# y Encuestum tendrían que hablarse por IP/nombre de servicio interno en HTTP
+# plano, y el registro dinámico de LTI exige HTTPS sin excepción.
+name: encuestum-moodle-dev
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "443:443"
+      - "80:80"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      default:
+        aliases:
+          - moodle.localhost
+          - encuestum.localhost
+
+  mariadb:
+    image: mariadb:11
+    restart: unless-stopped
+    environment:
+      MARIADB_ROOT_PASSWORD: root
+      MARIADB_DATABASE: moodle
+      MARIADB_USER: moodle
+      MARIADB_PASSWORD: moodle
+      MARIADB_CHARACTER_SET: utf8mb4
+      MARIADB_COLLATE: utf8mb4_unicode_ci
+    volumes:
+      - mariadb_data:/var/lib/mysql
+    healthcheck:
+      # healthcheck.sh viene con la imagen oficial de MariaDB desde 2023 (no es
+      # cosa de Bitnami); confirmado contra la documentación oficial.
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  moodle:
+    # OJO: `bitnami/moodle` dejó de publicar tags gratis en Docker Hub (pasó a
+    # "Bitnami Secure Images", de pago). El espejo gratuito y CONGELADO (no
+    # recibe actualizaciones) es `bitnamilegacy/moodle`. Tampoco existe un tag
+    # `5.0` liso: los tags reales son `5.0.1-debian-12-r5/r6` y
+    # `5.0.2[-debian-12-rN]`. Verificado contra la API de Docker Hub el
+    # 2026-08-04. Si esto te importa para algo más que probar la integración,
+    # considerá instalar Moodle vos mismo en vez de depender de esta imagen.
+    image: bitnamilegacy/moodle:5.0.2
+    restart: unless-stopped
+    depends_on:
+      mariadb:
+        condition: service_healthy
+    environment:
+      MOODLE_DATABASE_HOST: mariadb
+      MOODLE_DATABASE_USER: moodle
+      MOODLE_DATABASE_PASSWORD: moodle
+      MOODLE_DATABASE_NAME: moodle
+      MOODLE_USERNAME: admin
+      MOODLE_PASSWORD: ${MOODLE_ADMIN_PASSWORD:-Encuestum#2026}
+      MOODLE_EMAIL: admin@moodle.localhost
+      MOODLE_SITE_NAME: Moodle de pruebas
+      # Moodle tiene que generar sus URLs en https o el iframe rompe. MOODLE_HOST
+      # fija el wwwroot explícitamente (sin él, Moodle lo infiere del Host que
+      # reciba, que debería coincidir igual porque Caddy lo preserva — pero
+      # dejarlo explícito evita sorpresas).
+      MOODLE_HOST: moodle.localhost
+      MOODLE_REVERSEPROXY: "yes"
+      MOODLE_SSLPROXY: "yes"
+      BITNAMI_DEBUG: "true"
+    volumes:
+      - moodle_data:/bitnami/moodle
+      - moodledata:/bitnami/moodledata
+      # CA local de Caddy (ver el bloque grande de comentarios más abajo, en
+      # `encuestum`, y la sección "Por qué hace falta confiar en la CA de
+      # Caddy" del README). Solo lectura: este contenedor únicamente la
+      # necesita para el `update-ca-certificates` de más abajo.
+      - ./caddy-root.crt:/usr/local/share/ca-certificates/caddy-root.crt:ro
+      # El plugin de la Fase 2 se monta acá para editarlo sin reconstruir.
+      # Descomentar cuando exista:
+      # - ../../../moodle-mod_encuestum:/bitnami/moodle/mod/encuestum
+    # Por qué este entrypoint/command en vez de dejar los de la imagen: el
+    # cliente PHP de Moodle (curl) valida TLS contra el almacén de
+    # certificados del sistema, y ese almacén NO conoce la CA que Caddy
+    # generó recién al arrancar (ver README). Sin este paso, la llamada de
+    # Moodle al `jwks_uri` de Encuestum durante AGS fallaría la verificación
+    # TLS. `update-ca-certificates` lee cualquier `.crt` bajo
+    # /usr/local/share/ca-certificates (el bind mount de arriba) y lo suma al
+    # almacén de confianza de Debian, que es el que usa curl/PHP acá adentro.
+    # Que el binario `update-ca-certificates` y el directorio
+    # `/usr/local/share/ca-certificates` existen en esta imagen exacta (no en
+    # una versión distinta) se confirmó bajando y listando (sin daemon, por
+    # HTTP contra el Docker Registry API — `GET
+    # /v2/bitnamilegacy/moodle/blobs/<digest de la única capa>`, mismo digest
+    # que reporta el manifest de `bitnamilegacy/moodle:5.0.2`) el índice del
+    # tar de esa capa: aparecen `usr/sbin/update-ca-certificates`,
+    # `usr/local/share/ca-certificates` (directorio) y
+    # `etc/ssl/certs/ca-certificates.crt`.
+    #
+    # No se sobreescribe `entrypoint` a secas porque el entrypoint original
+    # de la imagen (`/opt/bitnami/scripts/moodle/entrypoint.sh`) hace algo
+    # más que lanzar Apache: decide si corre el setup de Moodle (creación de
+    # tablas, usuario admin, etc.) mirando si `$1` es exactamente
+    # `/opt/bitnami/scripts/moodle/run.sh`. Esto NO se infirió de otra
+    # versión ni de memoria: se bajó el `entrypoint.sh` real de adentro de
+    # esta imagen exacta (mismo método que el comentario de más arriba —
+    # Docker Registry API sin daemon) y dice, literal:
+    #   if [[ "$1" = "/opt/bitnami/scripts/moodle/run.sh" || ... ]]; then
+    #       ...corre setup.sh de apache/php/mysql-client/postgresql-client/moodle...
+    #   fi
+    #   exec "$@"
+    # Si acá abajo se reemplazara `command` por un `bash -c` que terminara en
+    # `exec .../run.sh`, ese `$1` dejaría de ser `run.sh` (pasaría a ser
+    # `bash`) y el setup de Moodle nunca correría. Por eso el `bash -c` va en
+    # `entrypoint` y reenvía `"$$@"` (el `command` de abajo) al entrypoint
+    # real, para que su propio `$1` siga siendo `run.sh` sin cambios.
+    # ENTRYPOINT/CMD de la imagen (`/opt/bitnami/scripts/moodle/entrypoint.sh`
+    # y `/opt/bitnami/scripts/moodle/run.sh`) también se leyeron del manifest
+    # real de `bitnamilegacy/moodle:5.0.2` por el mismo camino, no se
+    # asumieron por convención Bitnami.
+    entrypoint:
+      - /bin/bash
+      - -c
+      - |
+        update-ca-certificates
+        exec /opt/bitnami/scripts/moodle/entrypoint.sh "$$@"
+      - bash
+    command:
+      - /opt/bitnami/scripts/moodle/run.sh
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: encuestum
+      POSTGRES_USER: encuestum
+      POSTGRES_PASSWORD: encuestum
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U encuestum"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  encuestum:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      # CA local de Caddy, solo lectura. Ver el `command` de más abajo y la
+      # sección "Por qué hace falta confiar en la CA de Caddy" del README:
+      # a diferencia del cliente PHP de Moodle, `httpx` (la librería que usa
+      # este backend para hablarle a Moodle) NO lee el almacén de
+      # certificados del sistema operativo — confirmado leyendo el código
+      # fuente instalado de `httpx` 0.28.1 (`httpx/_config.py`,
+      # `create_ssl_context`): con `verify=True` (el default, y ningún sitio
+      # del código pasa otra cosa — confirmado con
+      # `grep -rn "verify=" backend/app` sin resultados), arma su propio
+      # `ssl.SSLContext` con `cafile=certifi.where()`, el bundle que trae el
+      # paquete `certifi`, ignorando por completo `/etc/ssl/certs`. Por eso
+      # acá no alcanza con un `update-ca-certificates` como en `moodle`.
+      - ./caddy-root.crt:/run/caddy-ca/root.crt:ro
+    # `update-ca-certificates` (que si corriera acá tocaría el almacén del
+    # sistema) no sirve para nada que `httpx` mire — ver el comentario del
+    # volumen de arriba. La única forma que demostrablemente funciona es
+    # sumar la CA de Caddy al bundle que `certifi.where()` reporta, ANTES de
+    # que arranque `/start.sh` (que a su vez lanza uvicorn). No se toca la
+    # imagen: el Dockerfile de producción no tiene `ENTRYPOINT`, así que acá
+    # alcanza con sobreescribir `command` — no hace falta reencadenar nada
+    # como en `moodle`.
+    #
+    # (`httpx` también mira `SSL_CERT_FILE`/`SSL_CERT_DIR` si `trust_env` es
+    # true, que es el default y tampoco se toca en el código — se descartó
+    # esa vía porque exigiría apuntarlo a un bundle propio que incluyera
+    # TODAS las CAs públicas más la de Caddy, o si no las llamadas de este
+    # mismo backend a APIs externas reales — OpenAI/Anthropic en `llm.py`,
+    # webhooks salientes — dejarían de poder verificar TLS. Sumar la CA de
+    # Caddy al bundle que `certifi` ya trae logra lo mismo sin ese riesgo.)
+    #
+    # El chequeo con `grep` evita que la CA se sume dos veces si el
+    # contenedor se reinicia sin recrearse (`docker compose restart`, no
+    # `up`) — un duplicado no rompería nada, pero no hay motivo para dejar
+    # que el bundle crezca sin límite.
+    command:
+      - /bin/bash
+      - -c
+      - |
+        set -e
+        BUNDLE="$$(python3 -c 'import certifi; print(certifi.where())')"
+        MARCA="$$(sed -n '2p' /run/caddy-ca/root.crt)"
+        if ! grep -qF -- "$$MARCA" "$$BUNDLE" 2>/dev/null; then
+          cat /run/caddy-ca/root.crt >> "$$BUNDLE"
+        fi
+        exec /start.sh
+    environment:
+      # `DATABASE_URL`, no `ENCUESTUM_DATABASE_URL` — así se llama la variable
+      # que lee `backend/app/db.py`. Con el nombre equivocado el error es
+      # silencioso: el backend no se queja, simplemente cae a SQLite.
+      DATABASE_URL: postgresql://encuestum:encuestum@postgres:5432/encuestum
+      ENCUESTUM_SESSION_SECRET: dev-secret-solo-para-pruebas-32-bytes-o-mas
+      # URL pública real del tool: todo lo que Encuestum le cuenta a Moodle de
+      # sí mismo (initiate_login_uri, redirect_uris, jwks_uri,
+      # target_link_uri) sale de acá. Moodle GUARDA esos valores al
+      # registrarse; si esto está mal, el registro se completa "bien" y el
+      # lanzamiento nunca funciona.
+      ENCUESTUM_PUBLIC_URL: https://encuestum.localhost
+      ENCUESTUM_COOKIE_SECURE: "true"
+      ENCUESTUM_TRUST_PROXY: "true"
+      # El LMS vive en una IP privada de la red de Docker: sin esto el guard
+      # SSRF bloquearía las llamadas de Encuestum al JWKS y al token endpoint
+      # de Moodle. Solo para este entorno de desarrollo — NUNCA en producción,
+      # donde el LMS real está en un dominio público. El registro dinámico
+      # exige igual que la plataforma esté en HTTPS, con o sin esta variable.
+      ENCUESTUM_ALLOW_PRIVATE_OUTBOUND: "true"
+      LTI_ENABLED: "true"
+      ENCUESTUM_SUPERADMIN_EMAIL: admin@encuestum.localhost
+
+volumes:
+  caddy_data:
+  caddy_config:
+  mariadb_data:
+  moodle_data:
+  moodledata:
+  postgres_data:

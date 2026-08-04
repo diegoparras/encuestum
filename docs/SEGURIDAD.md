@@ -66,14 +66,22 @@ El rate-limit necesita la IP del cliente. Por defecto **no** confía en `X-Forwa
 
 ## 4. Anti-SSRF (salidas a la red)
 
-Encuestum hace requests salientes en dos casos: **webhooks** (entrega de respuestas) y la
-**base URL del proveedor de IA**. El guard bloquea destinos hacia IPs **privadas /
-loopback / link-local / metadata** para evitar SSRF (que alguien apunte un webhook a
+Encuestum hace requests salientes en varios casos: **webhooks** (entrega de respuestas), la
+**base URL del proveedor de IA**, y **LTI 1.3** (el JWKS de la plataforma en cada
+lanzamiento, y el token endpoint de AGS al publicar notas — más el registro dinámico en sí,
+que dereferencia `openid_configuration` y el `registration_endpoint` que declara el admin).
+El guard bloquea destinos hacia IPs **privadas / loopback / link-local / metadata** para
+evitar SSRF (que alguien apunte un webhook, o una plataforma LTI, a
 `http://169.254.169.254/…` o a tu red interna).
 
 | Variable | Default | Descripción |
 |---|---|---|
-| `ENCUESTUM_ALLOW_PRIVATE_OUTBOUND` | `false` | Permite salidas a IPs internas. **Dejalo en `false` en multi-tenant.** Solo activalo en self-host de un solo tenant que usa un LLM local (ej. Ollama en `localhost`). |
+| `ENCUESTUM_ALLOW_PRIVATE_OUTBOUND` | `false` | Permite salidas a IPs internas (webhooks, LLM local, y también LTI: JWKS y AGS hacia un Moodle en tu propia red). **Dejalo en `false` en multi-tenant.** Solo activalo en self-host de un solo tenant que usa un LLM local (ej. Ollama en `localhost`) o un Moodle en una red privada. |
+
+> El **registro dinámico** de LTI (`GET /lti/register`) además exige que la plataforma esté
+> servida por **HTTPS**, sin importar esta variable: ese chequeo corre antes del escape de
+> IPs privadas, así que activar `ENCUESTUM_ALLOW_PRIVATE_OUTBOUND` no alcanza para registrar
+> un Moodle en `http://` — necesita HTTPS igual.
 
 ---
 

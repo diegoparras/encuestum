@@ -13,7 +13,7 @@ from app.config import get_settings
 from app.db import engine
 from app.logging_conf import configure_logging
 from app.routers import (
-    admin, ai, assets, auth, evaluation, files, orgs, panel, public, uploads,
+    admin, ai, assets, auth, evaluation, files, lti, orgs, panel, public, uploads,
     webhooks_api,
 )
 
@@ -123,12 +123,15 @@ app.include_router(uploads.router, prefix=API)
 app.include_router(webhooks_api.router, prefix=API)
 app.include_router(panel.router, prefix=API)
 app.include_router(ai.router, prefix=API)
+app.include_router(lti.admin_router, prefix=API)
 
 # Archivos subidos, servidos same-origin en /assets (streaming con Range desde
 # disco o el bucket privado; responses/* con control de acceso). Ver routers/files.py.
 if not settings.use_s3:
     os.makedirs(settings.asset_dir, exist_ok=True)
 app.include_router(files.router)
+# LTI 1.3: sin prefijo de versión — las URLs las guarda el LMS y deben ser estables.
+app.include_router(lti.router)
 # Encuestas bajo /api/v1/survey (contrato existente)
 SURVEY = "/api/v1/survey"
 app.include_router(public.router, prefix=SURVEY)

@@ -270,6 +270,12 @@ class SurveyResponse(SQLModel, table=True):
     submitted_at: datetime = Field(
         sa_column=Column(DateTime(timezone=True), nullable=False, default=_utcnow)
     )
+    # Atribución LTI: de qué actividad de qué LMS vino esta respuesta.
+    lti_link_id: Optional[uuid.UUID] = Field(
+        sa_column=Column(ForeignKey("lti_resource_links.id", ondelete="SET NULL"), index=True),
+        default=None,
+    )
+    lti_sub: Optional[str] = Field(sa_column=Column(String, index=True), default=None)
     # Grading
     score: Optional[float] = Field(sa_column=Column(Float), default=None)
     max_score: Optional[float] = Field(sa_column=Column(Float), default=None)
@@ -424,4 +430,102 @@ class SurveyVisit(SQLModel, table=True):
         sa_column=Column(
             DateTime(timezone=True), nullable=False, default=_utcnow, onupdate=_utcnow
         )
+    )
+
+
+# ── LTI 1.3 (Encuestum como herramienta de un LMS) ───────────────────────────
+
+
+class LtiPlatform(SQLModel, table=True):
+    """Un LMS registrado (típicamente un Moodle). En el modelo self-hosted suele
+    haber una sola fila, pero el protocolo obliga a soportar varias."""
+
+    __tablename__ = "lti_platforms"
+    __table_args__ = (
+        UniqueConstraint("issuer", "client_id", name="uq_lti_platform_issuer_client"),
+    )
+
+    id: uuid.UUID = Field(primary_key=True, default_factory=uuid.uuid4)
+    issuer: str = Field(sa_column=Column(String, index=True, nullable=False))
+    client_id: str = Field(sa_column=Column(String, nullable=False))
+    # Un mismo LMS puede desplegar la herramienta varias veces.
+    deployment_ids: list = Field(sa_column=Column(JSON, nullable=False), default_factory=list)
+    auth_login_url: str = Field(sa_column=Column(String, nullable=False))
+    auth_token_url: str = Field(sa_column=Column(String, nullable=False))
+    jwks_url: str = Field(sa_column=Column(String, nullable=False))
+    # Organización de Encuestum a la que pertenecen las encuestas de este LMS.
+    org_id: Optional[uuid.UUID] = Field(
+        sa_column=Column(ForeignKey("organizations.id", ondelete="CASCADE"), index=True),
+        default=None,
+    )
+    name: Optional[str] = Field(sa_column=Column(String), default=None)
+    created_at: datetime = Field(
+        sa_column=Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    )
+
+
+class LtiResourceLink(SQLModel, table=True):
+    """La atadura entre una actividad concreta de un curso y una encuesta."""
+
+    __tablename__ = "lti_resource_links"
+    __table_args__ = (
+        UniqueConstraint("platform_id", "resource_link_id", name="uq_lti_link"),
+    )
+
+    id: uuid.UUID = Field(primary_key=True, default_factory=uuid.uuid4)
+    platform_id: uuid.UUID = Field(
+        sa_column=Column(
+            ForeignKey("lti_platforms.id", ondelete="CASCADE"), index=True, nullable=False
+        )
+    )
+    resource_link_id: str = Field(sa_column=Column(String, nullable=False))
+    context_id: Optional[str] = Field(sa_column=Column(String), default=None)
+    survey_id: uuid.UUID = Field(
+        sa_column=Column(
+            ForeignKey("surveys.id", ondelete="CASCADE"), index=True, nullable=False
+        )
+    )
+    # Endpoint AGS donde se publica la nota. Null = la actividad no lleva nota.
+    lineitem_url: Optional[str] = Field(sa_column=Column(String), default=None)
+    lineitems_url: Optional[str] = Field(sa_column=Column(String), default=None)
+    # Escala del libro de calificaciones del LMS (no la de la rúbrica).
+    max_score: Optional[float] = Field(sa_column=Column(Float), default=None)
+    created_at: datetime = Field(
+        sa_column=Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    )
+
+
+class LtiUser(SQLModel, table=True):
+    """Un usuario del LMS. `sub` es el identificador estable que manda la
+    plataforma; es único dentro de la plataforma, no globalmente."""
+
+    __tablename__ = "lti_users"
+    __table_args__ = (UniqueConstraint("platform_id", "sub", name="uq_lti_user"),)
+
+    id: uuid.UUID = Field(primary_key=True, default_factory=uuid.uuid4)
+    platform_id: uuid.UUID = Field(
+        sa_column=Column(
+            ForeignKey("lti_platforms.id", ondelete="CASCADE"), index=True, nullable=False
+        )
+    )
+    sub: str = Field(sa_column=Column(String, nullable=False, index=True))
+    email: Optional[str] = Field(sa_column=Column(String), default=None)
+    name: Optional[str] = Field(sa_column=Column(String), default=None)
+    roles: list = Field(sa_column=Column(JSON, nullable=False), default_factory=list)
+    created_at: datetime = Field(
+        sa_column=Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    )
+
+
+class LtiKey(SQLModel, table=True):
+    """Par de claves RSA del tool, generado al arrancar si no vino por entorno."""
+
+    __tablename__ = "lti_keys"
+
+    id: uuid.UUID = Field(primary_key=True, default_factory=uuid.uuid4)
+    kid: str = Field(sa_column=Column(String, unique=True, nullable=False))
+    private_pem: str = Field(sa_column=Column(String, nullable=False))
+    public_pem: str = Field(sa_column=Column(String, nullable=False))
+    created_at: datetime = Field(
+        sa_column=Column(DateTime(timezone=True), nullable=False, default=_utcnow)
     )

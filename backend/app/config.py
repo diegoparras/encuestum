@@ -73,10 +73,26 @@ class Settings:
         # Only trust X-Forwarded-For when behind a proxy you control (nginx). Off
         # by default so clients can't spoof their IP to evade rate limits.
         self.trust_proxy = _bool("ENCUESTUM_TRUST_PROXY", False)
-        # SSRF guard blocks outbound requests (webhooks, LLM base URL) to private/
-        # internal addresses. Single-tenant self-hosters running a local LLM
-        # (e.g. Ollama on localhost) can opt out. Keep OFF for multi-tenant.
+        # Guard anti-SSRF: bloquea requests salientes (webhooks, base URL del LLM
+        # y también LTI -- JWKS de la plataforma, token endpoint de AGS, y los
+        # fetches del registro dinámico) hacia direcciones privadas/internas.
+        # Self-hosters de un solo tenant con LLM local (ej. Ollama en localhost)
+        # o un LMS en red privada pueden optar por desactivarlo. Dejalo en OFF
+        # para multi-tenant. El registro dinámico (`GET /lti/register`) igual
+        # exige que la plataforma esté servida por HTTPS sin importar esta
+        # variable -- ese chequeo corre antes del escape de direcciones privadas.
         self.allow_private_outbound = _bool("ENCUESTUM_ALLOW_PRIVATE_OUTBOUND", False)
+
+        # ── LTI 1.3 (integración con LMS: Moodle, Canvas, Blackboard…) ────────
+        # Apagado por defecto: con LTI_ENABLED=0 los endpoints /lti/* no existen
+        # y nada del comportamiento actual cambia.
+        self.lti_enabled = _bool("LTI_ENABLED", False)
+        # Clave privada RSA (PEM) con la que el tool firma sus JWT: la respuesta
+        # de deep linking y el client_assertion para pedir el token de AGS. Si no
+        # se define, se genera una al arrancar y se guarda en la base.
+        self.lti_private_key = (os.getenv("LTI_PRIVATE_KEY") or "").strip() or None
+        # kid publicado en el JWKS. Cambiarlo obliga a las plataformas a releer.
+        self.lti_key_id = (os.getenv("LTI_KEY_ID") or "encuestum-lti-1").strip()
 
         # Deliver responses to configured webhooks (Zapier/Sheets/…).
         self.webhooks_enabled = _bool("ENCUESTUM_WEBHOOKS_ENABLED", True)

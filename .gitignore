@@ -18,3 +18,8 @@ app_data/
 
 # Local dev helpers (rutas absolutas por máquina)
 .claude/
+
+# Generado por dev/moodle/up.ps1: la CA local de Caddy, extraída del volumen
+# `caddy_data` en cada arranque. No es código fuente, y cambia cada vez que
+# se recrea ese volumen (`docker compose down -v`).
+dev/moodle/caddy-root.crt
