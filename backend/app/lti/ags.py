@@ -33,15 +33,6 @@ _ASSERTION_TYPE = "urn:ietf:params:oauth:client-assertion-type:jwt-bearer"
 DEFAULT_SCORE_MAXIMUM = 100.0
 
 
-def _check(resp: httpx.Response, what: str) -> None:
-    """Equivalente a `resp.raise_for_status()`, pero sin exigir que la
-    respuesta lleve adjunto el `Request` que la originó. httpx sólo lo asocia
-    cuando la respuesta viene de una petición real hecha por el propio
-    cliente; alcanza con chequear el código de estado."""
-    if resp.status_code >= 400:
-        raise RuntimeError(f"{what}: HTTP {resp.status_code} — {resp.text}")
-
-
 async def get_access_token(platform: LtiPlatform, key: ToolKey, scopes: list[str]) -> str:
     """Token OAuth2 para hablar con los servicios de la plataforma."""
     now = int(time.time())
@@ -66,7 +57,7 @@ async def get_access_token(platform: LtiPlatform, key: ToolKey, scopes: list[str
                 "scope": " ".join(scopes),
             },
         )
-    _check(resp, "pedido de token AGS")
+    resp.raise_for_status()
     return resp.json()["access_token"]
 
 
@@ -84,6 +75,35 @@ async def ensure_lineitem(
     if not link.lineitems_url:
         raise RuntimeError("La actividad no expone el servicio de notas (falta lineitems).")
 
+    # Dos submits casi simultáneos de la primera respuesta de un launch sin
+    # `lineitem` claim leen ambos `link.lineitem_url is None` en la fila que
+    # obtuvieron de la base, y sin nada más ambos crearían su propio line item
+    # -- dos columnas en el libro, con parte de las notas de la clase varadas
+    # en la que no quedó guardada. Antes de crear, se pregunta a la plataforma
+    # si ya existe uno para este resource link (AGS permite filtrar por
+    # `resource_link_id`) y, si aparece, se adopta en vez de duplicar.
+    #
+    # Esto angosta la ventana de carrera, no la cierra: entre este GET y el
+    # POST de más abajo sigue habiendo hueco para que dos requests concurrentes
+    # se crucen. Cerrarla del todo requeriría un lock de base de datos
+    # sostenido durante un round-trip de red a Moodle, que es peor que el
+    # riesgo residual que queda (muy improbable, y recuperable a mano si
+    # ocurre). Es una decisión, no un descuido.
+    ro_token = await get_access_token(platform, key, [SCOPE_LINEITEM_RO])
+    async with httpx.AsyncClient(timeout=15) as client:
+        existentes = await client.get(
+            link.lineitems_url,
+            params={"resource_link_id": link.resource_link_id},
+            headers={
+                "Authorization": f"Bearer {ro_token}",
+                "Accept": "application/vnd.ims.lis.v2.lineitemcontainer+json",
+            },
+        )
+    existentes.raise_for_status()
+    items = existentes.json()
+    if items:
+        return items[0]["id"]
+
     token = await get_access_token(platform, key, [SCOPE_LINEITEM])
     async with httpx.AsyncClient(timeout=15) as client:
         resp = await client.post(
@@ -99,7 +119,7 @@ async def ensure_lineitem(
                 "resourceId": str(link.survey_id),
             },
         )
-    _check(resp, "alta de line item AGS")
+    resp.raise_for_status()
     return resp.json()["id"]
 
 
@@ -118,8 +138,13 @@ async def get_lineitem_max(platform: LtiPlatform, lineitem_url: str, key: ToolKe
                 "Accept": "application/vnd.ims.lis.v2.lineitem+json",
             },
         )
-    _check(resp, "lectura de line item AGS")
-    return float(resp.json().get("scoreMaximum") or DEFAULT_SCORE_MAXIMUM)
+    resp.raise_for_status()
+    # `or` trataría un `scoreMaximum: 0` legítimo (el docente puede configurar
+    # el ítem así) como si faltara, y lo pisaría con el default -- justo lo
+    # que después hace que AGS rechace el score por no coincidir la escala.
+    # Sólo la ausencia del campo (`None`) debe caer al default.
+    maximo = resp.json().get("scoreMaximum")
+    return float(maximo) if maximo is not None else DEFAULT_SCORE_MAXIMUM
 
 
 async def post_score(
@@ -158,7 +183,7 @@ async def post_score(
             },
             json=body,
         )
-    _check(resp, "publicación de score AGS")
+    resp.raise_for_status()
 
 
 async def _deliver(response_id: uuid.UUID) -> None:
@@ -171,7 +196,11 @@ async def _deliver(response_id: uuid.UUID) -> None:
     try:
         async with _session_maker() as session:
             r = await session.get(SurveyResponse, response_id)
-            if r is None or r.lti_link_id is None or r.score is None:
+            if r is None or r.lti_link_id is None or r.score is None or not r.lti_sub:
+                # `lti_sub` es nullable: sin él no hay a quién asignarle la
+                # nota en el libro, y postear `userId: ""` sólo cambia un
+                # "no se intentó" por un "se intentó y la plataforma lo
+                # rechazó", igual de silencioso para el docente.
                 return
             link = await session.get(LtiResourceLink, r.lti_link_id)
             if link is None:
@@ -201,13 +230,18 @@ async def _deliver(response_id: uuid.UUID) -> None:
 
             await post_score(
                 platform, link, key,
-                sub=r.lti_sub or "",
+                sub=r.lti_sub,
                 score=given,
                 score_maximum=maximum,
                 comment=(r.grade or {}).get("feedback") if isinstance(r.grade, dict) else None,
             )
     except Exception as exc:  # noqa: BLE001 — el LMS no puede romper el submit del alumno
-        LOGGER.warning("no se pudo publicar la nota LTI de %s: %s", response_id, exc)
+        # Este catch también atrapa errores de programación, no sólo fallas de
+        # red -- y esta línea es el único diagnóstico que queda, porque para
+        # el docente el envío falló en silencio. Sin exc_info no hay traceback.
+        LOGGER.warning(
+            "no se pudo publicar la nota LTI de %s: %s", response_id, exc, exc_info=True
+        )
 
 
 def schedule_score(response_id: uuid.UUID) -> None:

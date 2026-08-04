@@ -1,5 +1,6 @@
 """AGS: pedido del token, alta del line item y publicación de la nota."""
 
+import asyncio
 import json
 import uuid
 
@@ -18,6 +19,15 @@ CLIENT_ID = "cid-ags"
 TOKEN_URL = f"{ISSUER}/mod/lti/token.php"
 LINEITEMS = f"{ISSUER}/mod/lti/services.php/2/lineitems"
 LINEITEM = f"{LINEITEMS}/7/lineitem"
+
+
+def _resp(method: str, url: str, status: int, json_body):
+    """Respuesta de test con su `Request` adjunto. httpx sólo arma ese vínculo
+    cuando la respuesta viene de una petición real hecha por el cliente; acá
+    hay que simularlo a mano para que `raise_for_status()` se comporte igual
+    que en producción (si no, explota con `RuntimeError: request instance not
+    set`, sin relación con el código bajo prueba)."""
+    return httpx.Response(status, json=json_body, request=httpx.Request(method, url))
 
 
 @pytest_asyncio.fixture
@@ -69,7 +79,7 @@ async def test_el_token_se_pide_con_un_client_assertion_firmado(monkeypatch, lti
     async def fake_post(self, url, **kw):
         capturado["url"] = url
         capturado["data"] = kw.get("data")
-        return httpx.Response(200, json={"access_token": "tok-1", "expires_in": 3600})
+        return _resp("POST", url, 200, {"access_token": "tok-1", "expires_in": 3600})
 
     monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
 
@@ -97,20 +107,21 @@ async def test_el_token_se_pide_con_un_client_assertion_firmado(monkeypatch, lti
 @pytest.mark.asyncio
 async def test_get_access_token_propaga_error_si_la_plataforma_rechaza(monkeypatch, lti_on, ags_setup):
     """Un 400/401 del token endpoint (client_assertion inválido, scope no
-    autorizado, etc.) tiene que propagarse como error, no devolver un token
-    vacío o silenciarse: es lo único que distingue esto de un `resp.json()`
-    que casualmente no tiene `access_token`."""
+    autorizado, etc.) tiene que propagarse como el `HTTPStatusError` típico de
+    httpx -- con el status y la respuesta cruda adentro -- no como un error
+    genérico ni un `KeyError` incidental de `resp.json()["access_token"]`."""
 
     async def fake_post(self, url, **kw):
-        return httpx.Response(400, json={"error": "invalid_client"})
+        return _resp("POST", url, 400, {"error": "invalid_client"})
 
     monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
 
-    with pytest.raises(Exception):
+    with pytest.raises(httpx.HTTPStatusError) as excinfo:
         await get_access_token(
             ags_setup["platform"], ags_setup["key"],
             ["https://purl.imsglobal.org/spec/lti-ags/scope/score"],
         )
+    assert excinfo.value.response.status_code == 400
 
 
 @pytest.mark.asyncio
@@ -118,13 +129,21 @@ async def test_ensure_lineitem_crea_uno_si_no_existe(monkeypatch, lti_on, ags_se
     llamadas = []
     enviado = {}
 
+    async def fake_get(self, url, **kw):
+        # Se pregunta primero si ya hay un line item para este resource link
+        # antes de crear uno; acá la plataforma no tiene ninguno.
+        assert url == LINEITEMS
+        assert kw.get("params") == {"resource_link_id": ags_setup["link"].resource_link_id}
+        return _resp("GET", url, 200, [])
+
     async def fake_post(self, url, **kw):
         llamadas.append(url)
         if url == TOKEN_URL:
-            return httpx.Response(200, json={"access_token": "tok", "expires_in": 3600})
+            return _resp("POST", url, 200, {"access_token": "tok", "expires_in": 3600})
         enviado["json"] = kw.get("json")
-        return httpx.Response(201, json={"id": LINEITEM, "scoreMaximum": 10.0})
+        return _resp("POST", url, 201, {"id": LINEITEM, "scoreMaximum": 10.0})
 
+    monkeypatch.setattr(httpx.AsyncClient, "get", fake_get)
     monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
 
     url = await ensure_lineitem(ags_setup["platform"], ags_setup["link"], ags_setup["key"],
@@ -142,12 +161,46 @@ async def test_ensure_lineitem_no_recrea_si_ya_hay_uno(monkeypatch, lti_on, ags_
     ags_setup["link"].lineitem_url = LINEITEM
 
     async def boom(self, url, **kw):
-        raise AssertionError(f"no debería postear a {url}")
+        raise AssertionError(f"no debería llamar a {url}")
 
+    monkeypatch.setattr(httpx.AsyncClient, "get", boom)
     monkeypatch.setattr(httpx.AsyncClient, "post", boom)
     url = await ensure_lineitem(ags_setup["platform"], ags_setup["link"], ags_setup["key"],
                                 label="Examen", score_maximum=10.0)
     assert url == LINEITEM
+
+
+@pytest.mark.asyncio
+async def test_ensure_lineitem_adopta_uno_existente_en_vez_de_crear_duplicado(
+    monkeypatch, lti_on, ags_setup
+):
+    """Dos submits casi simultáneos de la primera respuesta de un launch sin
+    `lineitem` claim ven ambos `link.lineitem_url is None` y podrían terminar
+    creando dos line items (dos columnas en el libro, notas repartidas entre
+    ambas). Antes de crear, se filtra por `resource_link_id` en el servicio de
+    lineitems; si la plataforma ya tiene uno -- porque el otro submit ganó la
+    carrera, o porque se creó por otra vía -- se adopta ese en vez de crear
+    otro."""
+    llamadas_post = []
+
+    async def fake_get(self, url, **kw):
+        assert url == LINEITEMS
+        assert kw.get("params") == {"resource_link_id": ags_setup["link"].resource_link_id}
+        return _resp("GET", url, 200, [{"id": LINEITEM, "scoreMaximum": 10.0}])
+
+    async def fake_post(self, url, **kw):
+        if url == TOKEN_URL:
+            return _resp("POST", url, 200, {"access_token": "tok", "expires_in": 3600})
+        llamadas_post.append(url)
+        raise AssertionError(f"no debería crear un line item nuevo: {url}")
+
+    monkeypatch.setattr(httpx.AsyncClient, "get", fake_get)
+    monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
+
+    url = await ensure_lineitem(ags_setup["platform"], ags_setup["link"], ags_setup["key"],
+                                label="Examen", score_maximum=10.0)
+    assert url == LINEITEM
+    assert llamadas_post == []
 
 
 @pytest.mark.asyncio
@@ -157,11 +210,11 @@ async def test_post_score_manda_la_nota_en_el_formato_de_ags(monkeypatch, lti_on
 
     async def fake_post(self, url, **kw):
         if url == TOKEN_URL:
-            return httpx.Response(200, json={"access_token": "tok", "expires_in": 3600})
+            return _resp("POST", url, 200, {"access_token": "tok", "expires_in": 3600})
         enviado["url"] = url
         enviado["json"] = kw.get("json")
         enviado["headers"] = kw.get("headers")
-        return httpx.Response(200, json={})
+        return _resp("POST", url, 200, {})
 
     monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
 
@@ -183,16 +236,35 @@ async def test_post_score_manda_la_nota_en_el_formato_de_ags(monkeypatch, lti_on
 @pytest.mark.asyncio
 async def test_get_lineitem_max_lee_la_escala_del_libro(monkeypatch, lti_on, ags_setup):
     async def fake_post(self, url, **kw):
-        return httpx.Response(200, json={"access_token": "tok", "expires_in": 3600})
+        return _resp("POST", url, 200, {"access_token": "tok", "expires_in": 3600})
 
     async def fake_get(self, url, **kw):
         assert url == LINEITEM
-        return httpx.Response(200, json={"id": LINEITEM, "scoreMaximum": 20.0, "label": "Examen"})
+        return _resp("GET", url, 200, {"id": LINEITEM, "scoreMaximum": 20.0, "label": "Examen"})
 
     monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
     monkeypatch.setattr(httpx.AsyncClient, "get", fake_get)
 
     assert await get_lineitem_max(ags_setup["platform"], LINEITEM, ags_setup["key"]) == 20.0
+
+
+@pytest.mark.asyncio
+async def test_get_lineitem_max_respeta_un_scoreMaximum_en_cero(monkeypatch, lti_on, ags_setup):
+    """Un line item configurado a 0 es válido (el docente lo puso así) y no es
+    lo mismo que un line item sin `scoreMaximum` en la respuesta. `0 or algo`
+    en Python cae en `algo` porque 0 es falsy: hay que chequear `is None`, no
+    la verdad del valor."""
+
+    async def fake_post(self, url, **kw):
+        return _resp("POST", url, 200, {"access_token": "tok", "expires_in": 3600})
+
+    async def fake_get(self, url, **kw):
+        return _resp("GET", url, 200, {"id": LINEITEM, "scoreMaximum": 0})
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
+    monkeypatch.setattr(httpx.AsyncClient, "get", fake_get)
+
+    assert await get_lineitem_max(ags_setup["platform"], LINEITEM, ags_setup["key"]) == 0.0
 
 
 @pytest.mark.asyncio
@@ -206,12 +278,12 @@ async def test_la_nota_se_reescala_a_la_escala_del_libro(monkeypatch, lti_on, ag
 
     async def fake_post(self, url, **kw):
         if url == TOKEN_URL:
-            return httpx.Response(200, json={"access_token": "tok", "expires_in": 3600})
+            return _resp("POST", url, 200, {"access_token": "tok", "expires_in": 3600})
         enviado["json"] = kw.get("json")
-        return httpx.Response(200, json={})
+        return _resp("POST", url, 200, {})
 
     async def fake_get(self, url, **kw):
-        return httpx.Response(200, json={"id": LINEITEM, "scoreMaximum": 20.0})
+        return _resp("GET", url, 200, {"id": LINEITEM, "scoreMaximum": 20.0})
 
     monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
     monkeypatch.setattr(httpx.AsyncClient, "get", fake_get)
@@ -230,6 +302,46 @@ async def test_la_nota_se_reescala_a_la_escala_del_libro(monkeypatch, lti_on, ag
     await _deliver(response_id)
     assert enviado["json"]["scoreGiven"] == 17.0
     assert enviado["json"]["scoreMaximum"] == 20.0
+
+
+@pytest.mark.asyncio
+async def test_deliver_no_hace_nada_si_falta_el_lti_sub(monkeypatch, lti_on, ags_setup, db_session):
+    """`lti_sub` es nullable: una respuesta que llegó con contexto LTI pero sin
+    `sub` (launch mal formado, claim faltante) no puede terminar posteando
+    `userId: ""` -- AGS la rechaza igual, pero como un warning más silencioso
+    en vez de cortar acá donde se sabe la causa.
+
+    Nota: `_deliver` traga cualquier excepción (es su contrato: nunca debe
+    romper el submit del alumno), así que no alcanza con que la llamada HTTP
+    *lance* para detectar que se hizo -- eso también quedaría silenciado y el
+    test pasaría igual. Hay que verificar que la llamada directamente no
+    ocurrió, registrándola en vez de hacerla explotar."""
+    from app.lti.ags import _deliver
+    from app.models import Survey, SurveyResponse
+
+    ags_setup["link"].lineitem_url = LINEITEM
+    llamadas = []
+
+    async def registra(self, url, **kw):
+        llamadas.append(url)
+        return _resp("GET", url, 200, {})
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", registra)
+    monkeypatch.setattr(httpx.AsyncClient, "get", registra)
+
+    async with db_session() as session:
+        session.add(ags_setup["link"])
+        survey = Survey(id=ags_setup["link"].survey_id, org_id=uuid.uuid4(),
+                        title="Examen", json_schema={})
+        session.add(survey)
+        r = SurveyResponse(survey_id=survey.id, answers={}, score=8.5, max_score=10.0,
+                           lti_link_id=ags_setup["link"].id, lti_sub=None)
+        session.add(r)
+        await session.commit()
+        response_id = r.id
+
+    await _deliver(response_id)
+    assert llamadas == []  # ni un solo pedido HTTP con userId vacío
 
 
 @pytest.mark.asyncio
@@ -303,7 +415,12 @@ async def test_deliver_no_propaga_el_error_si_la_plataforma_esta_caida(
     logueado = {}
     monkeypatch.setattr(
         ags_module.LOGGER, "warning",
-        lambda msg, *args: logueado.update(msg=msg % args if args else msg),
+        # `**kwargs` porque el fix de exc_info=True agrega justo ese keyword
+        # argument a la llamada real; si el doble no lo acepta, el propio
+        # test explota con un TypeError ajeno a lo que se quiere probar.
+        lambda msg, *args, **kwargs: logueado.update(
+            msg=msg % args if args else msg, kwargs=kwargs
+        ),
     )
 
     async def fake_post(self, url, **kw):
@@ -325,6 +442,47 @@ async def test_deliver_no_propaga_el_error_si_la_plataforma_esta_caida(
     await ags_module._deliver(response_id)  # no debe propagar la excepción
 
     assert str(response_id) in logueado.get("msg", "")
+    # El único canal de diagnóstico de una falla invisible para el docente
+    # tiene que llevar el traceback, no sólo el mensaje.
+    assert logueado.get("kwargs", {}).get("exc_info") is True
+
+
+@pytest.mark.asyncio
+async def test_schedule_score_dispara_deliver_de_verdad(monkeypatch, lti_on, ags_setup, db_session):
+    """El único punto donde `schedule_score` corre de verdad, de punta a
+    punta: los tests de `submit()` la monkeypatchean para no repetir el envío
+    completo, y los de `_deliver` lo llaman directo sin pasar por
+    `schedule_score`. Acá se la deja correr tal cual -- crea la tarea
+    fire-and-forget de siempre -- y se comprueba que `_deliver` es alcanzado
+    con el id correcto. Como es fire-and-forget, hay que cederle el control al
+    loop para que la tarea corra; nada de dormir un tiempo fijo."""
+    import app.lti.ags as ags_module
+    from app.models import Survey, SurveyResponse
+
+    alcanzado = {}
+
+    async def fake_deliver(response_id):
+        alcanzado["id"] = response_id
+
+    monkeypatch.setattr(ags_module, "_deliver", fake_deliver)
+
+    async with db_session() as session:
+        survey = Survey(id=ags_setup["link"].survey_id, org_id=uuid.uuid4(),
+                        title="Examen", json_schema={})
+        session.add(survey)
+        r = SurveyResponse(survey_id=survey.id, answers={}, score=8.5, max_score=10.0,
+                           lti_link_id=ags_setup["link"].id, lti_sub="u-42")
+        session.add(r)
+        await session.commit()
+        response_id = r.id
+
+    antes = asyncio.all_tasks()
+    ags_module.schedule_score(response_id)
+    nuevas = asyncio.all_tasks() - antes
+    assert len(nuevas) == 1  # la tarea fire-and-forget que crea schedule_score
+    await asyncio.gather(*nuevas)
+
+    assert alcanzado.get("id") == response_id
 
 
 # ── El enganche en submit(): sólo agenda la nota si hay contexto LTI y score ──
