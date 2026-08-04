@@ -50,12 +50,15 @@ async def jwks(session: AsyncSession = Depends(get_session)) -> dict:
 
 def _lti_cookie_kwargs() -> dict:
     """Las cookies del flujo LTI viajan dentro de un iframe de otro dominio:
-    sin SameSite=None; Secure el navegador las descarta. `secure` sigue la
-    misma configuración que el resto de las cookies de la app (apagada en
-    tests, donde el TestClient habla HTTP plano)."""
+    sin SameSite=None; Secure el navegador las descarta directamente. A
+    diferencia de las cookies de sesión (SameSite=Lax, que sí funcionan sobre
+    HTTP plano), acá `Secure` es parte del invariante mismo — no sigue la
+    config `cookie_secure` ni se puede apagar. Si esto rompe algo bajo
+    TestClient, el fix es que el test hable HTTPS (`base_url="https://..."`),
+    no aflojar esta cookie."""
     return {
         "httponly": True,
-        "secure": get_settings().cookie_secure,
+        "secure": True,
         "samesite": "none",
         "path": "/",
     }
@@ -85,7 +88,16 @@ async def login(request: Request, session: AsyncSession = Depends(get_session)):
     platform = await _platform_for(session, issuer, (params.get("client_id") or "").strip() or None)
 
     state, nonce = new_state()
-    target = params.get("target_link_uri") or str(request.url_for("launch"))
+    # `target_link_uri` lo manda el llamador (la plataforma, en teoría — pero
+    # es un parámetro de request, no algo que hayamos verificado). No lo
+    # reenviamos tal cual como redirect_uri: si no coincide exactamente con
+    # nuestra propia URL de /lti/launch, lo ignoramos y usamos la nuestra. Si
+    # no, la validación del redirect_uri quedaría delegada por completo a
+    # Moodle.
+    own_launch_url = str(request.url_for("launch"))
+    target = params.get("target_link_uri")
+    if target != own_launch_url:
+        target = own_launch_url
     query = {
         "scope": "openid",
         "response_type": "id_token",
@@ -127,7 +139,12 @@ async def launch(
     if not stored or stored.get("state") != state:
         raise HTTPException(status_code=400, detail="Lanzamiento LTI inválido o vencido.")
 
-    platform = await session.get(LtiPlatform, uuid.UUID(stored["platform_id"]))
+    try:
+        platform_id = uuid.UUID(stored["platform_id"])
+    except (KeyError, TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="Lanzamiento LTI inválido o vencido.")
+
+    platform = await session.get(LtiPlatform, platform_id)
     if platform is None:
         raise HTTPException(status_code=400, detail="Plataforma LTI no registrada.")
 
@@ -191,6 +208,15 @@ async def _resource_link_redirect(claims, platform, user, session):
     survey = await session.get(Survey, link.survey_id)
     if survey is None or survey.deleted_at is not None:
         raise HTTPException(status_code=404, detail="La encuesta ya no existe.")
+    # Defensa en profundidad: el link ya debería atar plataforma y encuesta a
+    # la misma org al crearse, pero si un dato mal cargado lo rompiera, no
+    # dejar que se convierta en acceso cross-tenant. Mismo 404 que "no hay
+    # link" — no hace falta distinguir el caso para quien lanza.
+    if platform.org_id is not None and survey.org_id != platform.org_id:
+        raise HTTPException(
+            status_code=404,
+            detail="Esta actividad todavía no tiene una encuesta asignada.",
+        )
 
     token = create_purpose_token(
         LTI_PURPOSE,
@@ -205,7 +231,12 @@ async def _resource_link_redirect(claims, platform, user, session):
     )
     resp = RedirectResponse(f"/s/{survey.slug}", status_code=302)
     resp.set_cookie(LTI_COOKIE, token, max_age=ACCESS_TTL_S, **_lti_cookie_kwargs())
-    resp.delete_cookie(LTI_STATE_COOKIE, path="/")
+    # El borrado tiene que llevar los mismos atributos con los que se escribió
+    # la cookie (SameSite=None; Secure): esta respuesta es un form-POST
+    # cross-site, y si el Set-Cookie de borrado no matchea esos atributos el
+    # navegador lo descarta — la cookie de state sobreviviría y el par
+    # (state, nonce) quedaría reutilizable durante STATE_TTL_S.
+    resp.delete_cookie(LTI_STATE_COOKIE, **_lti_cookie_kwargs())
     return resp
 
 

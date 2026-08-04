@@ -11,12 +11,20 @@ from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi.testclient import TestClient
 
+from app.lti.state import LTI_STATE_COOKIE, LTI_STATE_PURPOSE, STATE_TTL_S
 from app.lti.validate import CLAIM
 from app.main import app
 from app.models import LtiPlatform, LtiResourceLink, Survey
+from app.security import create_purpose_token
 
 ISSUER = "https://moodle.test"
 CLIENT_ID = "cid-1"
+
+# Las cookies del flujo LTI van `Secure`, así que el TestClient tiene que
+# hablar HTTPS o el cookiejar de httpx las descarta silenciosamente (ver
+# finding 1 del review de Task 4).
+def _client() -> TestClient:
+    return TestClient(app, base_url="https://testserver")
 
 
 @pytest.fixture
@@ -105,7 +113,7 @@ def _id_token(pem, nonce, **over):
 
 @pytest.mark.asyncio
 async def test_login_redirige_al_authorize_de_la_plataforma(lti_on, registered):
-    client = TestClient(app)
+    client = _client()
     r = client.post(
         "/lti/login",
         data={"iss": ISSUER, "client_id": CLIENT_ID, "login_hint": "42",
@@ -125,7 +133,7 @@ async def test_login_redirige_al_authorize_de_la_plataforma(lti_on, registered):
 
 @pytest.mark.asyncio
 async def test_launch_valido_redirige_a_la_encuesta_y_siembra_la_cookie(lti_on, registered):
-    client = TestClient(app)
+    client = _client()
     login = client.post(
         "/lti/login",
         data={"iss": ISSUER, "client_id": CLIENT_ID, "login_hint": "42",
@@ -147,7 +155,7 @@ async def test_launch_valido_redirige_a_la_encuesta_y_siembra_la_cookie(lti_on, 
 
 @pytest.mark.asyncio
 async def test_launch_con_state_ajeno_es_rechazado(lti_on, registered):
-    client = TestClient(app)
+    client = _client()
     login = client.post(
         "/lti/login",
         data={"iss": ISSUER, "client_id": CLIENT_ID, "login_hint": "42",
@@ -164,11 +172,11 @@ async def test_launch_con_state_ajeno_es_rechazado(lti_on, registered):
 
 @pytest.mark.asyncio
 async def test_la_cookie_lti_saltea_el_pin_de_la_encuesta(lti_on, registered):
-    client = TestClient(app)
+    client = _client()
     slug = registered["survey"].slug
 
     # Sin cookie LTI, la encuesta con PIN no entrega su contenido: viene gated.
-    sin = TestClient(app).get(f"/api/v1/survey/public/{slug}")
+    sin = _client().get(f"/api/v1/survey/public/{slug}")
     assert sin.json()["gated"] is True
 
     login = client.post(
@@ -182,10 +190,179 @@ async def test_la_cookie_lti_saltea_el_pin_de_la_encuesta(lti_on, registered):
     client.post("/lti/launch", data={"id_token": token, "state": q["state"][0]},
                 follow_redirects=False)
 
+    # Con la cookie puesta, la encuesta ya no viene gated.
+    con = client.get(f"/api/v1/survey/public/{slug}")
+    assert con.json()["gated"] is False
+
     # Con la cookie puesta, se puede enviar sin access_token.
     r = client.post(f"/api/v1/survey/public/{slug}/submit",
                     json={"answers": {"q1": "hola"}, "completed": True})
     assert r.status_code == 201
+
+
+@pytest.mark.asyncio
+async def test_cookie_de_login_lleva_secure_pese_a_cookie_secure_apagado(lti_on, registered):
+    """Las cookies LTI viajan en un iframe cross-site: SameSite=None exige
+    Secure sí o sí, sin importar ENCUESTUM_COOKIE_SECURE (que en el entorno de
+    tests está apagado — ver conftest.py)."""
+    from app.config import get_settings
+
+    assert get_settings().cookie_secure is False  # documenta la condición que este test guarda
+
+    client = _client()
+    r = client.post(
+        "/lti/login",
+        data={"iss": ISSUER, "client_id": CLIENT_ID, "login_hint": "42",
+              "target_link_uri": "https://encuestum.test/lti/launch"},
+        follow_redirects=False,
+    )
+    set_cookie = r.headers.get("set-cookie", "").lower()
+    assert "secure" in set_cookie
+    assert "samesite=none" in set_cookie
+
+
+@pytest.mark.asyncio
+async def test_borrado_de_cookie_de_state_lleva_samesite_none_y_secure(lti_on, registered):
+    """`/lti/launch` responde dentro de un form-POST cross-site: si el borrado
+    de enc_lti_state no lleva los mismos atributos con los que se la escribió
+    (SameSite=None; Secure), el navegador ignora el Set-Cookie y la cookie de
+    state sobrevive, dejando el par (state, nonce) reutilizable durante toda
+    la ventana de STATE_TTL_S."""
+    client = _client()
+    login = client.post(
+        "/lti/login",
+        data={"iss": ISSUER, "client_id": CLIENT_ID, "login_hint": "42",
+              "target_link_uri": "https://encuestum.test/lti/launch"},
+        follow_redirects=False,
+    )
+    q = parse_qs(urlparse(login.headers["location"]).query)
+    token = _id_token(registered["pem"], nonce=q["nonce"][0])
+
+    r = client.post(
+        "/lti/launch",
+        data={"id_token": token, "state": q["state"][0]},
+        follow_redirects=False,
+    )
+    borrado = [c for c in r.headers.get_list("set-cookie") if c.startswith(f"{LTI_STATE_COOKIE}=")]
+    assert borrado, "la respuesta de /lti/launch debe borrar la cookie de state"
+    header = borrado[0].lower()
+    assert "samesite=none" in header
+    assert "secure" in header
+
+
+@pytest.mark.asyncio
+async def test_launch_sin_cookie_de_state_es_rechazado(lti_on, registered):
+    """Sin pasar por /lti/login no hay cookie enc_lti_state: el contrato es
+    que ese `None` degradado nunca llegue a validate_launch, sino que se
+    rechace acá con 400."""
+    client = _client()
+    token = _id_token(registered["pem"], nonce="cualquier-nonce")
+    r = client.post(
+        "/lti/launch",
+        data={"id_token": token, "state": "algun-state"},
+        follow_redirects=False,
+    )
+    assert r.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_cookie_lti_de_una_encuesta_no_sirve_para_otra(lti_on, registered, db_session):
+    """El slug guardado en la cookie LTI es lo único que impide reusarla en
+    otra encuesta: hay que probarlo."""
+    client = _client()
+    login = client.post(
+        "/lti/login",
+        data={"iss": ISSUER, "client_id": CLIENT_ID, "login_hint": "42",
+              "target_link_uri": "https://encuestum.test/lti/launch"},
+        follow_redirects=False,
+    )
+    q = parse_qs(urlparse(login.headers["location"]).query)
+    token = _id_token(registered["pem"], nonce=q["nonce"][0])
+    client.post("/lti/launch", data={"id_token": token, "state": q["state"][0]},
+                follow_redirects=False)
+
+    # Otra encuesta con PIN, sin ningún resource link LTI que la ate.
+    from app.models import Survey
+
+    async with db_session() as session:
+        otra = Survey(org_id=registered["survey"].org_id, title="Otra", status="published",
+                      access_mode="pin", access_pin="9999", json_schema={"pages": []})
+        session.add(otra)
+        await session.commit()
+        await session.refresh(otra)
+        otro_slug = otra.slug
+
+    # La cookie LTI de la encuesta A no debe saltear el PIN de la encuesta B.
+    gated = client.get(f"/api/v1/survey/public/{otro_slug}").json()["gated"]
+    assert gated is True
+
+    r = client.post(f"/api/v1/survey/public/{otro_slug}/submit",
+                    json={"answers": {"q1": "hola"}, "completed": True})
+    assert r.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_login_ignora_target_link_uri_ajeno(lti_on, registered):
+    """`target_link_uri` lo manda el llamador; si no coincide con nuestra
+    propia URL de /lti/launch, no hay que echoarlo tal cual a la plataforma —
+    la validación del redirect_uri no puede delegarse por completo a Moodle."""
+    client = _client()
+    r = client.post(
+        "/lti/login",
+        data={"iss": ISSUER, "client_id": CLIENT_ID, "login_hint": "42",
+              "target_link_uri": "https://evil.example/steal"},
+        follow_redirects=False,
+    )
+    assert r.status_code == 302
+    q = parse_qs(urlparse(r.headers["location"]).query)
+    assert q["redirect_uri"] == ["https://testserver/lti/launch"]
+
+
+@pytest.mark.asyncio
+async def test_launch_con_platform_id_invalido_en_cookie_da_400(lti_on, registered):
+    """Un `platform_id` corrupto en el estado guardado (cookie manipulada o
+    dato viejo) debe dar el mismo 400 que cualquier otro estado inválido, no
+    un 500."""
+    client = _client()
+    cookie = create_purpose_token(
+        LTI_STATE_PURPOSE,
+        {"state": "s1", "nonce": "n1", "platform_id": "no-es-un-uuid"},
+        ttl_minutes=STATE_TTL_S / 60,
+    )
+    client.cookies.set(LTI_STATE_COOKIE, cookie)
+    r = client.post(
+        "/lti/launch",
+        data={"id_token": "irrelevante-no-debería-ni-mirarse", "state": "s1"},
+        follow_redirects=False,
+    )
+    assert r.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_launch_con_encuesta_de_otra_org_es_rechazado(lti_on, registered, db_session):
+    """Defensa en profundidad: si el resource link apunta a una encuesta de
+    otra organización que la de la plataforma lanzadora (un dato mal cargado,
+    no algo alcanzable por el flujo normal), el lanzamiento debe tratarse
+    igual que "esta actividad no tiene encuesta asignada", no colar acceso
+    cross-tenant."""
+    async with db_session() as session:
+        platform = await session.get(LtiPlatform, registered["platform"].id)
+        platform.org_id = uuid.uuid4()
+        session.add(platform)
+        await session.commit()
+
+    client = _client()
+    login = client.post(
+        "/lti/login",
+        data={"iss": ISSUER, "client_id": CLIENT_ID, "login_hint": "42",
+              "target_link_uri": "https://encuestum.test/lti/launch"},
+        follow_redirects=False,
+    )
+    q = parse_qs(urlparse(login.headers["location"]).query)
+    token = _id_token(registered["pem"], nonce=q["nonce"][0])
+    r = client.post("/lti/launch", data={"id_token": token, "state": q["state"][0]},
+                    follow_redirects=False)
+    assert r.status_code == 404
 
 
 @pytest.mark.asyncio
@@ -194,7 +371,7 @@ async def test_la_respuesta_queda_atribuida_al_alumno(lti_on, registered, db_ses
 
     from app.models import SurveyResponse
 
-    client = TestClient(app)
+    client = _client()
     slug = registered["survey"].slug
     login = client.post(
         "/lti/login",
