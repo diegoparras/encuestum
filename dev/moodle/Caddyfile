@@ -10,7 +10,23 @@ moodle.localhost {
 	# docker-compose.yml) — `Config.ExposedPorts` reporta `8080/tcp` y
 	# `8443/tcp`. Si el día de mañana se cambia el tag de la imagen, hay que
 	# reconfirmar esto (ver el checklist en el reporte de la tarea).
-	reverse_proxy moodle:8080
+	reverse_proxy moodle:8080 {
+		# Moodle corre con MOODLE_REVERSEPROXY=yes, y en ese modo EXIGE que el
+		# proxy NO reenvíe el Host original. Su propio código lo dice, en
+		# lib/setuplib.php:
+		#   if (!empty($CFG->reverseproxy) && $rurl['host'] === $wwwroot['host'] ...)
+		#       throw new \moodle_exception('reverseproxyabused', 'error');
+		# con el comentario "the reverse proxy must leave the Host header
+		# pointing to the internal name of the server".
+		#
+		# Caddy preserva el Host por defecto, así que a Moodle le llegaba
+		# `moodle.localhost`, igual que su wwwroot, y respondía 500 a TODO con
+		# "Reverse proxy enabled so the server cannot be accessed directly".
+		# `{upstream_hostport}` manda `moodle:8080` en su lugar; Moodle usa el
+		# wwwroot configurado para generar sus URLs y X-Forwarded-Proto (vía
+		# MOODLE_SSLPROXY) para saber que está detrás de HTTPS.
+		header_up Host {upstream_hostport}
+	}
 }
 
 encuestum.localhost {
