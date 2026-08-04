@@ -31,13 +31,22 @@ services:
   mariadb:
     image: mariadb:11
     restart: unless-stopped
+    # El juego de caracteres va por línea de comandos, NO por variables de
+    # entorno. `MARIADB_CHARACTER_SET`/`MARIADB_COLLATE` son de la imagen de
+    # *Bitnami*; la imagen oficial de MariaDB las ignora en silencio y arranca
+    # con su default, que sigue siendo latin1. Moodle detecta eso y aborta la
+    # instalación con "!! unicode !! ... All data must be stored in Unicode
+    # format (UTF-8)", dejando el contenedor en bucle de reinicio: el primer
+    # intento crea config.php, y los siguientes fallan con "The configuration
+    # file config.php already exists".
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
     environment:
       MARIADB_ROOT_PASSWORD: root
       MARIADB_DATABASE: moodle
       MARIADB_USER: moodle
       MARIADB_PASSWORD: moodle
-      MARIADB_CHARACTER_SET: utf8mb4
-      MARIADB_COLLATE: utf8mb4_unicode_ci
     volumes:
       - mariadb_data:/var/lib/mysql
     healthcheck:
