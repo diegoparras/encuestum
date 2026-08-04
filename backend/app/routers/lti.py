@@ -5,12 +5,14 @@ import uuid
 from urllib.parse import urlencode
 
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
+from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 from starlette.responses import RedirectResponse
 
 from app.config import get_settings
 from app.db import get_session
+from app.lti.deeplink import DL_PURPOSE, build_response_jwt
 from app.lti.keys import get_tool_key, public_jwk
 from app.lti.state import (
     ACCESS_TTL_S,
@@ -245,4 +247,94 @@ async def _resource_link_redirect(claims, platform, user, session):
 
 
 async def _deep_linking_redirect(claims, platform, session):
-    raise HTTPException(status_code=501, detail="Deep linking todavía no implementado.")
+    """Guardamos el contexto del pedido en un token y mandamos al selector."""
+    settings_claim = claims.get(CLAIM["DEEP_LINKING_SETTINGS"]) or {}
+    if not settings_claim.get("deep_link_return_url"):
+        raise HTTPException(status_code=400, detail="El pedido de deep linking no trae URL de retorno.")
+
+    token = create_purpose_token(
+        DL_PURPOSE,
+        {
+            "platform_id": str(platform.id),
+            "deployment_id": claims.get(CLAIM["DEPLOYMENT_ID"]),
+            "settings": settings_claim,
+        },
+        ttl_minutes=STATE_TTL_S / 60,
+    )
+    # Ojo con la ruta: el selector lo sirve Next.js en /lti-select, fuera del
+    # espacio /lti/ que nginx manda entero al backend.
+    resp = RedirectResponse(f"/lti-select?dl={token}", status_code=302)
+    resp.delete_cookie(LTI_STATE_COOKIE, path="/")
+    return resp
+
+
+async def _dl_platform(session: AsyncSession, dl: str) -> tuple[LtiPlatform, dict]:
+    data = read_purpose_token(DL_PURPOSE, dl or "")
+    if not data:
+        raise HTTPException(status_code=400, detail="Sesión de deep linking vencida.")
+    platform = await session.get(LtiPlatform, uuid.UUID(data["platform_id"]))
+    if platform is None:
+        raise HTTPException(status_code=400, detail="Plataforma LTI no registrada.")
+    return platform, data
+
+
+@router.get("/select/surveys", dependencies=[Depends(require_lti)])
+async def select_surveys(dl: str, session: AsyncSession = Depends(get_session)) -> dict:
+    """Encuestas publicadas de la organización atada a esta plataforma."""
+    platform, _ = await _dl_platform(session, dl)
+    rows = (
+        await session.scalars(
+            select(Survey)
+            .where(
+                Survey.org_id == platform.org_id,
+                Survey.deleted_at.is_(None),
+                Survey.status == "published",
+            )
+            .order_by(Survey.updated_at.desc())
+        )
+    ).all()
+    return {
+        "surveys": [
+            {
+                "id": str(s.id),
+                "title": s.title or "Sin título",
+                "slug": s.slug,
+                "is_exam": bool((s.evaluation or {}).get("enabled")),
+            }
+            for s in rows
+        ]
+    }
+
+
+class DeepLinkReturn(BaseModel):
+    dl: str
+    survey_id: uuid.UUID
+
+
+@router.post("/select/return", dependencies=[Depends(require_lti)])
+async def select_return(
+    payload: DeepLinkReturn,
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """Firma el content item de la encuesta elegida y dice a dónde postearlo."""
+    platform, data = await _dl_platform(session, payload.dl)
+
+    survey = await session.get(Survey, payload.survey_id)
+    if survey is None or survey.deleted_at is not None or survey.org_id != platform.org_id:
+        raise HTTPException(status_code=404, detail="Encuesta no encontrada.")
+
+    key = await get_tool_key(session)
+    # No `request.url_for()`: acá adentro nginx habla http plano y esa URL
+    # calcularía scheme http://, que Moodle rechaza al no matchear la
+    # registrada (mismo motivo que en login(), ver comentario ahí).
+    own_launch_url = f"{get_settings().public_base_url}{request.app.url_path_for('launch')}"
+    token = build_response_jwt(
+        platform=platform,
+        deployment_id=data["deployment_id"],
+        settings_claim=data["settings"],
+        survey=survey,
+        launch_url=own_launch_url,
+        key=key,
+    )
+    return {"action": data["settings"]["deep_link_return_url"], "jwt": token}
