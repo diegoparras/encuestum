@@ -564,10 +564,9 @@ async def test_upsert_lti_user_sobrevive_a_una_carrera_de_insercion(
     from sqlalchemy.exc import IntegrityError
     from sqlmodel import select
 
-    from app.models import LtiUser
+    from app.models import LtiPlatform, LtiUser
     from app.routers.lti import _upsert_lti_user
 
-    platform = registered["platform"]
     claims = {
         "sub": "u-race",
         "email": "de-este-lanzamiento@escuela.test",
@@ -576,6 +575,22 @@ async def test_upsert_lti_user_sobrevive_a_una_carrera_de_insercion(
     }
 
     async with db_session() as session:
+        # `registered["platform"]` viene de la sesión (ya cerrada) del fixture
+        # -- queda detached, y un objeto detached con estado ya cargado
+        # sobrevive a un rollback sin problema. Eso es exactamente lo que NO
+        # pasa en el request real: ahí `platform` se carga con `session.get`
+        # dentro de la MISMA sesión que después hace el commit/rollback de la
+        # carrera (ver `launch()` en `app/routers/lti.py`). Para que este test
+        # pueda detectar el bug (`MissingGreenlet` tras el rollback), hay que
+        # reproducir esa misma forma: releer `platform` a través de `session`.
+        platform = await session.get(LtiPlatform, registered["platform"].id)
+        # Capturado ANTES del rollback simulado más abajo: el rollback deja
+        # `platform` expired, y el armazón del test (a diferencia del código
+        # bajo prueba) no es lo que se quiere probar acá -- si el armazón
+        # tocara `platform.id` después del rollback, el `MissingGreenlet`
+        # saldría de esta función y no de la recuperación real en
+        # `_upsert_lti_user`.
+        platform_id = platform.id
         real_commit = session.commit
         state = {"first_call": True}
 
@@ -589,7 +604,7 @@ async def test_upsert_lti_user_sobrevive_a_una_carrera_de_insercion(
                 async with db_session() as other:
                     other.add(
                         LtiUser(
-                            platform_id=platform.id, sub="u-race",
+                            platform_id=platform_id, sub="u-race",
                             email="de-la-otra-tab@escuela.test", name="Otra Tab", roles=[],
                         )
                     )

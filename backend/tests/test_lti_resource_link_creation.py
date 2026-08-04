@@ -214,6 +214,57 @@ async def test_custom_survey_id_de_otra_org_no_crea_link_ni_revela_la_encuesta(
 
 
 @pytest.mark.asyncio
+async def test_platform_con_org_id_nulo_no_saltea_el_chequeo_de_tenant(
+    lti_on, setup, db_session
+):
+    """Minor del review: la versión vieja de este chequeo era
+    `platform.org_id is not None and survey.org_id != platform.org_id` -- una
+    plataforma con `org_id` NULL saltaba el chequeo entero y podía autoatarse
+    a cualquier encuesta de la instancia vía `custom.survey_id`, aunque fuera
+    de otra organización. No alcanzable hoy por las vías normales de alta
+    (ambas fijan `org_id`), pero la comparación tiene que ser estricta -- la
+    misma que ya usa `select_return` -- no una que dependa de que `org_id` no
+    sea NULL."""
+    from sqlmodel import select
+
+    from app.models import LtiPlatform
+
+    async with db_session() as session:
+        huerfana = LtiPlatform(
+            issuer="https://moodle.sin-org", client_id="cid-sin-org",
+            deployment_ids=["1"],
+            auth_login_url="https://moodle.sin-org/mod/lti/auth.php",
+            auth_token_url="https://moodle.sin-org/mod/lti/token.php",
+            jwks_url="https://moodle.sin-org/mod/lti/certs.php",
+            org_id=None,
+        )
+        session.add(huerfana)
+        await session.commit()
+        platform = await session.get(LtiPlatform, huerfana.id)
+
+        rl_id = f"rl-{uuid.uuid4().hex[:8]}"
+        claims = {
+            CLAIM["CUSTOM"]: {"survey_id": str(setup["survey"].id)},
+            CLAIM["CONTEXT"]: {"id": "course-sin-org"},
+        }
+
+        from app.routers.lti import _link_from_deep_link_claims
+
+        link = await _link_from_deep_link_claims(claims, platform, rl_id, session)
+        assert link is None
+
+        filas = (
+            await session.scalars(
+                select(LtiResourceLink).where(
+                    LtiResourceLink.platform_id == platform.id,
+                    LtiResourceLink.resource_link_id == rl_id,
+                )
+            )
+        ).all()
+        assert filas == []
+
+
+@pytest.mark.asyncio
 async def test_custom_sin_survey_id_da_el_404_de_siempre(lti_on, setup):
     """Sin `custom.survey_id` parseable, sigue siendo el 404 de "actividad no
     configurada" -- p. ej. una actividad de Moodle armada a mano apuntando a
@@ -246,6 +297,21 @@ async def test_creacion_del_link_sobrevive_a_una_carrera_de_insercion(
     }
 
     async with db_session() as session:
+        # `setup["platform"]` viene de la sesión (ya cerrada) del fixture --
+        # queda detached, y un objeto detached con estado ya cargado sobrevive
+        # a un rollback sin problema. Eso NO es lo que pasa en el request real:
+        # ahí `platform` se carga con `session.get` dentro de la MISMA sesión
+        # que después hace el commit/rollback de la carrera (ver `launch()` en
+        # `app/routers/lti.py`). Para que este test pueda detectar el bug
+        # (`MissingGreenlet` tras el rollback), hay que reproducir esa misma
+        # forma: releer `platform` a través de `session`.
+        platform = await session.get(LtiPlatform, setup["platform"].id)
+        # Capturado ANTES del rollback simulado más abajo -- mismo motivo que
+        # en `test_upsert_lti_user_sobrevive_a_una_carrera_de_insercion`
+        # (`test_lti_launch.py`): el armazón del test no debe tocar
+        # `platform.id` después del rollback, o el `MissingGreenlet` saldría
+        # de acá y no de la recuperación real en `_link_from_deep_link_claims`.
+        platform_id = platform.id
         real_commit = session.commit
         state = {"first_call": True}
 
@@ -256,7 +322,7 @@ async def test_creacion_del_link_sobrevive_a_una_carrera_de_insercion(
                 async with db_session() as other:
                     other.add(
                         LtiResourceLink(
-                            platform_id=setup["platform"].id,
+                            platform_id=platform_id,
                             resource_link_id=rl_id,
                             survey_id=setup["survey"].id,
                             context_id="course-race-winner",
@@ -269,7 +335,7 @@ async def test_creacion_del_link_sobrevive_a_una_carrera_de_insercion(
             await real_commit()
 
         monkeypatch.setattr(session, "commit", fake_commit)
-        link = await _link_from_deep_link_claims(claims, setup["platform"], rl_id, session)
+        link = await _link_from_deep_link_claims(claims, platform, rl_id, session)
 
     # La fila que "perdimos" la carrera es la que ganó -- no una segunda.
     assert link is not None

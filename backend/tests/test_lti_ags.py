@@ -785,3 +785,118 @@ async def test_grade_all_dispara_entrega_solo_para_las_lti(monkeypatch, lti_on, 
     assert resp.json()["graded"] == 2
 
     assert llamados == [rid_lti]
+
+
+# ── Minor: los tres triggers nuevos ignoraban LTI_ENABLED ───────────────────
+#
+# `submit()` sólo agenda una entrega si `_lti_context` encuentra contexto LTI,
+# y esa función corta en seco si `LTI_ENABLED` está apagado (`app/routers/
+# public.py::_lti_context`). Los tres triggers nuevos (`override_grade`,
+# `grade_one`, `grade_all`) sólo chequeaban `r.lti_link_id is not None` -- una
+# instancia que tuvo LTI prendido, acumuló respuestas con `lti_link_id`, y
+# después lo apagó seguía mandando POSTs salientes al LMS en cada corrección
+# manual. Ninguno de estos tests necesita `lti_on`: `ags_setup` inserta las
+# filas de LTI a mano, y el flag corre en su default (apagado) salvo que se
+# fuerce explícitamente -- que es justo lo que se prueba acá.
+
+
+def _lti_apagado(monkeypatch):
+    from app.config import get_settings
+
+    monkeypatch.delenv("LTI_ENABLED", raising=False)
+    get_settings.cache_clear()
+    assert get_settings().lti_enabled is False
+
+
+@pytest.mark.asyncio
+async def test_override_en_respuesta_lti_no_dispara_entrega_si_lti_esta_apagado(
+    monkeypatch, ags_setup, db_session
+):
+    from tests.conftest import new_client, register
+
+    import app.lti.ags as ags_module
+    from app.models import SurveyResponse
+
+    _lti_apagado(monkeypatch)
+    llamados = []
+    monkeypatch.setattr(ags_module, "schedule_score", lambda rid: llamados.append(rid))
+
+    c = new_client()
+    register(c)
+    sv = c.post("/api/v1/survey/surveys",
+                json={"title": "E", "json_schema": _SCHEMA, "evaluation": _EVAL}).json()
+    c.post(f"/api/v1/survey/surveys/{sv['id']}/publish")
+
+    async with db_session() as session:
+        r = SurveyResponse(survey_id=uuid.UUID(sv["id"]), answers={"cap": "Paris"},
+                           lti_link_id=ags_setup["link"].id, lti_sub="u-42")
+        session.add(r)
+        await session.commit()
+        rid = r.id
+
+    ov = c.post(f"/api/v1/survey/surveys/{sv['id']}/responses/{rid}/override", json={"total": 2})
+    assert ov.status_code == 200, ov.text
+    assert llamados == []
+
+
+@pytest.mark.asyncio
+async def test_grade_one_en_respuesta_lti_no_dispara_entrega_si_lti_esta_apagado(
+    monkeypatch, ags_setup, db_session
+):
+    from tests.conftest import new_client, register
+
+    import app.lti.ags as ags_module
+    from app.models import SurveyResponse
+
+    _lti_apagado(monkeypatch)
+    llamados = []
+    monkeypatch.setattr(ags_module, "schedule_score", lambda rid: llamados.append(rid))
+
+    c = new_client()
+    register(c)
+    sv = c.post("/api/v1/survey/surveys",
+                json={"title": "E", "json_schema": _SCHEMA, "evaluation": _EVAL}).json()
+    c.post(f"/api/v1/survey/surveys/{sv['id']}/publish")
+
+    async with db_session() as session:
+        r = SurveyResponse(survey_id=uuid.UUID(sv["id"]), answers={"cap": "Paris"},
+                           lti_link_id=ags_setup["link"].id, lti_sub="u-42")
+        session.add(r)
+        await session.commit()
+        rid = r.id
+
+    resp = c.post(f"/api/v1/survey/surveys/{sv['id']}/responses/{rid}/grade")
+    assert resp.status_code == 200, resp.text
+    assert llamados == []
+
+
+@pytest.mark.asyncio
+async def test_grade_all_no_dispara_entrega_si_lti_esta_apagado(
+    monkeypatch, ags_setup, db_session
+):
+    from tests.conftest import new_client, register
+
+    import app.lti.ags as ags_module
+    from app.models import SurveyResponse
+
+    _lti_apagado(monkeypatch)
+    llamados = []
+    monkeypatch.setattr(ags_module, "schedule_score", lambda rid: llamados.append(rid))
+
+    c = new_client()
+    register(c)
+    sv = c.post("/api/v1/survey/surveys",
+                json={"title": "E", "json_schema": _SCHEMA, "evaluation": _EVAL}).json()
+    c.post(f"/api/v1/survey/surveys/{sv['id']}/publish")
+
+    async with db_session() as session:
+        r_lti = SurveyResponse(survey_id=uuid.UUID(sv["id"]), answers={"cap": "Paris"},
+                               lti_link_id=ags_setup["link"].id, lti_sub="u-42")
+        session.add(r_lti)
+        await session.commit()
+
+    resp = c.post(f"/api/v1/survey/surveys/{sv['id']}/grade-all")
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["graded"] == 1
+
+    assert llamados == []

@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
+from app.config import get_settings
 from app.db import get_session
 from app.deps import OrgContext, current_context
 from app.models import Survey, SurveyResponse, _utcnow
@@ -46,10 +47,20 @@ def _schedule_lti_score(*response_ids: uuid.UUID) -> None:
     """Avisa al LMS de una nota que se corrigió o corrigió de nuevo fuera del
     submit original -- override manual, re-corrida individual o masiva.
 
+    Gateado en `LTI_ENABLED`, igual que el único otro trigger (`submit()`, vía
+    `_lti_context` en `public.py`): una respuesta puede seguir teniendo
+    `lti_link_id` mucho después de que la instancia apagara LTI -- ese dato no
+    se borra solo -- y sin este chequeo una corrección manual sobre esa
+    respuesta vieja seguiría mandando un POST saliente al LMS con LTI
+    apagado. "LTI apagado" tiene que significar que nada de este módulo le
+    habla al LMS, no sólo que no se generen links nuevos.
+
     `schedule_score` ya vive detrás de un import perezoso en todos los otros
     puntos que la disparan (`public.py::submit`), así que se mantiene acá:
     importar `app.lti.ags` en el tope de este módulo lo cargaría siempre, LTI
     esté prendido o no."""
+    if not get_settings().lti_enabled:
+        return
     from app.lti.ags import schedule_score
 
     for rid in response_ids:

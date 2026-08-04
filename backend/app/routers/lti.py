@@ -225,7 +225,19 @@ async def _upsert_lti_user(session: AsyncSession, platform: LtiPlatform, claims:
     constraint. Mismo patrón insert-then-reread que `get_tool_key`
     (`app/lti/keys.py`) y `_link_from_deep_link_claims` más abajo: se deshace
     el intento propio y se sigue con la fila que efectivamente ganó,
-    actualizándola con los datos de este lanzamiento en vez de perderlos."""
+    actualizándola con los datos de este lanzamiento en vez de perderlos.
+
+    A diferencia de `get_tool_key`, acá `session.rollback()` no es gratis:
+    `platform` ya estaba cargado en esta misma sesión antes de entrar acá
+    (`launch()` lo trae con `session.get`), y un rollback expira TODOS los
+    objetos del identity map de la sesión, `platform` incluido -- no sólo lo
+    que esta función tocó. Sin el `session.refresh(platform)` de más abajo, el
+    próximo acceso a un atributo suyo (acá mismo, `platform.id`; más abajo en
+    `launch()`, otra vez `platform.id`/`platform.org_id` dentro de
+    `_deep_linking_redirect`/`_resource_link_redirect`) dispara un
+    lazy-load síncrono que en contexto async revienta con `MissingGreenlet` en
+    vez de recuperarse -- justo el caso concurrente que este manejo existe
+    para cubrir."""
     sub = claims["sub"]
 
     async def _buscar() -> LtiUser | None:
@@ -252,6 +264,9 @@ async def _upsert_lti_user(session: AsyncSession, platform: LtiPlatform, claims:
             # esperada.
             raise
         await session.rollback()
+        # Ver el docstring: sin esto, `platform.id` de `_buscar()` (dos líneas
+        # más abajo) revienta con `MissingGreenlet`.
+        await session.refresh(platform)
         user = await _buscar()
         if user is None:
             raise
@@ -294,7 +309,19 @@ async def _link_from_deep_link_claims(
     Devuelve `None` cuando no hay nada razonable que crear: sin `survey_id`
     parseable, o con una encuesta borrada/inexistente/de otra organización --
     mismo 404 en los tres casos (ver `_resource_link_redirect`), para no
-    revelar si una encuesta con ese id existe en otro tenant."""
+    revelar si una encuesta con ese id existe en otro tenant.
+
+    A diferencia de `get_tool_key` (`app/lti/keys.py`), que no sostiene
+    ningún objeto ORM pre-cargado, acá `platform` ya estaba cargado en esta
+    misma sesión antes de entrar (`launch()` lo trae con `session.get`), y
+    `session.rollback()` expira TODOS los objetos del identity map de la
+    sesión -- `platform` incluido, no sólo la fila que este helper intentó
+    insertar. Sin el `session.refresh(platform)` del bloque `except` de más
+    abajo, el próximo acceso a un atributo de `platform` -- acá mismo,
+    `platform.id` para releer; en el caller, `_resource_link_redirect`,
+    `platform.org_id` para el chequeo de tenant del link ya creado -- dispara
+    un lazy-load síncrono que en contexto async revienta con
+    `MissingGreenlet` en vez de recuperarse."""
     survey_id = _survey_id_from_custom_claim(claims)
     if survey_id is None:
         return None
@@ -302,10 +329,17 @@ async def _link_from_deep_link_claims(
     survey = await session.get(Survey, survey_id)
     if survey is None or survey.deleted_at is not None:
         return None
-    # Mismo chequeo (y el mismo `is not None` de defensa en profundidad) que
-    # el que ya corre más abajo en `_resource_link_redirect` para un link
-    # existente, y que `select_return` aplica del lado del deep linking.
-    if platform.org_id is not None and survey.org_id != platform.org_id:
+    # Comparación estricta, igual que `select_return` -- no la versión con
+    # `is not None` de guarda que corre más abajo en `_resource_link_redirect`
+    # para un link YA creado (esa sí es defensa en profundidad sobre datos que
+    # ya pasaron por acá una vez). Acá es al revés: este es el único lugar que
+    # MATERIALIZA un link cross-tenant a partir de `custom.survey_id`, así que
+    # un `org_id` nulo en la plataforma no puede saltear el chequeo -- si
+    # saltearlo, cualquier plataforma sin organización asignada podría
+    # autoatarse a cualquier encuesta de la instancia. No alcanzable hoy (las
+    # dos vías de alta de `LtiPlatform` siempre fijan `org_id`), pero nada
+    # impide que eso cambie.
+    if survey.org_id != platform.org_id:
         return None
 
     context_id = (claims.get(CLAIM["CONTEXT"]) or {}).get("id")
@@ -328,6 +362,10 @@ async def _link_from_deep_link_claims(
         # `_upsert_lti_user` arriba y `get_tool_key`: deshacer el intento
         # propio y seguir con la fila que ganó la carrera.
         await session.rollback()
+        # Ver el docstring: sin esto, `platform.id` de la releída de abajo (y
+        # `platform.org_id` más tarde en el caller) revienta con
+        # `MissingGreenlet`.
+        await session.refresh(platform)
         link = (
             await session.scalars(
                 select(LtiResourceLink).where(
