@@ -1,0 +1,140 @@
+# Entorno de desarrollo para la integración LTI: un Moodle y un Encuestum que se
+# ven entre sí por HTTPS, que es condición para que el lanzamiento embebido
+# funcione (las cookies SameSite=None exigen Secure).
+#
+# Arquitectura: Caddy es el único punto de entrada TLS. Se registra como alias
+# de red de *ambos* nombres (moodle.localhost y encuestum.localhost), así que
+# incluso el tráfico interno entre contenedores (Encuestum pidiendo el JWKS de
+# Moodle, Moodle llamando de vuelta al token endpoint de Encuestum) pasa por
+# Caddy y ve el mismo hostname/certificado que el navegador. Sin esto, Moodle
+# y Encuestum tendrían que hablarse por IP/nombre de servicio interno en HTTP
+# plano, y el registro dinámico de LTI exige HTTPS sin excepción.
+name: encuestum-moodle-dev
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "443:443"
+      - "80:80"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      default:
+        aliases:
+          - moodle.localhost
+          - encuestum.localhost
+
+  mariadb:
+    image: mariadb:11
+    restart: unless-stopped
+    environment:
+      MARIADB_ROOT_PASSWORD: root
+      MARIADB_DATABASE: moodle
+      MARIADB_USER: moodle
+      MARIADB_PASSWORD: moodle
+      MARIADB_CHARACTER_SET: utf8mb4
+      MARIADB_COLLATE: utf8mb4_unicode_ci
+    volumes:
+      - mariadb_data:/var/lib/mysql
+    healthcheck:
+      # healthcheck.sh viene con la imagen oficial de MariaDB desde 2023 (no es
+      # cosa de Bitnami); confirmado contra la documentación oficial.
+      test: ["CMD", "healthcheck.sh", "--connect", "--innodb_initialized"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  moodle:
+    # OJO: `bitnami/moodle` dejó de publicar tags gratis en Docker Hub (pasó a
+    # "Bitnami Secure Images", de pago). El espejo gratuito y CONGELADO (no
+    # recibe actualizaciones) es `bitnamilegacy/moodle`. Tampoco existe un tag
+    # `5.0` liso: los tags reales son `5.0.1-debian-12-r5/r6` y
+    # `5.0.2[-debian-12-rN]`. Verificado contra la API de Docker Hub el
+    # 2026-08-04. Si esto te importa para algo más que probar la integración,
+    # considerá instalar Moodle vos mismo en vez de depender de esta imagen.
+    image: bitnamilegacy/moodle:5.0.2
+    restart: unless-stopped
+    depends_on:
+      mariadb:
+        condition: service_healthy
+    environment:
+      MOODLE_DATABASE_HOST: mariadb
+      MOODLE_DATABASE_USER: moodle
+      MOODLE_DATABASE_PASSWORD: moodle
+      MOODLE_DATABASE_NAME: moodle
+      MOODLE_USERNAME: admin
+      MOODLE_PASSWORD: ${MOODLE_ADMIN_PASSWORD:-Encuestum#2026}
+      MOODLE_EMAIL: admin@moodle.localhost
+      MOODLE_SITE_NAME: Moodle de pruebas
+      # Moodle tiene que generar sus URLs en https o el iframe rompe. MOODLE_HOST
+      # fija el wwwroot explícitamente (sin él, Moodle lo infiere del Host que
+      # reciba, que debería coincidir igual porque Caddy lo preserva — pero
+      # dejarlo explícito evita sorpresas).
+      MOODLE_HOST: moodle.localhost
+      MOODLE_REVERSEPROXY: "yes"
+      MOODLE_SSLPROXY: "yes"
+      BITNAMI_DEBUG: "true"
+    volumes:
+      - moodle_data:/bitnami/moodle
+      - moodledata:/bitnami/moodledata
+      # El plugin de la Fase 2 se monta acá para editarlo sin reconstruir.
+      # Descomentar cuando exista:
+      # - ../../../moodle-mod_encuestum:/bitnami/moodle/mod/encuestum
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: encuestum
+      POSTGRES_USER: encuestum
+      POSTGRES_PASSWORD: encuestum
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U encuestum"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  encuestum:
+    build:
+      context: ../..
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      # `DATABASE_URL`, no `ENCUESTUM_DATABASE_URL` — así se llama la variable
+      # que lee `backend/app/db.py`. Con el nombre equivocado el error es
+      # silencioso: el backend no se queja, simplemente cae a SQLite.
+      DATABASE_URL: postgresql://encuestum:encuestum@postgres:5432/encuestum
+      ENCUESTUM_SESSION_SECRET: dev-secret-solo-para-pruebas-32-bytes-o-mas
+      # URL pública real del tool: todo lo que Encuestum le cuenta a Moodle de
+      # sí mismo (initiate_login_uri, redirect_uris, jwks_uri,
+      # target_link_uri) sale de acá. Moodle GUARDA esos valores al
+      # registrarse; si esto está mal, el registro se completa "bien" y el
+      # lanzamiento nunca funciona.
+      ENCUESTUM_PUBLIC_URL: https://encuestum.localhost
+      ENCUESTUM_COOKIE_SECURE: "true"
+      ENCUESTUM_TRUST_PROXY: "true"
+      # El LMS vive en una IP privada de la red de Docker: sin esto el guard
+      # SSRF bloquearía las llamadas de Encuestum al JWKS y al token endpoint
+      # de Moodle. Solo para este entorno de desarrollo — NUNCA en producción,
+      # donde el LMS real está en un dominio público. El registro dinámico
+      # exige igual que la plataforma esté en HTTPS, con o sin esta variable.
+      ENCUESTUM_ALLOW_PRIVATE_OUTBOUND: "true"
+      LTI_ENABLED: "true"
+      ENCUESTUM_SUPERADMIN_EMAIL: admin@encuestum.localhost
+
+volumes:
+  caddy_data:
+  caddy_config:
+  mariadb_data:
+  moodle_data:
+  moodledata:
+  postgres_data:

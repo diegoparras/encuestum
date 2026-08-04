@@ -1,0 +1,16 @@
+# TLS local con la CA interna de Caddy. Hay que confiar en esa CA una vez;
+# está explicado en el README de esta carpeta.
+
+moodle.localhost {
+	tls internal
+	reverse_proxy moodle:8080
+}
+
+encuestum.localhost {
+	tls internal
+	# El Dockerfile de la raíz expone el puerto 80 (EXPOSE 80): ahí adentro
+	# nginx atiende todo (frontend, API y /lti/*), no en 8080. Confirmado
+	# leyendo `Dockerfile` y `nginx.conf` — no asumir el puerto "típico" de
+	# una app de este tipo.
+	reverse_proxy encuestum:80
+}
