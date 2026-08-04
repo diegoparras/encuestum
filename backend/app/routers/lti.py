@@ -264,7 +264,15 @@ async def _deep_linking_redirect(claims, platform, session):
     # Ojo con la ruta: el selector lo sirve Next.js en /lti-select, fuera del
     # espacio /lti/ que nginx manda entero al backend.
     resp = RedirectResponse(f"/lti-select?dl={token}", status_code=302)
-    resp.delete_cookie(LTI_STATE_COOKIE, path="/")
+    # Mismos atributos con los que se escribió la cookie (SameSite=None;
+    # Secure) — no `path="/"` a secas: esta respuesta también es un
+    # form-POST cross-site (Moodle posteando el id_token al iframe de
+    # /lti/launch), y sin SameSite=None; Secure en el borrado el navegador
+    # descarta el Set-Cookie. Sin un store de nonces server-side, este
+    # borrado es la única defensa contra reusar el mismo (state, nonce) para
+    # volver a pedir un content item durante STATE_TTL_S (ver el comentario
+    # análogo en _resource_link_redirect).
+    resp.delete_cookie(LTI_STATE_COOKIE, **_lti_cookie_kwargs())
     return resp
 
 
@@ -272,7 +280,11 @@ async def _dl_platform(session: AsyncSession, dl: str) -> tuple[LtiPlatform, dic
     data = read_purpose_token(DL_PURPOSE, dl or "")
     if not data:
         raise HTTPException(status_code=400, detail="Sesión de deep linking vencida.")
-    platform = await session.get(LtiPlatform, uuid.UUID(data["platform_id"]))
+    try:
+        platform_id = uuid.UUID(data["platform_id"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail="Sesión de deep linking vencida.") from exc
+    platform = await session.get(LtiPlatform, platform_id)
     if platform is None:
         raise HTTPException(status_code=400, detail="Plataforma LTI no registrada.")
     return platform, data

@@ -9,14 +9,23 @@ export default function LtiSelect() {
   const [surveys, setSurveys] = useState<Survey[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // Arranca en `true` (no en `!!dl`): en el primer render de cliente `dl`
+  // todavía puede no estar leído (depende de `window`), y si el estado
+  // arrancara en `false` el "No hay encuestas publicadas..." se mostraría
+  // brevemente antes de que el efecto de abajo dispare el fetch.
+  const [loading, setLoading] = useState(true);
   const dl = typeof window === "undefined" ? "" : new URLSearchParams(window.location.search).get("dl") ?? "";
 
   useEffect(() => {
-    if (!dl) return;
+    if (!dl) {
+      setLoading(false);
+      return;
+    }
     fetch(getApiUrl(`/lti/select/surveys?dl=${encodeURIComponent(dl)}`))
       .then((r) => (r.ok ? r.json() : Promise.reject(new Error("No se pudieron listar las encuestas."))))
       .then((d) => setSurveys(d.surveys))
-      .catch((e) => setError(e.message));
+      .catch((e) => setError(e.message))
+      .finally(() => setLoading(false));
   }, [dl]);
 
   // El retorno de deep linking es un POST de formulario al LMS: se arma y se envía.
@@ -59,7 +68,9 @@ export default function LtiSelect() {
   return (
     <main className="mx-auto max-w-2xl p-8">
       <h1 className="mb-6 text-2xl font-semibold text-neutral-900 dark:text-neutral-100">Elegí una encuesta</h1>
-      {surveys.length === 0 ? (
+      {loading ? (
+        <p className="text-neutral-500 dark:text-neutral-400">Cargando encuestas…</p>
+      ) : surveys.length === 0 ? (
         <p className="text-neutral-500 dark:text-neutral-400">No hay encuestas publicadas en esta organización.</p>
       ) : (
         <ul className="space-y-2">
