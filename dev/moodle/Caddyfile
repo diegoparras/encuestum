@@ -3,6 +3,13 @@
 
 moodle.localhost {
 	tls internal
+	# 8080, no 80: `bitnamilegacy/moodle:5.0.2` corre Apache sin privilegios
+	# de root, así que escucha en un puerto alto. No es un supuesto ni algo
+	# heredado del brief sin revisar: se confirmó bajando el manifest/config
+	# de esta imagen exacta por la Docker Registry API (sin daemon, ver
+	# docker-compose.yml) — `Config.ExposedPorts` reporta `8080/tcp` y
+	# `8443/tcp`. Si el día de mañana se cambia el tag de la imagen, hay que
+	# reconfirmar esto (ver el checklist en el reporte de la tarea).
 	reverse_proxy moodle:8080
 }
 

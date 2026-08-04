@@ -81,9 +81,62 @@ services:
     volumes:
       - moodle_data:/bitnami/moodle
       - moodledata:/bitnami/moodledata
+      # CA local de Caddy (ver el bloque grande de comentarios más abajo, en
+      # `encuestum`, y la sección "Por qué hace falta confiar en la CA de
+      # Caddy" del README). Solo lectura: este contenedor únicamente la
+      # necesita para el `update-ca-certificates` de más abajo.
+      - ./caddy-root.crt:/usr/local/share/ca-certificates/caddy-root.crt:ro
       # El plugin de la Fase 2 se monta acá para editarlo sin reconstruir.
       # Descomentar cuando exista:
       # - ../../../moodle-mod_encuestum:/bitnami/moodle/mod/encuestum
+    # Por qué este entrypoint/command en vez de dejar los de la imagen: el
+    # cliente PHP de Moodle (curl) valida TLS contra el almacén de
+    # certificados del sistema, y ese almacén NO conoce la CA que Caddy
+    # generó recién al arrancar (ver README). Sin este paso, la llamada de
+    # Moodle al `jwks_uri` de Encuestum durante AGS fallaría la verificación
+    # TLS. `update-ca-certificates` lee cualquier `.crt` bajo
+    # /usr/local/share/ca-certificates (el bind mount de arriba) y lo suma al
+    # almacén de confianza de Debian, que es el que usa curl/PHP acá adentro.
+    # Que el binario `update-ca-certificates` y el directorio
+    # `/usr/local/share/ca-certificates` existen en esta imagen exacta (no en
+    # una versión distinta) se confirmó bajando y listando (sin daemon, por
+    # HTTP contra el Docker Registry API — `GET
+    # /v2/bitnamilegacy/moodle/blobs/<digest de la única capa>`, mismo digest
+    # que reporta el manifest de `bitnamilegacy/moodle:5.0.2`) el índice del
+    # tar de esa capa: aparecen `usr/sbin/update-ca-certificates`,
+    # `usr/local/share/ca-certificates` (directorio) y
+    # `etc/ssl/certs/ca-certificates.crt`.
+    #
+    # No se sobreescribe `entrypoint` a secas porque el entrypoint original
+    # de la imagen (`/opt/bitnami/scripts/moodle/entrypoint.sh`) hace algo
+    # más que lanzar Apache: decide si corre el setup de Moodle (creación de
+    # tablas, usuario admin, etc.) mirando si `$1` es exactamente
+    # `/opt/bitnami/scripts/moodle/run.sh`. Esto NO se infirió de otra
+    # versión ni de memoria: se bajó el `entrypoint.sh` real de adentro de
+    # esta imagen exacta (mismo método que el comentario de más arriba —
+    # Docker Registry API sin daemon) y dice, literal:
+    #   if [[ "$1" = "/opt/bitnami/scripts/moodle/run.sh" || ... ]]; then
+    #       ...corre setup.sh de apache/php/mysql-client/postgresql-client/moodle...
+    #   fi
+    #   exec "$@"
+    # Si acá abajo se reemplazara `command` por un `bash -c` que terminara en
+    # `exec .../run.sh`, ese `$1` dejaría de ser `run.sh` (pasaría a ser
+    # `bash`) y el setup de Moodle nunca correría. Por eso el `bash -c` va en
+    # `entrypoint` y reenvía `"$$@"` (el `command` de abajo) al entrypoint
+    # real, para que su propio `$1` siga siendo `run.sh` sin cambios.
+    # ENTRYPOINT/CMD de la imagen (`/opt/bitnami/scripts/moodle/entrypoint.sh`
+    # y `/opt/bitnami/scripts/moodle/run.sh`) también se leyeron del manifest
+    # real de `bitnamilegacy/moodle:5.0.2` por el mismo camino, no se
+    # asumieron por convención Bitnami.
+    entrypoint:
+      - /bin/bash
+      - -c
+      - |
+        update-ca-certificates
+        exec /opt/bitnami/scripts/moodle/entrypoint.sh "$$@"
+      - bash
+    command:
+      - /opt/bitnami/scripts/moodle/run.sh
 
   postgres:
     image: postgres:16-alpine
@@ -108,6 +161,52 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    volumes:
+      # CA local de Caddy, solo lectura. Ver el `command` de más abajo y la
+      # sección "Por qué hace falta confiar en la CA de Caddy" del README:
+      # a diferencia del cliente PHP de Moodle, `httpx` (la librería que usa
+      # este backend para hablarle a Moodle) NO lee el almacén de
+      # certificados del sistema operativo — confirmado leyendo el código
+      # fuente instalado de `httpx` 0.28.1 (`httpx/_config.py`,
+      # `create_ssl_context`): con `verify=True` (el default, y ningún sitio
+      # del código pasa otra cosa — confirmado con
+      # `grep -rn "verify=" backend/app` sin resultados), arma su propio
+      # `ssl.SSLContext` con `cafile=certifi.where()`, el bundle que trae el
+      # paquete `certifi`, ignorando por completo `/etc/ssl/certs`. Por eso
+      # acá no alcanza con un `update-ca-certificates` como en `moodle`.
+      - ./caddy-root.crt:/run/caddy-ca/root.crt:ro
+    # `update-ca-certificates` (que si corriera acá tocaría el almacén del
+    # sistema) no sirve para nada que `httpx` mire — ver el comentario del
+    # volumen de arriba. La única forma que demostrablemente funciona es
+    # sumar la CA de Caddy al bundle que `certifi.where()` reporta, ANTES de
+    # que arranque `/start.sh` (que a su vez lanza uvicorn). No se toca la
+    # imagen: el Dockerfile de producción no tiene `ENTRYPOINT`, así que acá
+    # alcanza con sobreescribir `command` — no hace falta reencadenar nada
+    # como en `moodle`.
+    #
+    # (`httpx` también mira `SSL_CERT_FILE`/`SSL_CERT_DIR` si `trust_env` es
+    # true, que es el default y tampoco se toca en el código — se descartó
+    # esa vía porque exigiría apuntarlo a un bundle propio que incluyera
+    # TODAS las CAs públicas más la de Caddy, o si no las llamadas de este
+    # mismo backend a APIs externas reales — OpenAI/Anthropic en `llm.py`,
+    # webhooks salientes — dejarían de poder verificar TLS. Sumar la CA de
+    # Caddy al bundle que `certifi` ya trae logra lo mismo sin ese riesgo.)
+    #
+    # El chequeo con `grep` evita que la CA se sume dos veces si el
+    # contenedor se reinicia sin recrearse (`docker compose restart`, no
+    # `up`) — un duplicado no rompería nada, pero no hay motivo para dejar
+    # que el bundle crezca sin límite.
+    command:
+      - /bin/bash
+      - -c
+      - |
+        set -e
+        BUNDLE="$$(python3 -c 'import certifi; print(certifi.where())')"
+        MARCA="$$(sed -n '2p' /run/caddy-ca/root.crt)"
+        if ! grep -qF -- "$$MARCA" "$$BUNDLE" 2>/dev/null; then
+          cat /run/caddy-ca/root.crt >> "$$BUNDLE"
+        fi
+        exec /start.sh
     environment:
       # `DATABASE_URL`, no `ENCUESTUM_DATABASE_URL` — así se llama la variable
       # que lee `backend/app/db.py`. Con el nombre equivocado el error es
