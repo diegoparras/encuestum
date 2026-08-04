@@ -18,6 +18,7 @@ import httpx
 
 from app.lti.keys import ToolKey, sign
 from app.models import LtiPlatform, LtiResourceLink
+from app.net_guard import UnsafeUrlError, assert_public_url
 
 LOGGER = logging.getLogger(__name__)
 
@@ -35,6 +36,15 @@ DEFAULT_SCORE_MAXIMUM = 100.0
 
 async def get_access_token(platform: LtiPlatform, key: ToolKey, scopes: list[str]) -> str:
     """Token OAuth2 para hablar con los servicios de la plataforma."""
+    # Defensa en profundidad: `app/routers/lti.py` ya valida `auth_token_url`
+    # al registrar la plataforma (dynamic y manual). Esto cubre una fila
+    # creada antes de ese fix -- este POST corre en cada entrega de nota, sin
+    # que medie ningún admin.
+    try:
+        assert_public_url(platform.auth_token_url)
+    except UnsafeUrlError as exc:
+        raise RuntimeError(f"auth_token_url no permitida: {exc}") from exc
+
     now = int(time.time())
     assertion = sign(
         {

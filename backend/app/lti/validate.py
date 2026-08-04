@@ -16,6 +16,7 @@ from cryptography.hazmat.primitives.asymmetric.rsa import RSAPublicKey
 from jwt.algorithms import RSAAlgorithm
 
 from app.models import LtiPlatform
+from app.net_guard import UnsafeUrlError, assert_public_url
 
 LOGGER = logging.getLogger(__name__)
 
@@ -73,6 +74,15 @@ async def fetch_jwks(url: str, kid: str | None = None) -> list[dict]:
 
 
 async def _fetch_jwks_uncached(url: str) -> list[dict]:
+    # Defensa en profundidad: `app/routers/lti.py` ya valida `jwks_url` al
+    # registrar la plataforma (dynamic e manual), así que esto no debería
+    # disparar nunca en una fila nueva. Pero una fila creada antes de ese fix
+    # -- o escrita directo en la base -- podía tener cualquier cosa acá, y
+    # este fetch corre en cada lanzamiento sin que medie ningún admin.
+    try:
+        assert_public_url(url)
+    except UnsafeUrlError as exc:
+        raise LtiValidationError(f"jwks_url no permitida: {exc}") from exc
     async with httpx.AsyncClient(timeout=10) as client:
         resp = await client.get(url)
     resp.raise_for_status()

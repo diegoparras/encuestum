@@ -29,6 +29,24 @@ def _resp(method: str, url: str, status: int, json_body):
     return httpx.Response(status, json=json_body, request=httpx.Request(method, url))
 
 
+@pytest.fixture
+def ssrf_guard_on(monkeypatch):
+    """Prende el guard SSRF de verdad para un test puntual.
+
+    `conftest.py` deja `ENCUESTUM_ALLOW_PRIVATE_OUTBOUND=true` para toda la
+    suite -- así ningún otro test depende de resolución DNS real -- lo que
+    vuelve `assert_public_url` un no-op salvo acá. Los tests que usan esta
+    fixture arman sus URLs con IPs literales (no hostnames) para no depender
+    de DNS tampoco una vez prendido el guard."""
+    from app.config import get_settings
+
+    monkeypatch.setenv("ENCUESTUM_ALLOW_PRIVATE_OUTBOUND", "false")
+    get_settings.cache_clear()
+    yield
+    monkeypatch.setenv("ENCUESTUM_ALLOW_PRIVATE_OUTBOUND", "true")
+    get_settings.cache_clear()
+
+
 async def _limpiar_previa(db_session, issuer: str) -> None:
     """La base es compartida entre tests dentro de la misma sesión de pytest:
     si una corrida anterior ya dejó una plataforma con este issuer, hay que
@@ -210,7 +228,10 @@ async def test_dynamic_registration_usa_la_url_publica_no_la_del_request(monkeyp
 
     async def fake_post(self, url, **kw):
         enviado["json"] = kw.get("json")
-        return _resp("POST", url, 201, {"client_id": "cid-2"})
+        return _resp("POST", url, 201, {
+            "client_id": "cid-2",
+            "https://purl.imsglobal.org/spec/lti-tool-configuration": {"deployment_id": "1"},
+        })
 
     monkeypatch.setattr(httpx.AsyncClient, "get", fake_get)
     monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
@@ -236,23 +257,57 @@ async def test_dynamic_registration_usa_la_url_publica_no_la_del_request(monkeyp
     assert tool_config["domain"] == urlparse(public_base).netloc
 
 
+def _fake_transporte_exitoso(llamadas_post: list, issuer: str):
+    """Instala un `get`/`post` que, si el endpoint llegara a usarlos, darían de
+    alta la plataforma sin problema. Sin esto, un test de "no crea plataforma"
+    es casi tautológico: sin transporte instalado, el `httpx.AsyncClient` real
+    intentaría salir a la red, fallaría (sandbox sin acceso), y "no hay fila"
+    sería cierto por una razón completamente ajena al guard bajo prueba. Con
+    este transporte, si el guard bajo prueba se rompiera, el flujo llegaría
+    hasta el final y SÍ crearía una fila -- así la ausencia de fila queda
+    atribuida al guard, no a que la red esté cortada en el sandbox de test."""
+
+    async def fake_get(self, url, **kw):
+        return _resp("GET", url, 200, _fake_conf(issuer))
+
+    async def fake_post(self, url, **kw):
+        llamadas_post.append(url)
+        return _resp("POST", url, 201, {
+            "client_id": "no-deberia-registrarse",
+            "https://purl.imsglobal.org/spec/lti-tool-configuration": {"deployment_id": "1"},
+        })
+
+    return fake_get, fake_post
+
+
 @pytest.mark.asyncio
-async def test_register_sin_enc_da_403_y_no_crea_plataforma(lti_on, db_session):
+async def test_register_sin_enc_da_403_y_no_crea_plataforma(monkeypatch, lti_on, db_session):
     issuer = "https://moodle.sin-enc"
     await _limpiar_previa(db_session, issuer)
+    llamadas_post: list = []
+    fake_get, fake_post = _fake_transporte_exitoso(llamadas_post, issuer)
+    monkeypatch.setattr(httpx.AsyncClient, "get", fake_get)
+    monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
+
     client = TestClient(app)
     r = client.get(
         "/lti/register",
         params={"openid_configuration": f"{issuer}/mod/lti/openid-configuration.php"},
     )
     assert r.status_code == 403
+    assert not llamadas_post  # nunca se llegó a pedir el registro contra la plataforma
     assert await _no_hay_plataforma(db_session, issuer)
 
 
 @pytest.mark.asyncio
-async def test_register_con_enc_malformado_da_403_y_no_crea_plataforma(lti_on, db_session):
+async def test_register_con_enc_malformado_da_403_y_no_crea_plataforma(monkeypatch, lti_on, db_session):
     issuer = "https://moodle.enc-malformado"
     await _limpiar_previa(db_session, issuer)
+    llamadas_post: list = []
+    fake_get, fake_post = _fake_transporte_exitoso(llamadas_post, issuer)
+    monkeypatch.setattr(httpx.AsyncClient, "get", fake_get)
+    monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
+
     client = TestClient(app)
     r = client.get(
         "/lti/register",
@@ -262,14 +317,24 @@ async def test_register_con_enc_malformado_da_403_y_no_crea_plataforma(lti_on, d
         },
     )
     assert r.status_code == 403
+    assert not llamadas_post
     assert await _no_hay_plataforma(db_session, issuer)
 
 
 @pytest.mark.asyncio
-async def test_register_con_enc_vencido_da_403_y_no_crea_plataforma(lti_on, db_session):
+async def test_register_con_enc_vencido_da_403_y_no_crea_plataforma(monkeypatch, lti_on, db_session):
     issuer = "https://moodle.enc-vencido"
     await _limpiar_previa(db_session, issuer)
-    enc = create_purpose_token(LTI_REGISTER_PURPOSE, {"org_id": str(uuid.uuid4())}, ttl_minutes=-1)
+    admin = new_client()
+    _, _, me = register(admin)
+    org_id = me["orgs"][0]["id"]  # org real: si el chequeo de vencimiento no
+    # cortara acá, el resto del flujo (org existente + transporte que
+    # funciona) alcanzaría para crear la fila.
+    enc = create_purpose_token(LTI_REGISTER_PURPOSE, {"org_id": org_id}, ttl_minutes=-1)
+    llamadas_post: list = []
+    fake_get, fake_post = _fake_transporte_exitoso(llamadas_post, issuer)
+    monkeypatch.setattr(httpx.AsyncClient, "get", fake_get)
+    monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
 
     client = TestClient(app)
     r = client.get(
@@ -280,20 +345,26 @@ async def test_register_con_enc_vencido_da_403_y_no_crea_plataforma(lti_on, db_s
         },
     )
     assert r.status_code == 403
+    assert not llamadas_post
     assert await _no_hay_plataforma(db_session, issuer)
 
 
 @pytest.mark.asyncio
-async def test_register_con_enc_de_otro_proposito_da_403_y_no_crea_plataforma(lti_on, db_session):
+async def test_register_con_enc_de_otro_proposito_da_403_y_no_crea_plataforma(monkeypatch, lti_on, db_session):
     """Un token minteado para otra cosa (p. ej. el state OIDC) no puede
     reutilizarse acá -- el `purpose` firmado adentro tiene que matchear."""
     from app.lti.state import LTI_STATE_PURPOSE
 
     issuer = "https://moodle.otro-proposito"
     await _limpiar_previa(db_session, issuer)
-    enc = create_purpose_token(
-        LTI_STATE_PURPOSE, {"org_id": str(uuid.uuid4())}, ttl_minutes=30
-    )
+    admin = new_client()
+    _, _, me = register(admin)
+    org_id = me["orgs"][0]["id"]  # org real, misma razón que en el test de arriba.
+    enc = create_purpose_token(LTI_STATE_PURPOSE, {"org_id": org_id}, ttl_minutes=30)
+    llamadas_post: list = []
+    fake_get, fake_post = _fake_transporte_exitoso(llamadas_post, issuer)
+    monkeypatch.setattr(httpx.AsyncClient, "get", fake_get)
+    monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
 
     client = TestClient(app)
     r = client.get(
@@ -304,14 +375,19 @@ async def test_register_con_enc_de_otro_proposito_da_403_y_no_crea_plataforma(lt
         },
     )
     assert r.status_code == 403
+    assert not llamadas_post
     assert await _no_hay_plataforma(db_session, issuer)
 
 
 @pytest.mark.asyncio
-async def test_register_con_org_inexistente_da_404_y_no_crea_plataforma(lti_on, db_session):
+async def test_register_con_org_inexistente_da_404_y_no_crea_plataforma(monkeypatch, lti_on, db_session):
     issuer = "https://moodle.org-inexistente"
     await _limpiar_previa(db_session, issuer)
     enc = create_purpose_token(LTI_REGISTER_PURPOSE, {"org_id": str(uuid.uuid4())}, ttl_minutes=30)
+    llamadas_post: list = []
+    fake_get, fake_post = _fake_transporte_exitoso(llamadas_post, issuer)
+    monkeypatch.setattr(httpx.AsyncClient, "get", fake_get)
+    monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
 
     client = TestClient(app)
     r = client.get(
@@ -322,6 +398,7 @@ async def test_register_con_org_inexistente_da_404_y_no_crea_plataforma(lti_on, 
         },
     )
     assert r.status_code == 404
+    assert not llamadas_post
     assert await _no_hay_plataforma(db_session, issuer)
 
 
@@ -343,7 +420,10 @@ async def test_register_ignora_org_id_que_mande_el_llamador(monkeypatch, lti_on,
         return _resp("GET", url, 200, _fake_conf(issuer))
 
     async def fake_post(self, url, **kw):
-        return _resp("POST", url, 201, {"client_id": "cid-suplantado"})
+        return _resp("POST", url, 201, {
+            "client_id": "cid-suplantado",
+            "https://purl.imsglobal.org/spec/lti-tool-configuration": {"deployment_id": "1"},
+        })
 
     monkeypatch.setattr(httpx.AsyncClient, "get", fake_get)
     monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
@@ -378,6 +458,90 @@ async def test_alta_manual_requiere_sesion(lti_on):
 
 
 @pytest.mark.asyncio
+async def test_alta_manual_admin_puede_dar_de_alta_una_plataforma(lti_on, db_session):
+    issuer = "https://moodle.manual-ok"
+    await _limpiar_previa(db_session, issuer)
+    admin = new_client()
+    _, _, me = register(admin)
+    org_id = me["orgs"][0]["id"]
+
+    r = admin.post("/api/v1/lti/platforms", json={
+        "issuer": issuer,
+        "client_id": "cid-manual-ok",
+        "deployment_ids": ["1"],
+        "auth_login_url": f"{issuer}/auth",
+        "auth_token_url": f"{issuer}/token",
+        "jwks_url": f"{issuer}/certs",
+    })
+    assert r.status_code == 201, r.text
+    platform_id = r.json()["id"]
+
+    async with db_session() as session:
+        p = await session.get(LtiPlatform, uuid.UUID(platform_id))
+        assert p is not None
+        assert p.issuer == issuer
+        assert str(p.org_id) == org_id
+
+
+@pytest.mark.asyncio
+async def test_alta_manual_requiere_rango_admin(lti_on, db_session):
+    """Mismo chequeo de rango que `POST /registration-url` (ver el comentario
+    en `registration_url`): un miembro sin rango admin no puede dar de alta
+    una plataforma para la organización."""
+    issuer = "https://moodle.manual-403"
+    await _limpiar_previa(db_session, issuer)
+    owner = new_client()
+    register(owner)
+    org = owner.get("/api/v1/auth/me").json()["orgs"][0]["id"]
+
+    invite = owner.post(
+        f"/api/v1/orgs/{org}/invitations", json={"email": "miembro-lti-manual@example.com"}
+    ).json()
+    assert invite["role"] == "member"
+
+    member = new_client()
+    register(member, email="miembro-lti-manual@example.com")
+    token = parse_qs(urlparse(invite["accept_url"]).query)["token"][0]
+    accepted = member.post("/api/v1/orgs/accept-invite", json={"token": token})
+    assert accepted.status_code == 200, accepted.text
+
+    r = member.post("/api/v1/lti/platforms", json={
+        "issuer": issuer,
+        "client_id": "cid-manual-403",
+        "deployment_ids": ["1"],
+        "auth_login_url": f"{issuer}/auth",
+        "auth_token_url": f"{issuer}/token",
+        "jwks_url": f"{issuer}/certs",
+    })
+    assert r.status_code == 403
+    assert await _no_hay_plataforma(db_session, issuer)
+
+
+@pytest.mark.asyncio
+async def test_alta_manual_rechaza_url_privada(ssrf_guard_on, lti_on, db_session):
+    """Mismo guard SSRF que Dynamic Registration, y por el mismo motivo: estas
+    tres URLs se vuelven a pedir sin ningún guard después (`app/lti/validate.py`
+    para `jwks_url`, `app/lti/ags.py` para `auth_token_url`) -- si el alta
+    manual las persistiera sin validar, sería el mismo agujero por una puerta
+    distinta."""
+    issuer = "https://moodle.manual-privado"
+    await _limpiar_previa(db_session, issuer)
+    admin = new_client()
+    register(admin)
+
+    r = admin.post("/api/v1/lti/platforms", json={
+        "issuer": issuer,
+        "client_id": "cid-manual-privado",
+        "deployment_ids": ["1"],
+        "auth_login_url": "https://93.184.216.34/auth",
+        "auth_token_url": "https://93.184.216.34/token",
+        "jwks_url": "http://127.0.0.1:6379/",
+    })
+    assert r.status_code == 400
+    assert await _no_hay_plataforma(db_session, issuer)
+
+
+@pytest.mark.asyncio
 async def test_login_uri_resuelve_a_lti_login_y_no_colisiona_con_auth(monkeypatch, lti_on, db_session):
     """`request.app.url_path_for('lti_login')` tiene que resolver a `/lti/login`.
     Sin el `name="lti_login"` explícito en la ruta, el nombre por defecto
@@ -396,7 +560,10 @@ async def test_login_uri_resuelve_a_lti_login_y_no_colisiona_con_auth(monkeypatc
 
     async def fake_post(self, url, **kw):
         enviado["json"] = kw.get("json")
-        return _resp("POST", url, 201, {"client_id": "cid-name-collision"})
+        return _resp("POST", url, 201, {
+            "client_id": "cid-name-collision",
+            "https://purl.imsglobal.org/spec/lti-tool-configuration": {"deployment_id": "1"},
+        })
 
     monkeypatch.setattr(httpx.AsyncClient, "get", fake_get)
     monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
@@ -414,3 +581,536 @@ async def test_login_uri_resuelve_a_lti_login_y_no_colisiona_con_auth(monkeypatc
     from app.config import get_settings
 
     assert enviado["json"]["initiate_login_uri"] == f"{get_settings().public_base_url}/lti/login"
+
+
+# ── Important 1: SSRF -- las URLs que la fila PERSISTE también pasan el guard ─
+#
+# `openid_configuration` y `registration_endpoint` ya pasaban por
+# `assert_public_url` porque el propio endpoint las dereferencia. Pero
+# `authorization_endpoint`, `token_endpoint` y `jwks_uri` venían del mismo
+# documento no confiable y se guardaban tal cual -- para volver a pedirse
+# después SIN ningún guard: `jwks_url` en cada lanzamiento
+# (`app/lti/validate.py::fetch_jwks`) y `auth_token_url` en cada AGS
+# (`app/lti/ags.py::get_access_token`). Un admin de la propia organización
+# (sin privilegio extra) podía mintear su propio `enc` y apuntar esos fetches
+# futuros a la red interna del host -- ni siquiera hacía falta comprometer
+# nada.
+
+
+@pytest.mark.asyncio
+async def test_dynamic_registration_rechaza_authorization_endpoint_privado(
+    ssrf_guard_on, monkeypatch, lti_on, db_session
+):
+    issuer = "https://93.184.216.34"  # IP pública literal: no depende de DNS
+    await _limpiar_previa(db_session, issuer)
+    admin = new_client()
+    register(admin)
+    _, enc = _mint(admin)
+    llamadas_post = []
+
+    async def fake_get(self, url, **kw):
+        conf = _fake_conf(issuer)
+        conf["authorization_endpoint"] = "http://127.0.0.1:6379/"
+        return _resp("GET", url, 200, conf)
+
+    async def fake_post(self, url, **kw):
+        llamadas_post.append(url)
+        return _resp("POST", url, 201, {"client_id": "no-deberia-registrarse"})
+
+    monkeypatch.setattr(httpx.AsyncClient, "get", fake_get)
+    monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
+
+    client = TestClient(app)
+    r = client.get(
+        "/lti/register",
+        params={
+            "openid_configuration": f"{issuer}/mod/lti/openid-configuration.php",
+            "enc": enc,
+        },
+    )
+    assert r.status_code == 400
+    assert not llamadas_post  # el guard corta antes de pedir el registro
+    assert await _no_hay_plataforma(db_session, issuer)
+
+
+@pytest.mark.asyncio
+async def test_dynamic_registration_rechaza_token_endpoint_privado(
+    ssrf_guard_on, monkeypatch, lti_on, db_session
+):
+    issuer = "https://93.184.216.35"
+    await _limpiar_previa(db_session, issuer)
+    admin = new_client()
+    register(admin)
+    _, enc = _mint(admin)
+    llamadas_post = []
+
+    async def fake_get(self, url, **kw):
+        conf = _fake_conf(issuer)
+        conf["token_endpoint"] = "http://169.254.169.254/latest/meta-data"
+        return _resp("GET", url, 200, conf)
+
+    async def fake_post(self, url, **kw):
+        llamadas_post.append(url)
+        return _resp("POST", url, 201, {"client_id": "no-deberia-registrarse"})
+
+    monkeypatch.setattr(httpx.AsyncClient, "get", fake_get)
+    monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
+
+    client = TestClient(app)
+    r = client.get(
+        "/lti/register",
+        params={
+            "openid_configuration": f"{issuer}/mod/lti/openid-configuration.php",
+            "enc": enc,
+        },
+    )
+    assert r.status_code == 400
+    assert not llamadas_post
+    assert await _no_hay_plataforma(db_session, issuer)
+
+
+@pytest.mark.asyncio
+async def test_dynamic_registration_rechaza_jwks_uri_privada(
+    ssrf_guard_on, monkeypatch, lti_on, db_session
+):
+    """El escenario exacto del hallazgo: `jwks_uri` apuntando a un puerto de la
+    red interna (acá, un Redis local) -- y la validación tiene que cortar
+    ANTES de mandar el POST de registro, no después."""
+    issuer = "https://93.184.216.36"
+    await _limpiar_previa(db_session, issuer)
+    admin = new_client()
+    register(admin)
+    _, enc = _mint(admin)
+    llamadas_post = []
+
+    async def fake_get(self, url, **kw):
+        conf = _fake_conf(issuer)
+        conf["jwks_uri"] = "http://127.0.0.1:6379/"
+        return _resp("GET", url, 200, conf)
+
+    async def fake_post(self, url, **kw):
+        llamadas_post.append(url)
+        return _resp("POST", url, 201, {"client_id": "no-deberia-registrarse"})
+
+    monkeypatch.setattr(httpx.AsyncClient, "get", fake_get)
+    monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
+
+    client = TestClient(app)
+    r = client.get(
+        "/lti/register",
+        params={
+            "openid_configuration": f"{issuer}/mod/lti/openid-configuration.php",
+            "enc": enc,
+        },
+    )
+    assert r.status_code == 400
+    assert not llamadas_post
+    assert await _no_hay_plataforma(db_session, issuer)
+
+
+# ── Minor: registration_endpoint http:// no puede llevar el bearer en claro ──
+
+
+@pytest.mark.asyncio
+async def test_dynamic_registration_exige_https_en_registration_endpoint(
+    monkeypatch, lti_on, db_session
+):
+    """`registration_endpoint` recibe el `registration_token` de la plataforma
+    como bearer (más abajo, `headers["Authorization"]`). Sin exigir HTTPS acá,
+    un `registration_endpoint` `http://` se lo llevaría en texto plano. Este
+    chequeo corre ANTES del escape `ENCUESTUM_ALLOW_PRIVATE_OUTBOUND` de los
+    tests (ver `assert_public_url`), así que no hace falta `ssrf_guard_on`."""
+    issuer = "https://moodle.reg-http"
+    await _limpiar_previa(db_session, issuer)
+    admin = new_client()
+    register(admin)
+    _, enc = _mint(admin)
+    llamadas_post = []
+
+    async def fake_get(self, url, **kw):
+        conf = _fake_conf(issuer)
+        conf["registration_endpoint"] = f"http://{urlparse(issuer).netloc}/mod/lti/openid-registration.php"
+        return _resp("GET", url, 200, conf)
+
+    async def fake_post(self, url, **kw):
+        llamadas_post.append(url)
+        return _resp("POST", url, 201, {"client_id": "no-deberia-registrarse"})
+
+    monkeypatch.setattr(httpx.AsyncClient, "get", fake_get)
+    monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
+
+    client = TestClient(app)
+    r = client.get(
+        "/lti/register",
+        params={
+            "openid_configuration": f"{issuer}/mod/lti/openid-configuration.php",
+            "registration_token": "el-secreto-de-moodle",
+            "enc": enc,
+        },
+    )
+    assert r.status_code == 400
+    assert "HTTPS" in r.json()["detail"]
+    assert not llamadas_post
+    assert await _no_hay_plataforma(db_session, issuer)
+
+
+# ── Minor: el registration_token realmente llega al endpoint de la plataforma
+
+
+@pytest.mark.asyncio
+async def test_dynamic_registration_reenvia_registration_token(monkeypatch, lti_on, db_session):
+    """Los dos fakes de transporte del resto del archivo descartan los headers
+    -- una regresión en el reenvío del bearer daría 401 contra un Moodle real
+    sin que ningún test lo note. Se verifica explícitamente que el header
+    llegue al POST de registro."""
+    issuer = "https://moodle.reg-token"
+    await _limpiar_previa(db_session, issuer)
+    admin = new_client()
+    register(admin)
+    _, enc = _mint(admin)
+    recibido = {}
+
+    async def fake_get(self, url, **kw):
+        return _resp("GET", url, 200, _fake_conf(issuer))
+
+    async def fake_post(self, url, **kw):
+        recibido["headers"] = kw.get("headers")
+        return _resp("POST", url, 201, {
+            "client_id": "cid-reg-token",
+            "https://purl.imsglobal.org/spec/lti-tool-configuration": {"deployment_id": "1"},
+        })
+
+    monkeypatch.setattr(httpx.AsyncClient, "get", fake_get)
+    monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
+
+    client = TestClient(app)
+    r = client.get(
+        "/lti/register",
+        params={
+            "openid_configuration": f"{issuer}/mod/lti/openid-configuration.php",
+            "registration_token": "el-secreto-de-moodle",
+            "enc": enc,
+        },
+    )
+    assert r.status_code == 200, r.text
+    assert recibido["headers"]["Authorization"] == "Bearer el-secreto-de-moodle"
+
+
+# ── Important 2: la página de "listo" tiene que poder vivir en un iframe ─────
+
+
+@pytest.mark.asyncio
+async def test_dynamic_registration_es_frameable(monkeypatch, lti_on, db_session):
+    """`main.py` manda `X-Frame-Options: DENY` en todas las respuestas por
+    default (`setdefault`). Si Moodle encapsula el paso final del asistente en
+    un iframe (en vez de abrir un popup), el navegador bloquearía el frame
+    entero, el branch `window.parent.postMessage(...)` de `_DONE_HTML` nunca
+    correría, y el asistente se quedaría esperando el
+    `org.imsglobal.lti.close` que ya no va a llegar -- con el registro ya
+    persistido del lado de Moodle. Esta respuesta puntual tiene que pisar el
+    default global, mismo tratamiento que nginx le da a `/lti-select`."""
+    issuer = "https://moodle.frameable"
+    await _limpiar_previa(db_session, issuer)
+    admin = new_client()
+    register(admin)
+    _, enc = _mint(admin)
+
+    async def fake_get(self, url, **kw):
+        return _resp("GET", url, 200, _fake_conf(issuer))
+
+    async def fake_post(self, url, **kw):
+        return _resp("POST", url, 201, {
+            "client_id": "cid-frameable",
+            "https://purl.imsglobal.org/spec/lti-tool-configuration": {"deployment_id": "1"},
+        })
+
+    monkeypatch.setattr(httpx.AsyncClient, "get", fake_get)
+    monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
+
+    client = TestClient(app)
+    r = client.get(
+        "/lti/register",
+        params={
+            "openid_configuration": f"{issuer}/mod/lti/openid-configuration.php",
+            "enc": enc,
+        },
+    )
+    assert r.status_code == 200
+    # Vacío (no ausente): así queda "ya presente" para el `setdefault` de
+    # `main.py`, que entonces no lo pisa con DENY (ver el comentario en
+    # `dynamic_registration`).
+    assert r.headers.get("x-frame-options") == ""
+    assert r.headers.get("content-security-policy") == "frame-ancestors *"
+
+
+# ── Important 3: sin deployment_id la fila queda inerte -- fallar, no persistir
+
+
+@pytest.mark.asyncio
+async def test_dynamic_registration_sin_deployment_id_no_crea_plataforma(
+    monkeypatch, lti_on, db_session
+):
+    """Sin `deployment_id`, `validate_launch` compara contra una lista vacía
+    y rechaza TODOS los lanzamientos -- guardar la fila igual dejaría una
+    plataforma "registrada con éxito" pero inerte para siempre. Moodle sí
+    manda `deployment_id`; esto protege contra un LMS no-Moodle que no lo
+    haga."""
+    issuer = "https://moodle.sin-deployment"
+    await _limpiar_previa(db_session, issuer)
+    admin = new_client()
+    register(admin)
+    _, enc = _mint(admin)
+
+    async def fake_get(self, url, **kw):
+        return _resp("GET", url, 200, _fake_conf(issuer))
+
+    async def fake_post(self, url, **kw):
+        # Respuesta de registro sin `lti-tool-configuration` -> sin deployment_id.
+        return _resp("POST", url, 201, {"client_id": "cid-sin-deployment"})
+
+    monkeypatch.setattr(httpx.AsyncClient, "get", fake_get)
+    monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
+
+    client = TestClient(app)
+    r = client.get(
+        "/lti/register",
+        params={
+            "openid_configuration": f"{issuer}/mod/lti/openid-configuration.php",
+            "enc": enc,
+        },
+    )
+    assert r.status_code == 502
+    assert "deployment_id" in r.json()["detail"]
+    assert await _no_hay_plataforma(db_session, issuer)
+
+
+# ── Important 4: respuestas hostiles/no conformes de la plataforma ───────────
+
+
+@pytest.mark.asyncio
+async def test_dynamic_registration_conf_sin_campo_obligatorio_da_502(
+    monkeypatch, lti_on, db_session
+):
+    issuer = "https://moodle.conf-incompleta"
+    await _limpiar_previa(db_session, issuer)
+    admin = new_client()
+    register(admin)
+    _, enc = _mint(admin)
+    llamadas_post = []
+
+    async def fake_get(self, url, **kw):
+        conf = _fake_conf(issuer)
+        del conf["authorization_endpoint"]
+        return _resp("GET", url, 200, conf)
+
+    async def fake_post(self, url, **kw):
+        llamadas_post.append(url)
+        return _resp("POST", url, 201, {"client_id": "no-deberia-registrarse"})
+
+    monkeypatch.setattr(httpx.AsyncClient, "get", fake_get)
+    monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
+
+    client = TestClient(app)
+    r = client.get(
+        "/lti/register",
+        params={
+            "openid_configuration": f"{issuer}/mod/lti/openid-configuration.php",
+            "enc": enc,
+        },
+    )
+    assert r.status_code == 502
+    assert "authorization_endpoint" in r.json()["detail"]
+    assert not llamadas_post
+    assert await _no_hay_plataforma(db_session, issuer)
+
+
+@pytest.mark.asyncio
+async def test_dynamic_registration_conf_no_json_da_502(monkeypatch, lti_on, db_session):
+    issuer = "https://moodle.conf-no-json"
+    await _limpiar_previa(db_session, issuer)
+    admin = new_client()
+    register(admin)
+    _, enc = _mint(admin)
+
+    async def fake_get(self, url, **kw):
+        return httpx.Response(200, content=b"esto no es json", request=httpx.Request("GET", url))
+
+    monkeypatch.setattr(httpx.AsyncClient, "get", fake_get)
+
+    client = TestClient(app)
+    r = client.get(
+        "/lti/register",
+        params={
+            "openid_configuration": f"{issuer}/mod/lti/openid-configuration.php",
+            "enc": enc,
+        },
+    )
+    assert r.status_code == 502
+    assert await _no_hay_plataforma(db_session, issuer)
+
+
+@pytest.mark.asyncio
+async def test_dynamic_registration_conf_endpoint_devuelve_error_da_502(
+    monkeypatch, lti_on, db_session
+):
+    issuer = "https://moodle.conf-error"
+    await _limpiar_previa(db_session, issuer)
+    admin = new_client()
+    register(admin)
+    _, enc = _mint(admin)
+
+    async def fake_get(self, url, **kw):
+        return _resp("GET", url, 500, {"error": "server_error"})
+
+    monkeypatch.setattr(httpx.AsyncClient, "get", fake_get)
+
+    client = TestClient(app)
+    r = client.get(
+        "/lti/register",
+        params={
+            "openid_configuration": f"{issuer}/mod/lti/openid-configuration.php",
+            "enc": enc,
+        },
+    )
+    assert r.status_code == 502
+    assert await _no_hay_plataforma(db_session, issuer)
+
+
+@pytest.mark.asyncio
+async def test_dynamic_registration_conf_fetch_de_red_da_502(monkeypatch, lti_on, db_session):
+    issuer = "https://moodle.conf-caida"
+    await _limpiar_previa(db_session, issuer)
+    admin = new_client()
+    register(admin)
+    _, enc = _mint(admin)
+
+    async def fake_get(self, url, **kw):
+        raise httpx.ConnectError("conexión rechazada", request=httpx.Request("GET", url))
+
+    monkeypatch.setattr(httpx.AsyncClient, "get", fake_get)
+
+    client = TestClient(app)
+    r = client.get(
+        "/lti/register",
+        params={
+            "openid_configuration": f"{issuer}/mod/lti/openid-configuration.php",
+            "enc": enc,
+        },
+    )
+    assert r.status_code == 502
+    assert await _no_hay_plataforma(db_session, issuer)
+
+
+@pytest.mark.asyncio
+async def test_dynamic_registration_platform_rechaza_el_registro_da_502(
+    monkeypatch, lti_on, db_session
+):
+    issuer = "https://moodle.registro-rechazado"
+    await _limpiar_previa(db_session, issuer)
+    admin = new_client()
+    register(admin)
+    _, enc = _mint(admin)
+
+    async def fake_get(self, url, **kw):
+        return _resp("GET", url, 200, _fake_conf(issuer))
+
+    async def fake_post(self, url, **kw):
+        return _resp("POST", url, 400, {"error": "invalid_client_metadata"})
+
+    monkeypatch.setattr(httpx.AsyncClient, "get", fake_get)
+    monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
+
+    client = TestClient(app)
+    r = client.get(
+        "/lti/register",
+        params={
+            "openid_configuration": f"{issuer}/mod/lti/openid-configuration.php",
+            "enc": enc,
+        },
+    )
+    assert r.status_code == 502
+    assert await _no_hay_plataforma(db_session, issuer)
+
+
+@pytest.mark.asyncio
+async def test_dynamic_registration_respuesta_de_registro_sin_client_id_da_502(
+    monkeypatch, lti_on, db_session
+):
+    issuer = "https://moodle.sin-client-id"
+    await _limpiar_previa(db_session, issuer)
+    admin = new_client()
+    register(admin)
+    _, enc = _mint(admin)
+
+    async def fake_get(self, url, **kw):
+        return _resp("GET", url, 200, _fake_conf(issuer))
+
+    async def fake_post(self, url, **kw):
+        return _resp("POST", url, 201, {"algo_que_no_es_client_id": True})
+
+    monkeypatch.setattr(httpx.AsyncClient, "get", fake_get)
+    monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
+
+    client = TestClient(app)
+    r = client.get(
+        "/lti/register",
+        params={
+            "openid_configuration": f"{issuer}/mod/lti/openid-configuration.php",
+            "enc": enc,
+        },
+    )
+    assert r.status_code == 502
+    assert "client_id" in r.json()["detail"]
+    assert await _no_hay_plataforma(db_session, issuer)
+
+
+@pytest.mark.asyncio
+async def test_dynamic_registration_reintento_actualiza_la_fila_existente(
+    monkeypatch, lti_on, db_session
+):
+    """El caso que el docstring de `dynamic_registration` nombra explícitamente
+    como soportado por no exigir un `enc` de un solo uso: el admin recarga el
+    paso final del asistente, o reintenta un registro que ya había completado
+    contra el LMS. El segundo commit choca contra `uq_lti_platform_issuer_client`
+    -- en vez de un 500 (con el registro contra el LMS ya exitoso en ese
+    punto), la fila existente se actualiza."""
+    issuer = "https://moodle.reintento"
+    await _limpiar_previa(db_session, issuer)
+    admin = new_client()
+    register(admin)
+    _, enc = _mint(admin)
+    llamada = {"n": 0}
+
+    async def fake_get(self, url, **kw):
+        conf = _fake_conf(issuer)
+        if llamada["n"] >= 1:
+            # La segunda vuelta trae un jwks_uri distinto -- si el código
+            # sólo tragara el IntegrityError sin actualizar, este valor
+            # nunca llegaría a la fila.
+            conf["jwks_uri"] = f"{issuer}/mod/lti/certs-v2.php"
+        return _resp("GET", url, 200, conf)
+
+    async def fake_post(self, url, **kw):
+        llamada["n"] += 1
+        return _resp("POST", url, 201, {
+            "client_id": "cid-reintento",  # mismo client_id las dos veces
+            "https://purl.imsglobal.org/spec/lti-tool-configuration": {"deployment_id": "9"},
+        })
+
+    monkeypatch.setattr(httpx.AsyncClient, "get", fake_get)
+    monkeypatch.setattr(httpx.AsyncClient, "post", fake_post)
+
+    client = TestClient(app)
+    params = {"openid_configuration": f"{issuer}/mod/lti/openid-configuration.php", "enc": enc}
+    r1 = client.get("/lti/register", params=params)
+    assert r1.status_code == 200, r1.text
+
+    r2 = client.get("/lti/register", params=params)
+    assert r2.status_code == 200, r2.text  # no un 500
+
+    async with db_session() as session:
+        filas = (
+            await session.scalars(select(LtiPlatform).where(LtiPlatform.issuer == issuer))
+        ).all()
+        assert len(filas) == 1  # no duplicó la fila
+        assert filas[0].jwks_url == f"{issuer}/mod/lti/certs-v2.php"  # y la actualizó

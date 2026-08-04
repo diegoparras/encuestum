@@ -7,6 +7,7 @@ from urllib.parse import urlencode, urlparse
 import httpx
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from pydantic import BaseModel
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 from starlette.responses import HTMLResponse, RedirectResponse
@@ -423,11 +424,31 @@ async def dynamic_registration(
     el caso normal de que Moodle recargue el paso del asistente o el admin
     reintente un registro fallido sin tener que volver a pedir un link nuevo.
 
-    `openid_configuration` (y, adentro de esa respuesta, `registration_endpoint`)
-    son URLs que trae quien llama al endpoint, no algo que hayamos validado
-    antes: pasan por el guard SSRF antes de que hagamos ningún pedido, igual
-    que cualquier otra URL saliente controlada por el llamador (webhooks,
-    proveedor LLM)."""
+    `openid_configuration` (y, adentro de esa respuesta, `registration_endpoint`,
+    `authorization_endpoint`, `token_endpoint` y `jwks_uri`) son URLs que trae
+    o controla quien llama al endpoint -- todo ese documento sale de un host
+    que el admin de la organización elige, no algo que hayamos validado antes.
+    Las cinco pasan por el guard SSRF: `openid_configuration` y
+    `registration_endpoint` porque este endpoint mismo las dereferencia acá;
+    las otras tres porque, aunque acá no se las pide, quedan PERSISTIDAS en la
+    fila y se vuelven a pedir después sin ningún guard propio -- `jwks_uri` en
+    cada lanzamiento (`app/lti/validate.py::fetch_jwks`) y `token_endpoint` en
+    cada AGS (`app/lti/ags.py::get_access_token`). Sin validarlas acá, un
+    admin de la propia organización (sin ningún privilegio extra) podía
+    apuntar esos fetches futuros a la red interna del host con sólo mintear su
+    propio `enc` y armar un `openid_configuration` que él mismo controla.
+    `registration_endpoint` además exige HTTPS: es donde le mandamos el
+    `registration_token` de la plataforma como bearer, y sin HTTPS viajaría en
+    claro.
+
+    Una respuesta hostil o no conforme del LMS (JSON roto, campos faltantes,
+    status de error) se traduce a un 502 con el campo que faltó, no a un 500
+    crudo. Y si el commit choca contra `uq_lti_platform_issuer_client`
+    -- el admin recargó este paso o reintentó un registro que ya había
+    completado contra el LMS, el caso que el párrafo de arriba nombra como
+    soportado -- se actualiza la fila existente en vez de devolver un 500:
+    para cuando llegamos a ese commit, el registro contra el LMS ya tuvo
+    éxito, así que fallar le mentiría al admin sobre el estado real."""
     data = read_purpose_token(LTI_REGISTER_PURPOSE, enc or "")
     if not data:
         raise HTTPException(
@@ -452,15 +473,61 @@ async def dynamic_registration(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     async with httpx.AsyncClient(timeout=15) as client:
-        conf_resp = await client.get(openid_configuration)
-    conf_resp.raise_for_status()
-    conf = conf_resp.json()
+        try:
+            conf_resp = await client.get(openid_configuration)
+        except httpx.HTTPError as exc:
+            raise HTTPException(
+                status_code=502,
+                detail=f"No se pudo leer la configuración de la plataforma: {exc}",
+            ) from exc
+    if conf_resp.is_error:
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                "La plataforma devolvió un error al pedir su configuración "
+                f"({conf_resp.status_code})."
+            ),
+        )
+    try:
+        conf = conf_resp.json()
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail="La configuración de la plataforma no es JSON válido.",
+        ) from exc
+    if not isinstance(conf, dict):
+        raise HTTPException(
+            status_code=502,
+            detail="La configuración de la plataforma no es JSON válido.",
+        )
+
+    # Campos que esta fila persiste y que después se vuelven a pedir sin
+    # ningún guard propio (ver el docstring): faltando cualquiera de estos,
+    # ni siquiera tiene sentido seguir.
+    faltantes = [
+        campo
+        for campo in ("issuer", "authorization_endpoint", "token_endpoint", "jwks_uri")
+        if not conf.get(campo)
+    ]
+    if faltantes:
+        raise HTTPException(
+            status_code=502,
+            detail=f"La configuración de la plataforma no trae: {', '.join(faltantes)}.",
+        )
 
     registration_endpoint = conf.get("registration_endpoint") or ""
     try:
-        assert_public_url(registration_endpoint)
+        # `require_https`: a esta URL le mandamos el `registration_token` de
+        # la plataforma como bearer más abajo -- sin HTTPS viajaría en claro.
+        assert_public_url(registration_endpoint, require_https=True)
     except UnsafeUrlError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    for campo in ("authorization_endpoint", "token_endpoint", "jwks_uri"):
+        try:
+            assert_public_url(conf[campo])
+        except UnsafeUrlError as exc:
+            raise HTTPException(status_code=400, detail=f"{campo}: {exc}") from exc
 
     # Origen público del tool, no el de este `request`: acá adentro nginx
     # habla http plano (TLS termina en el proxy), y lo que le mandamos a
@@ -500,15 +567,52 @@ async def dynamic_registration(
     if registration_token:
         headers["Authorization"] = f"Bearer {registration_token}"
     async with httpx.AsyncClient(timeout=15) as client:
-        resp = await client.post(registration_endpoint, headers=headers, json=tool)
-    resp.raise_for_status()
-    registered = resp.json()
+        try:
+            resp = await client.post(registration_endpoint, headers=headers, json=tool)
+        except httpx.HTTPError as exc:
+            raise HTTPException(
+                status_code=502,
+                detail=f"No se pudo completar el registro contra la plataforma: {exc}",
+            ) from exc
+    if resp.is_error:
+        raise HTTPException(
+            status_code=502,
+            detail=f"La plataforma rechazó el registro ({resp.status_code}).",
+        )
+    try:
+        registered = resp.json()
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail="La respuesta de registro de la plataforma no es JSON válido.",
+        ) from exc
+    if not isinstance(registered, dict) or not registered.get("client_id"):
+        raise HTTPException(
+            status_code=502,
+            detail="La plataforma no devolvió un client_id.",
+        )
 
     deployment_id = (registered.get(_TOOL_CONFIG) or {}).get("deployment_id")
+    if not deployment_id:
+        # Sin deployment_id, `validate_launch` compara contra `deployment_ids`
+        # y una lista vacía nunca matchea nada -- rechaza TODOS los
+        # lanzamientos. Guardar la fila igual dejaría una plataforma
+        # "registrada con éxito" pero inerte para siempre (Moodle sí manda
+        # este campo; esto protege contra un LMS que no lo haga). Falla acá,
+        # antes de persistir nada.
+        raise HTTPException(
+            status_code=502,
+            detail=(
+                "La plataforma no devolvió un deployment_id en el registro "
+                f"({_TOOL_CONFIG}.deployment_id): sin eso ningún lanzamiento "
+                "va a poder validarse contra esta plataforma."
+            ),
+        )
+
     platform = LtiPlatform(
         issuer=conf["issuer"],
         client_id=registered["client_id"],
-        deployment_ids=[deployment_id] if deployment_id else [],
+        deployment_ids=[deployment_id],
         auth_login_url=conf["authorization_endpoint"],
         auth_token_url=conf["token_endpoint"],
         jwks_url=conf["jwks_uri"],
@@ -516,9 +620,58 @@ async def dynamic_registration(
         name=(conf.get(_PLATFORM_CONFIG) or {}).get("product_family_code"),
     )
     session.add(platform)
-    await session.commit()
+    try:
+        await session.commit()
+    except IntegrityError:
+        # El admin recargó este paso o reintentó un registro que ya había
+        # completado del lado del LMS (ver el docstring de arriba): el
+        # commit choca contra `uq_lti_platform_issuer_client`. Actualizamos
+        # la fila existente en vez de devolver un 500 -- para cuando
+        # llegamos acá, el POST de registro YA tuvo éxito contra el LMS, así
+        # que "fallar" le mentiría al admin sobre el estado real, y un 500
+        # puntual en el reintento es justo el tropiezo que el diseño
+        # no-de-un-solo-uso del `enc` quiso evitar.
+        await session.rollback()
+        existing = (
+            await session.scalars(
+                select(LtiPlatform).where(
+                    LtiPlatform.issuer == platform.issuer,
+                    LtiPlatform.client_id == platform.client_id,
+                )
+            )
+        ).first()
+        if existing is None:
+            # No era la carrera esperada (la fila desapareció entre el fallo
+            # y la relectura) -- no hay nada razonable para adoptar en
+            # silencio.
+            raise
+        existing.deployment_ids = platform.deployment_ids
+        existing.auth_login_url = platform.auth_login_url
+        existing.auth_token_url = platform.auth_token_url
+        existing.jwks_url = platform.jwks_url
+        existing.org_id = org_id
+        existing.name = platform.name
+        session.add(existing)
+        await session.commit()
+        platform = existing
     LOGGER.info("plataforma LTI registrada: %s (%s)", platform.issuer, platform.client_id)
-    return HTMLResponse(_DONE_HTML)
+    response = HTMLResponse(_DONE_HTML)
+    # Frameable a propósito en esta respuesta puntual: `main.py` manda
+    # `X-Frame-Options: DENY` en todo el backend vía `setdefault` (pensado
+    # para una API JSON, que nunca debería vivir en un frame). Esta página sí
+    # necesita ser frameable -- si Moodle encapsula este paso del asistente
+    # en un iframe en vez de abrir un popup, y el navegador bloquea el frame
+    # entero, el branch `window.parent.postMessage(...)` de `_DONE_HTML`
+    # jamás corre y el asistente se queda esperando el `org.imsglobal.lti.close`
+    # que no va a llegar -- con el registro ya persistido del lado de Moodle.
+    # Vacío, no ausente: `setdefault` sólo agrega el header si la clave no
+    # está presente, y una clave con valor vacío ya cuenta como presente
+    # (ver `MutableHeaders.setdefault` en Starlette) -- así que esto alcanza
+    # para que `main.py` no lo pise con DENY. Mismo tratamiento que nginx le
+    # da a `/lti-select` (`proxy_hide_header` + `frame-ancestors *`).
+    response.headers["X-Frame-Options"] = ""
+    response.headers["Content-Security-Policy"] = "frame-ancestors *"
+    return response
 
 
 class PlatformIn(BaseModel):
@@ -544,9 +697,40 @@ async def create_platform(
     """Alta manual, para los LMS que no soportan registro dinámico."""
     if ROLE_RANK.get(ctx.role, 0) < ROLE_RANK[ROLE_ADMIN]:
         raise HTTPException(status_code=403, detail="Necesitás ser admin de la organización.")
+
+    # Mismo guard SSRF que `dynamic_registration` y por el mismo motivo (ver
+    # el docstring ahí): estas tres URLs se vuelven a pedir después sin
+    # ningún guard propio -- `jwks_url` en cada lanzamiento
+    # (`app/lti/validate.py::fetch_jwks`) y `auth_token_url` en cada AGS
+    # (`app/lti/ags.py::get_access_token`). El alta manual también las recibe
+    # sueltas en el payload, sin pasar por ningún documento de la plataforma
+    # -- si no se validan acá, es el mismo agujero por una puerta distinta.
+    for campo, url in (
+        ("auth_login_url", payload.auth_login_url),
+        ("auth_token_url", payload.auth_token_url),
+        ("jwks_url", payload.jwks_url),
+    ):
+        try:
+            assert_public_url(url)
+        except UnsafeUrlError as exc:
+            raise HTTPException(status_code=400, detail=f"{campo}: {exc}") from exc
+
     platform = LtiPlatform(**payload.model_dump(), org_id=ctx.org.id)
     session.add(platform)
-    await session.commit()
+    try:
+        await session.commit()
+    except IntegrityError:
+        # A diferencia del reintento de Dynamic Registration (ver el
+        # comentario ahí), acá no hay ningún registro contra un LMS que ya
+        # haya tenido éxito -- es un admin completando un formulario dos
+        # veces. Un 409 explícito, no una actualización silenciosa: quien
+        # carga el formulario a mano debería enterarse de que esa plataforma
+        # ya existe, no que se sobreescribió sin avisar.
+        await session.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="Ya existe una plataforma registrada con ese issuer y client_id.",
+        )
     return {"id": str(platform.id)}
 
 
