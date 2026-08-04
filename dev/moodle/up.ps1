@@ -49,7 +49,7 @@ $deadline = (Get-Date).AddMinutes(10)
 do {
     Start-Sleep -Seconds 10
     try {
-        $r = Invoke-WebRequest -Uri "https://moodle.localhost/login/index.php" -SkipCertificateCheck -TimeoutSec 10
+        $r = Invoke-WebRequest -Uri "https://moodle.lvh.me/login/index.php" -SkipCertificateCheck -TimeoutSec 10
         $ok = $r.StatusCode -eq 200
     } catch { $ok = $false }
     if (-not $ok -and (Get-Date) -gt $deadline) {
@@ -62,7 +62,7 @@ $deadline = (Get-Date).AddMinutes(3)
 do {
     Start-Sleep -Seconds 5
     try {
-        $r = Invoke-WebRequest -Uri "https://encuestum.localhost/lti/jwks.json" -SkipCertificateCheck -TimeoutSec 10
+        $r = Invoke-WebRequest -Uri "https://encuestum.lvh.me/lti/jwks.json" -SkipCertificateCheck -TimeoutSec 10
         $ok = $r.StatusCode -eq 200
     } catch { $ok = $false }
     if (-not $ok -and (Get-Date) -gt $deadline) {
@@ -74,8 +74,8 @@ $adminPassword = if ($env:MOODLE_ADMIN_PASSWORD) { $env:MOODLE_ADMIN_PASSWORD } 
 
 Write-Host ""
 Write-Host "Listo." -ForegroundColor Green
-Write-Host "  Moodle:    https://moodle.localhost     (admin / $adminPassword)"
-Write-Host "  Encuestum: https://encuestum.localhost"
+Write-Host "  Moodle:    https://moodle.lvh.me     (admin / $adminPassword)"
+Write-Host "  Encuestum: https://encuestum.lvh.me"
 Write-Host ""
 Write-Host "Moodle y Encuestum ya confian entre si en la CA de Caddy (se hizo solos, ver README)." -ForegroundColor DarkGray
 Write-Host "Si TU NAVEGADOR desconfía del certificado, instalá esa misma CA (ya extraída en esta carpeta):" -ForegroundColor Yellow

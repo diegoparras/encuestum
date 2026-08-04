@@ -1,7 +1,29 @@
 # TLS local con la CA interna de Caddy. Hay que confiar en esa CA una vez;
 # está explicado en el README de esta carpeta.
+#
+# POR QUÉ `lvh.me` Y NO `.localhost` (no lo cambies sin leer esto):
+# libcurl implementa el RFC 6761 y resuelve por su cuenta cualquier nombre
+# terminado en `.localhost` a 127.0.0.1, ANTES de consultar al resolver del
+# sistema — así que ignora el DNS de Docker y también /etc/hosts. Moodle usa
+# curl para todo lo saliente, así que con `encuestum.localhost` sus llamadas
+# terminaban en su propio loopback y fallaban en 0 ms. El síntoma era
+# desconcertante: el registro dinámico funcionaba (Encuestum usa httpx, que no
+# hace ese atajo) pero la nota nunca llegaba, porque Moodle no podía leer el
+# JWKS del tool para validar el client_assertion de AGS.
+# Comprobado dentro del contenedor: por nombre falla en 0 ms, por nombre con
+# CURLOPT_RESOLVE (que saltea el atajo) devuelve 200.
+# `lvh.me` es un dominio público cuyo registro A apunta a 127.0.0.1. Sirve para
+# las dos cosas a la vez, que es lo que lo hace la mejor opción acá:
+#   - el navegador lo resuelve por DNS público a loopback y llega a Caddy, sin
+#     tocar el archivo hosts ni pedir permisos de administrador;
+#   - dentro de la red de Docker, el DNS embebido responde primero con el alias
+#     de Caddy (ver `aliases` en docker-compose.yml), y como no termina en
+#     `.localhost`, curl no lo cortocircuita.
+# La única dependencia es que haya DNS público para el navegador. Si algún día
+# `lvh.me` desaparece, los reemplazos equivalentes son `localtest.me` o
+# `127.0.0.1.sslip.io`; el resto de la configuración no cambia.
 
-moodle.localhost {
+moodle.lvh.me {
 	tls internal
 	# 8080, no 80: `bitnamilegacy/moodle:5.0.2` corre Apache sin privilegios
 	# de root, así que escucha en un puerto alto. No es un supuesto ni algo
@@ -20,7 +42,7 @@ moodle.localhost {
 		# pointing to the internal name of the server".
 		#
 		# Caddy preserva el Host por defecto, así que a Moodle le llegaba
-		# `moodle.localhost`, igual que su wwwroot, y respondía 500 a TODO con
+		# `moodle.lvh.me`, igual que su wwwroot, y respondía 500 a TODO con
 		# "Reverse proxy enabled so the server cannot be accessed directly".
 		# `{upstream_hostport}` manda `moodle:8080` en su lugar; Moodle usa el
 		# wwwroot configurado para generar sus URLs y X-Forwarded-Proto (vía
@@ -29,7 +51,7 @@ moodle.localhost {
 	}
 }
 
-encuestum.localhost {
+encuestum.lvh.me {
 	tls internal
 	# El Dockerfile de la raíz expone el puerto 80 (EXPOSE 80): ahí adentro
 	# nginx atiende todo (frontend, API y /lti/*), no en 8080. Confirmado

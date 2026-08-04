@@ -13,8 +13,8 @@ confirmarse contra un daemon de Docker real.
 .\up.ps1
 ```
 
-- Moodle: <https://moodle.localhost> (usuario `admin`)
-- Encuestum: <https://encuestum.localhost>
+- Moodle: <https://moodle.lvh.me> (usuario `admin`)
+- Encuestum: <https://encuestum.lvh.me>
 
 La primera vez Moodle tarda varios minutos en instalarse (bajando/inicializando
 la base). `up.ps1` espera a que ambos respondan antes de darse por terminado.
@@ -99,7 +99,7 @@ este entorno (ver `.superpowers/sdd/task-8-report.md` en la raíz del repo
 para el detalle de qué se verificó y qué no).
 
 Caddy es el único punto de entrada TLS y está declarado como alias de red de
-**ambos** hostnames (`moodle.localhost` y `encuestum.localhost`). Eso significa
+**ambos** hostnames (`moodle.lvh.me` y `encuestum.lvh.me`). Eso significa
 que cuando el contenedor de Encuestum necesita el JWKS de Moodle, o Moodle
 necesita pedir el JWKS de Encuestum para AGS, esas llamadas *también* resuelven
 a Caddy — no hay una ruta interna en HTTP plano paralela a la pública. Con la
@@ -111,7 +111,7 @@ el comportamiento esperado de la configuración, no algo confirmado contra un
 Moodle y un Encuestum corriendo — no hay daemon de Docker en el entorno donde
 se escribió esto.
 
-Como `moodle.localhost`/`encuestum.localhost` resuelven, desde adentro de la
+Como `moodle.lvh.me`/`encuestum.lvh.me` resuelven, desde adentro de la
 red de Docker, a la IP privada del contenedor de Caddy, el guard SSRF del
 backend (pensado para bloquear que un tenant use la app para pegarle a la red
 interna de quien la self-hostea) bloquearía esas llamadas por defecto. Por eso
@@ -125,7 +125,7 @@ dominio público de verdad y esta variable debe quedar apagada.
 Hasta que exista `mod_encuestum` (Fase 2), se prueba con la herramienta externa
 que ya trae Moodle.
 
-1. En Encuestum (<https://encuestum.localhost>), registrate, creá una
+1. En Encuestum (<https://encuestum.lvh.me>), registrate, creá una
    organización y una encuesta publicada. Si querés probar que la nota vuelve
    a Moodle, activá la evaluación con IA y agregá al menos una pregunta que
    califique.
@@ -136,7 +136,7 @@ que ya trae Moodle.
    un solo destino, de 30 minutos de validez, que sólo un admin de tu
    organización puede pedir, ya logueado en Encuestum:
 
-   - Abrí <https://encuestum.localhost> con sesión iniciada, abrí la consola
+   - Abrí <https://encuestum.lvh.me> con sesión iniciada, abrí la consola
      del navegador (F12) y corré:
 
      ```js
@@ -147,7 +147,7 @@ que ya trae Moodle.
    - Copiá el campo `url` de la respuesta. Tiene esta forma:
 
      ```
-     https://encuestum.localhost/lti/register?enc=<token>
+     https://encuestum.lvh.me/lti/register?enc=<token>
      ```
 
 3. En Moodle: *Administración del sitio → Plugins → Módulos de actividad →

@@ -22,6 +22,19 @@ cd "$(dirname "$(readlink -f "$0")")"
 
 CERT="$PWD/caddy-root.crt"
 
+# Los nombres son `lvh.me` y no `.localhost` a propósito: libcurl resuelve
+# `*.localhost` a loopback por su cuenta y Moodle, que usa curl, nunca llegaba
+# a Encuestum (ver el comentario largo en el Caddyfile). `lvh.me` apunta a
+# 127.0.0.1 por DNS público, así que no hace falta tocar el archivo hosts.
+if ! getent hosts moodle.lvh.me >/dev/null 2>&1; then
+    echo "AVISO: moodle.lvh.me no resuelve. Es un dominio público que apunta a" >&2
+    echo "       127.0.0.1, así que esto suele significar que no hay DNS o que" >&2
+    echo "       algo lo está bloqueando. Los contenedores igual van a andar" >&2
+    echo "       entre ellos (usan el DNS de Docker); el que no va a poder" >&2
+    echo "       entrar es tu navegador." >&2
+    echo >&2
+fi
+
 echo "Fase 1/2: arrancando Caddy solo (para generar su CA local)..."
 docker compose up -d caddy
 
@@ -59,13 +72,31 @@ espera() {
     done
 }
 
-espera "Moodle" "https://moodle.localhost/login/index.php" 15 moodle
-espera "Encuestum" "https://encuestum.localhost/lti/jwks.json" 3 encuestum
+espera "Moodle" "https://moodle.lvh.me/login/index.php" 15 moodle
+espera "Encuestum" "https://encuestum.lvh.me/lti/jwks.json" 3 encuestum
+
+# Moodle trae su propia protección anti-SSRF: `curlsecurityblockedhosts` viene
+# con 172.16.0.0/12 entre otras redes privadas, y la red de Docker cae justo
+# ahí. Con eso, la llamada de Moodle al jwks_uri del tool devuelve "The URL is
+# blocked", no puede validar el client_assertion de AGS, y responde 404 al
+# pedido de token: la nota nunca llega y el único rastro es un 404 opaco.
+# Es el espejo exacto de ENCUESTUM_ALLOW_PRIVATE_OUTBOUND, que ya se activa en
+# docker-compose.yml por el mismo motivo. SOLO para este entorno: en producción
+# el LMS y el tool están en dominios públicos y no hace falta tocar nada.
+#
+# El CLI se corre como `daemon` (el usuario de Apache en esta imagen) y no como
+# root: si crea archivos de caché siendo root, Apache después no puede
+# escribirlos y Moodle empieza a responder 500 con "Invalid permissions
+# detected when trying to create a directory".
+echo "Permitiendo que Moodle alcance direcciones privadas (solo en dev)..."
+docker compose exec -T -u daemon moodle \
+    php /opt/bitnami/moodle/admin/cli/cfg.php \
+    --name=curlsecurityblockedhosts --set="" >/dev/null
 
 echo
 echo "Listo."
-echo "  Moodle:    https://moodle.localhost     (admin / ${MOODLE_ADMIN_PASSWORD:-Encuestum#2026})"
-echo "  Encuestum: https://encuestum.localhost"
+echo "  Moodle:    https://moodle.lvh.me     (admin / ${MOODLE_ADMIN_PASSWORD:-Encuestum#2026})"
+echo "  Encuestum: https://encuestum.lvh.me"
 echo
 echo "Moodle y Encuestum ya confían entre sí en la CA de Caddy (se hizo solo, ver README)."
 echo "Si TU NAVEGADOR desconfía del certificado, instalá esa misma CA — desde PowerShell"

@@ -3,7 +3,7 @@
 # funcione (las cookies SameSite=None exigen Secure).
 #
 # Arquitectura: Caddy es el único punto de entrada TLS. Se registra como alias
-# de red de *ambos* nombres (moodle.localhost y encuestum.localhost), así que
+# de red de *ambos* nombres (moodle.lvh.me y encuestum.lvh.me), así que
 # incluso el tráfico interno entre contenedores (Encuestum pidiendo el JWKS de
 # Moodle, Moodle llamando de vuelta al token endpoint de Encuestum) pasa por
 # Caddy y ve el mismo hostname/certificado que el navegador. Sin esto, Moodle
@@ -25,8 +25,8 @@ services:
     networks:
       default:
         aliases:
-          - moodle.localhost
-          - encuestum.localhost
+          - moodle.lvh.me
+          - encuestum.lvh.me
 
   mariadb:
     image: mariadb:11
@@ -77,13 +77,13 @@ services:
       MOODLE_DATABASE_NAME: moodle
       MOODLE_USERNAME: admin
       MOODLE_PASSWORD: ${MOODLE_ADMIN_PASSWORD:-Encuestum#2026}
-      MOODLE_EMAIL: admin@moodle.localhost
+      MOODLE_EMAIL: admin@moodle.lvh.me
       MOODLE_SITE_NAME: Moodle de pruebas
       # Moodle tiene que generar sus URLs en https o el iframe rompe. MOODLE_HOST
       # fija el wwwroot explícitamente (sin él, Moodle lo infiere del Host que
       # reciba, que debería coincidir igual porque Caddy lo preserva — pero
       # dejarlo explícito evita sorpresas).
-      MOODLE_HOST: moodle.localhost
+      MOODLE_HOST: moodle.lvh.me
       MOODLE_REVERSEPROXY: "yes"
       MOODLE_SSLPROXY: "yes"
       BITNAMI_DEBUG: "true"
@@ -227,7 +227,7 @@ services:
       # target_link_uri) sale de acá. Moodle GUARDA esos valores al
       # registrarse; si esto está mal, el registro se completa "bien" y el
       # lanzamiento nunca funciona.
-      ENCUESTUM_PUBLIC_URL: https://encuestum.localhost
+      ENCUESTUM_PUBLIC_URL: https://encuestum.lvh.me
       ENCUESTUM_COOKIE_SECURE: "true"
       ENCUESTUM_TRUST_PROXY: "true"
       # El LMS vive en una IP privada de la red de Docker: sin esto el guard
@@ -237,7 +237,11 @@ services:
       # exige igual que la plataforma esté en HTTPS, con o sin esta variable.
       ENCUESTUM_ALLOW_PRIVATE_OUTBOUND: "true"
       LTI_ENABLED: "true"
-      ENCUESTUM_SUPERADMIN_EMAIL: admin@encuestum.localhost
+      # Ojo con el dominio: `.localhost` es un TLD de uso especial y el
+      # validador de emails de Encuestum (email-validator, vía pydantic) lo
+      # rechaza, así que una cuenta admin@encuestum.lvh.me NO se puede dar
+      # de alta y este superadmin nunca coincidiría con nadie.
+      ENCUESTUM_SUPERADMIN_EMAIL: admin@escuela.com.ar
 
 volumes:
   caddy_data:
