@@ -89,22 +89,26 @@ async def login(request: Request, session: AsyncSession = Depends(get_session)):
 
     state, nonce = new_state()
     # `target_link_uri` lo manda el llamador (la plataforma, en teoría — pero
-    # es un parámetro de request, no algo que hayamos verificado). No lo
-    # reenviamos tal cual como redirect_uri: si no coincide exactamente con
-    # nuestra propia URL de /lti/launch, lo ignoramos y usamos la nuestra. Si
-    # no, la validación del redirect_uri quedaría delegada por completo a
-    # Moodle.
-    own_launch_url = str(request.url_for("launch"))
-    target = params.get("target_link_uri")
-    if target != own_launch_url:
-        target = own_launch_url
+    # es un parámetro de request, no algo que hayamos verificado): lo
+    # ignoramos siempre y usamos nuestra propia URL de /lti/launch como
+    # redirect_uri. Si no, la validación del redirect_uri quedaría delegada
+    # por completo a Moodle.
+    #
+    # Esa URL propia sale de `public_base_url` (ENCUESTUM_PUBLIC_URL), no de
+    # `request.url_for`: en el despliegue documentado TLS termina en el
+    # proxy, nginx adentro del contenedor habla http y `X-Forwarded-Proto`
+    # refleja ese scheme interno (http), no el del cliente original. Usar
+    # `request.url_for` calcularía entonces un redirect_uri http:// que
+    # Moodle rechaza por no matchear el registrado — y aunque lo aceptara, el
+    # form-POST resultante no adjuntaría la cookie `Secure` de state.
+    own_launch_url = f"{get_settings().public_base_url}{request.app.url_path_for('launch')}"
     query = {
         "scope": "openid",
         "response_type": "id_token",
         "response_mode": "form_post",
         "prompt": "none",
         "client_id": platform.client_id,
-        "redirect_uri": target,
+        "redirect_uri": own_launch_url,
         "state": state,
         "nonce": nonce,
     }
@@ -141,8 +145,8 @@ async def launch(
 
     try:
         platform_id = uuid.UUID(stored["platform_id"])
-    except (KeyError, TypeError, ValueError):
-        raise HTTPException(status_code=400, detail="Lanzamiento LTI inválido o vencido.")
+    except (KeyError, TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail="Lanzamiento LTI inválido o vencido.") from exc
 
     platform = await session.get(LtiPlatform, platform_id)
     if platform is None:

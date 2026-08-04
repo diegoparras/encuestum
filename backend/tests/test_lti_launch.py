@@ -251,10 +251,25 @@ async def test_borrado_de_cookie_de_state_lleva_samesite_none_y_secure(lti_on, r
 
 
 @pytest.mark.asyncio
-async def test_launch_sin_cookie_de_state_es_rechazado(lti_on, registered):
+async def test_launch_sin_cookie_de_state_es_rechazado(lti_on, registered, monkeypatch):
     """Sin pasar por /lti/login no hay cookie enc_lti_state: el contrato es
     que ese `None` degradado nunca llegue a validate_launch, sino que se
-    rechace acá con 400."""
+    rechace acá con 400 *antes* de intentar validar el id_token.
+
+    Un 400 solo no alcanza para probar eso: un nonce rechazado dentro de
+    validate_launch también da 400, y con el `except (KeyError, TypeError,
+    ValueError)` alrededor del parseo del UUID, hasta borrar el guard entero
+    del estado seguiría dando 400 (por el KeyError de `stored["platform_id"]`
+    sobre un `stored` None-ish). Por eso monkeypatcheamos validate_launch para
+    que falle el test si se llega a invocar: así se distingue "rechazado
+    antes de validar" de "rechazado durante la validación"."""
+    from app.routers import lti as lti_router
+
+    async def _no_deberia_llamarse(*args, **kwargs):
+        pytest.fail("validate_launch no debería llamarse sin cookie de state.")
+
+    monkeypatch.setattr(lti_router, "validate_launch", _no_deberia_llamarse)
+
     client = _client()
     token = _id_token(registered["pem"], nonce="cualquier-nonce")
     r = client.post(
@@ -305,7 +320,14 @@ async def test_cookie_lti_de_una_encuesta_no_sirve_para_otra(lti_on, registered,
 async def test_login_ignora_target_link_uri_ajeno(lti_on, registered):
     """`target_link_uri` lo manda el llamador; si no coincide con nuestra
     propia URL de /lti/launch, no hay que echoarlo tal cual a la plataforma —
-    la validación del redirect_uri no puede delegarse por completo a Moodle."""
+    la validación del redirect_uri no puede delegarse por completo a Moodle.
+
+    El valor esperado sale de `public_base_url` (el mismo que usa el resto de
+    la app para armar links absolutos), no del host con el que habló el
+    TestClient — ver `test_login_usa_public_base_url_no_el_host_del_request`
+    para el caso que de verdad prueba esa distinción."""
+    from app.config import get_settings
+
     client = _client()
     r = client.post(
         "/lti/login",
@@ -315,7 +337,49 @@ async def test_login_ignora_target_link_uri_ajeno(lti_on, registered):
     )
     assert r.status_code == 302
     q = parse_qs(urlparse(r.headers["location"]).query)
-    assert q["redirect_uri"] == ["https://testserver/lti/launch"]
+    assert q["redirect_uri"] == [f"{get_settings().public_base_url}/lti/launch"]
+
+
+@pytest.fixture
+def public_url_pinned(monkeypatch):
+    """Fija ENCUESTUM_PUBLIC_URL a un origen https distinguible (y distinto del
+    host con el que habla el TestClient) y limpia el cache de get_settings,
+    siguiendo el mismo patrón que el fixture `lti_on`."""
+    from app.config import get_settings
+
+    url = "https://canonico.encuestum.example"
+    monkeypatch.setenv("ENCUESTUM_PUBLIC_URL", url)
+    get_settings.cache_clear()
+    yield url
+    monkeypatch.delenv("ENCUESTUM_PUBLIC_URL", raising=False)
+    get_settings.cache_clear()
+
+
+@pytest.mark.asyncio
+async def test_login_usa_public_base_url_no_el_host_del_request(
+    lti_on, registered, public_url_pinned
+):
+    """`redirect_uri` tiene que salir de `ENCUESTUM_PUBLIC_URL` (el origen
+    https público configurado), no de `request.url_for`: en el despliegue
+    documentado TLS termina en el proxy, nginx habla http hacia adentro del
+    contenedor y `X-Forwarded-Proto` llega en `http` (es el scheme de la
+    conexión a nginx, no la del cliente original) — así que `request.url_for`
+    calcularía `http://...`. Moodle rechazaría ese redirect_uri por no
+    coincidir con el registrado, y aunque no lo hiciera, un form-POST a una
+    URL http no adjuntaría la cookie `Secure` de state.
+
+    Lo probamos con un host de request bien distinto del configurado, para
+    asegurarnos de que el host de la request no se cuela por ningún lado."""
+    client = TestClient(app, base_url="https://otro-host-cualquiera.test")
+    r = client.post(
+        "/lti/login",
+        data={"iss": ISSUER, "client_id": CLIENT_ID, "login_hint": "42",
+              "target_link_uri": "https://encuestum.test/lti/launch"},
+        follow_redirects=False,
+    )
+    assert r.status_code == 302
+    q = parse_qs(urlparse(r.headers["location"]).query)
+    assert q["redirect_uri"] == [f"{public_url_pinned}/lti/launch"]
 
 
 @pytest.mark.asyncio
