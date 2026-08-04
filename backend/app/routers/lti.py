@@ -2,16 +2,19 @@
 
 import logging
 import uuid
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse
 
+import httpx
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
-from starlette.responses import RedirectResponse
+from starlette.responses import HTMLResponse, RedirectResponse
 
 from app.config import get_settings
 from app.db import get_session
+from app.deps import OrgContext, current_context
+from app.lti.ags import SCOPE_LINEITEM, SCOPE_SCORE
 from app.lti.deeplink import DL_PURPOSE, build_response_jwt
 from app.lti.keys import get_tool_key, public_jwk
 from app.lti.state import (
@@ -29,7 +32,8 @@ from app.lti.validate import (
     LtiValidationError,
     validate_launch,
 )
-from app.models import LtiPlatform, LtiResourceLink, LtiUser, Survey
+from app.models import ROLE_ADMIN, ROLE_RANK, LtiPlatform, LtiResourceLink, LtiUser, Survey
+from app.net_guard import UnsafeUrlError, assert_public_url
 from app.security import create_purpose_token, read_purpose_token
 
 LOGGER = logging.getLogger(__name__)
@@ -76,7 +80,9 @@ async def _platform_for(session: AsyncSession, issuer: str, client_id: str | Non
     return platform
 
 
-@router.api_route("/login", methods=["GET", "POST"], dependencies=[Depends(require_lti)])
+@router.api_route(
+    "/login", methods=["GET", "POST"], name="lti_login", dependencies=[Depends(require_lti)]
+)
 async def login(request: Request, session: AsyncSession = Depends(get_session)):
     """OIDC third-party initiated login: la plataforma nos avisa que viene un
     lanzamiento y nosotros la mandamos a su propio authorize."""
@@ -350,3 +356,136 @@ async def select_return(
         key=key,
     )
     return {"action": data["settings"]["deep_link_return_url"], "jwt": token}
+
+
+_PLATFORM_CONFIG = "https://purl.imsglobal.org/spec/lti-platform-configuration"
+_TOOL_CONFIG = "https://purl.imsglobal.org/spec/lti-tool-configuration"
+
+# Página mínima que le avisa a Moodle que el registro terminó bien. Es lo que
+# espera el asistente de "registro dinámico" del LMS.
+_DONE_HTML = """<!doctype html><meta charset="utf-8"><title>Encuestum</title>
+<p>Encuestum quedó conectado. Ya podés cerrar esta ventana.</p>
+<script>
+  if (window.opener) { window.opener.postMessage({subject: 'org.imsglobal.lti.close'}, '*'); }
+  else if (window.parent !== window) { window.parent.postMessage({subject: 'org.imsglobal.lti.close'}, '*'); }
+</script>"""
+
+
+@router.get("/register", response_class=HTMLResponse, dependencies=[Depends(require_lti)])
+async def dynamic_registration(
+    request: Request,
+    openid_configuration: str,
+    org_id: uuid.UUID,
+    registration_token: str | None = None,
+    session: AsyncSession = Depends(get_session),
+) -> HTMLResponse:
+    """LTI Dynamic Registration: leemos la configuración del LMS, nos damos de
+    alta contra su endpoint de registro y guardamos lo que nos devuelve.
+
+    `openid_configuration` (y, adentro de esa respuesta, `registration_endpoint`)
+    son URLs que trae quien llama al endpoint, no algo que hayamos validado
+    antes: pasan por el guard SSRF antes de que hagamos ningún pedido, igual
+    que cualquier otra URL saliente controlada por el llamador (webhooks,
+    proveedor LLM)."""
+    try:
+        assert_public_url(openid_configuration)
+    except UnsafeUrlError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    async with httpx.AsyncClient(timeout=15) as client:
+        conf_resp = await client.get(openid_configuration)
+    conf_resp.raise_for_status()
+    conf = conf_resp.json()
+
+    registration_endpoint = conf.get("registration_endpoint") or ""
+    try:
+        assert_public_url(registration_endpoint)
+    except UnsafeUrlError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+    # Origen público del tool, no el de este `request`: acá adentro nginx
+    # habla http plano (TLS termina en el proxy), y lo que le mandamos a
+    # Moodle en este paso queda persistido de su lado. Si saliera de
+    # `request.base_url` quedaría un registro con scheme http:// que Moodle
+    # rechaza al no matchear el dominio público real (mismo motivo que en
+    # login() y select_return(), ver comentarios ahí).
+    base = get_settings().public_base_url
+    login_url = f"{base}{request.app.url_path_for('lti_login')}"
+    launch_url = f"{base}{request.app.url_path_for('launch')}"
+    jwks_url = f"{base}{request.app.url_path_for('jwks')}"
+    tool = {
+        "application_type": "web",
+        "response_types": ["id_token"],
+        "grant_types": ["client_credentials", "implicit"],
+        "initiate_login_uri": login_url,
+        "redirect_uris": [launch_url],
+        "client_name": "Encuestum",
+        "jwks_uri": jwks_url,
+        "token_endpoint_auth_method": "private_key_jwt",
+        "scope": " ".join([SCOPE_LINEITEM, SCOPE_SCORE]),
+        _TOOL_CONFIG: {
+            "domain": urlparse(base).netloc,
+            "target_link_uri": launch_url,
+            "claims": ["iss", "sub", "name", "email"],
+            "messages": [
+                {
+                    "type": "LtiDeepLinkingRequest",
+                    "target_link_uri": launch_url,
+                    "label": "Elegir una encuesta de Encuestum",
+                }
+            ],
+        },
+    }
+
+    headers = {"Content-Type": "application/json"}
+    if registration_token:
+        headers["Authorization"] = f"Bearer {registration_token}"
+    async with httpx.AsyncClient(timeout=15) as client:
+        resp = await client.post(registration_endpoint, headers=headers, json=tool)
+    resp.raise_for_status()
+    registered = resp.json()
+
+    deployment_id = (registered.get(_TOOL_CONFIG) or {}).get("deployment_id")
+    platform = LtiPlatform(
+        issuer=conf["issuer"],
+        client_id=registered["client_id"],
+        deployment_ids=[deployment_id] if deployment_id else [],
+        auth_login_url=conf["authorization_endpoint"],
+        auth_token_url=conf["token_endpoint"],
+        jwks_url=conf["jwks_uri"],
+        org_id=org_id,
+        name=(conf.get(_PLATFORM_CONFIG) or {}).get("product_family_code"),
+    )
+    session.add(platform)
+    await session.commit()
+    LOGGER.info("plataforma LTI registrada: %s (%s)", platform.issuer, platform.client_id)
+    return HTMLResponse(_DONE_HTML)
+
+
+class PlatformIn(BaseModel):
+    issuer: str
+    client_id: str
+    deployment_ids: list[str]
+    auth_login_url: str
+    auth_token_url: str
+    jwks_url: str
+    name: str | None = None
+
+
+# Router aparte: el alta manual sí va bajo /api/v1 y detrás de sesión.
+admin_router = APIRouter(prefix="/lti", tags=["lti"])
+
+
+@admin_router.post("/platforms", status_code=201, dependencies=[Depends(require_lti)])
+async def create_platform(
+    payload: PlatformIn,
+    ctx: OrgContext = Depends(current_context),
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """Alta manual, para los LMS que no soportan registro dinámico."""
+    if ROLE_RANK.get(ctx.role, 0) < ROLE_RANK[ROLE_ADMIN]:
+        raise HTTPException(status_code=403, detail="Necesitás ser admin de la organización.")
+    platform = LtiPlatform(**payload.model_dump(), org_id=ctx.org.id)
+    session.add(platform)
+    await session.commit()
+    return {"id": str(platform.id)}

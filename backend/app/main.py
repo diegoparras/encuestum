@@ -123,6 +123,7 @@ app.include_router(uploads.router, prefix=API)
 app.include_router(webhooks_api.router, prefix=API)
 app.include_router(panel.router, prefix=API)
 app.include_router(ai.router, prefix=API)
+app.include_router(lti.admin_router, prefix=API)
 
 # Archivos subidos, servidos same-origin en /assets (streaming con Range desde
 # disco o el bucket privado; responses/* con control de acceso). Ver routers/files.py.
