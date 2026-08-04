@@ -349,6 +349,11 @@ async def submit(
 
     # Fire webhooks with the final (graded) state — never blocks the respondent.
     schedule_response_delivery(s.id, r.id)
+    # Si vino de un LMS y quedó una nota, se la devolvemos al libro de calificaciones.
+    if lti and r.score is not None:
+        from app.lti.ags import schedule_score
+
+        schedule_score(r.id)
     # Email the owner(s) if configured (fire-and-forget).
     if getattr(s, "notify_emails", None):
         from app.notify import schedule_response_notification
