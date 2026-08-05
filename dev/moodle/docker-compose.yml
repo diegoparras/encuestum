@@ -95,9 +95,11 @@ services:
       # Caddy" del README). Solo lectura: este contenedor únicamente la
       # necesita para el `update-ca-certificates` de más abajo.
       - ./caddy-root.crt:/usr/local/share/ca-certificates/caddy-root.crt:ro
-      # El plugin de la Fase 2 se monta acá para editarlo sin reconstruir.
-      # Descomentar cuando exista:
-      # - ../../../moodle-mod_encuestum:/bitnami/moodle/mod/encuestum
+      # El plugin de la Fase 2, montado para editarlo sin recopiar nada. Es un
+      # plugin `local_`, no `mod_`: ver la sección "Por qué local_ y no mod_"
+      # del plan de la Fase 2. Si el repo del plugin no está clonado al lado de
+      # este, Docker crea un directorio vacío y Moodle lo ignora sin quejarse.
+      - ../../../moodle-local_encuestum:/bitnami/moodle/local/encuestum
     # Por qué este entrypoint/command en vez de dejar los de la imagen: el
     # cliente PHP de Moodle (curl) valida TLS contra el almacén de
     # certificados del sistema, y ese almacén NO conoce la CA que Caddy
