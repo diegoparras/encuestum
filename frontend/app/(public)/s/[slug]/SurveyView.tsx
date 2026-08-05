@@ -36,6 +36,7 @@ import { Certificate } from "./Certificate";
 import { ChatSurveyView } from "./ChatSurveyView";
 import { ThankYouView } from "./ThankYouView";
 import { getCaptchaSolution } from "./captcha";
+import FullscreenButton from "./FullscreenButton";
 
 // Register the custom "videoresponse" question (webcam recorder) before any
 // Survey model parses JSON that uses it.
@@ -684,8 +685,10 @@ export default function SurveyView({ slug }: { slug: string }) {
           buttonOverrideCss(design.buttonColor, design.buttonShadow) +
           perQuestionStyleCss(data?.json_schema, design) +
           fontsCss(design) +
-          alignOverrideCss(design)}
+          alignOverrideCss(design) +
+          ENC_EMBED_CSS}
       </style>
+      <FullscreenButton />
       {brandingHeader}
       {submitting && (
         <StateScreen
@@ -734,6 +737,41 @@ function hexToRgba(hex: string, alpha: number): string {
   const b = n & 255;
   return `rgba(${r},${g},${b},${Math.max(0, Math.min(1, alpha))})`;
 }
+
+/* --- Encuesta embebida en un iframe (LMS vía LTI) ---
+   La clase `enc-embedded` la pone FullscreenButton en <html>: no existe un
+   selector CSS para "estoy dentro de un iframe".
+
+   Dentro de Moodle la encuesta comparte pantalla con la cabecera del sitio, el
+   índice del curso y la navegación de la actividad, así que el alto útil es la
+   mitad que abriéndola por su link. Los paddings de SurveyJS (54px arriba,
+   72px abajo) están pensados para una ventana completa y ahí se comen la
+   pantalla. Se recortan solo en este caso; abierta por su propio link la
+   encuesta no cambia en nada.
+
+   El ancho no se toca a propósito: la columna de lectura de ~810px es una
+   decisión tipográfica, no un descuido. Estirarla a todo el ancho de un iframe
+   panorámico haría las líneas más largas y más difíciles de leer. */
+const ENC_EMBED_CSS = `
+.enc-embedded .enc-scope .sd-body,
+.enc-embedded .enc-scope .sd-body.sd-body--static,
+.enc-embedded .enc-scope .sd-body.sd-body--responsive {
+  padding-top: 24px;
+  padding-bottom: 32px;
+}
+/* En pantalla completa recuperamos el aire: ahí sí hay ventana entera. */
+.enc-embedded:fullscreen .enc-scope .sd-body,
+.enc-embedded:fullscreen .enc-scope .sd-body.sd-body--static,
+.enc-embedded:fullscreen .enc-scope .sd-body.sd-body--responsive {
+  padding-top: 54px;
+  padding-bottom: 72px;
+}
+/* El fondo del wrapper solo cubre su propia caja; en pantalla completa el
+   navegador pinta el resto de negro si no se le dice otra cosa. */
+.enc-embedded:fullscreen .enc-scope {
+  min-height: 100vh;
+}
+`;
 
 // Frosted-glass blur behind the question/input boxes + page-transition keyframes.
 const ENC_SURFACE_CSS = `

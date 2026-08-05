@@ -167,6 +167,12 @@ services:
       context: ../..
       dockerfile: Dockerfile
     restart: unless-stopped
+    # Acceso directo por HTTP plano, sin pasar por Caddy. NO sirve para probar
+    # LTI (el lanzamiento embebido necesita HTTPS por las cookies
+    # SameSite=None) pero es la forma práctica de mirar y depurar la interfaz
+    # sin pelearse con el certificado de la CA local: http://localhost:8081
+    ports:
+      - "8081:80"
     depends_on:
       postgres:
         condition: service_healthy
