@@ -459,6 +459,101 @@ async def test_la_respuesta_queda_atribuida_al_alumno(lti_on, registered, db_ses
         assert r.respondent_email == "alumno@escuela.test"
 
 
+@pytest.mark.asyncio
+async def test_la_respuesta_de_un_vinculo_anonimo_no_guarda_identidad(lti_on, registered, db_session):
+    """La cobertura existente (`test_deliver_no_publica_nota_si_el_vinculo_es_anonimo`
+    en test_lti_panel.py) sólo prueba la mitad "no se publica nota". Nada
+    afirmaba que la mitad "no se guarda identidad" -- la que deja residuo
+    PERMANENTE en la base si falla -- funcione. Vínculo anónimo: la
+    SurveyResponse resultante no debe llevar ni `lti_sub` ni
+    `respondent_email`, pero sí debe conservar `lti_link_id` -- identifica la
+    actividad, no a la persona, y el panel lo necesita."""
+    from sqlmodel import select
+
+    from app.models import SurveyResponse
+
+    async with db_session() as session:
+        link = await session.get(LtiResourceLink, registered["link"].id)
+        link.anonymous = True
+        session.add(link)
+        await session.commit()
+
+    client = _client()
+    slug = registered["survey"].slug
+    login = client.post(
+        "/lti/login",
+        data={"iss": ISSUER, "client_id": CLIENT_ID, "login_hint": "42",
+              "target_link_uri": "https://encuestum.test/lti/launch"},
+        follow_redirects=False,
+    )
+    q = parse_qs(urlparse(login.headers["location"]).query)
+    token = _id_token(registered["pem"], nonce=q["nonce"][0])
+    client.post("/lti/launch", data={"id_token": token, "state": q["state"][0]},
+                follow_redirects=False)
+    r = client.post(f"/api/v1/survey/public/{slug}/submit",
+                    json={"answers": {"q1": "hola"}, "completed": True})
+    assert r.status_code == 201
+
+    async with db_session() as session:
+        resp = (await session.scalars(
+            select(SurveyResponse).where(SurveyResponse.survey_id == registered["survey"].id)
+        )).first()
+        assert resp is not None
+        assert resp.lti_sub is None
+        assert resp.respondent_email is None
+        assert resp.lti_link_id == registered["link"].id
+
+
+@pytest.mark.asyncio
+async def test_submit_lee_anonimato_de_la_base_no_del_token(lti_on, registered, db_session):
+    """`submit` no puede confiar en el `anonymous` que viajó dentro del token
+    de acceso: ese token se mintea en el momento del lanzamiento y vive hasta
+    ACCESS_TTL_S (4 horas). Si el docente marca el vínculo como anónimo
+    DESPUÉS de que un alumno ya lanzó, ese alumno sigue con una cookie que
+    dice `anonymous: False` durante toda esa ventana. Acá se lanza ANTES de
+    marcar el vínculo anónimo (la cookie queda minteada con
+    `anonymous: False`) y recién DESPUÉS se flipea `link.anonymous` en la
+    base -- `submit` tiene que leer el valor fresco de la base, no el que
+    quedó congelado en la cookie."""
+    from sqlmodel import select
+
+    from app.models import SurveyResponse
+
+    client = _client()
+    slug = registered["survey"].slug
+    login = client.post(
+        "/lti/login",
+        data={"iss": ISSUER, "client_id": CLIENT_ID, "login_hint": "42",
+              "target_link_uri": "https://encuestum.test/lti/launch"},
+        follow_redirects=False,
+    )
+    q = parse_qs(urlparse(login.headers["location"]).query)
+    token = _id_token(registered["pem"], nonce=q["nonce"][0])
+    launch = client.post("/lti/launch", data={"id_token": token, "state": q["state"][0]},
+                         follow_redirects=False)
+    assert "enc_lti" in launch.cookies  # la cookie ya quedó minteada con anonymous: False
+
+    # El docente marca el vínculo anónimo DESPUÉS del lanzamiento.
+    async with db_session() as session:
+        link = await session.get(LtiResourceLink, registered["link"].id)
+        link.anonymous = True
+        session.add(link)
+        await session.commit()
+
+    r = client.post(f"/api/v1/survey/public/{slug}/submit",
+                    json={"answers": {"q1": "hola"}, "completed": True})
+    assert r.status_code == 201
+
+    async with db_session() as session:
+        resp = (await session.scalars(
+            select(SurveyResponse).where(SurveyResponse.survey_id == registered["survey"].id)
+        )).first()
+        assert resp is not None
+        assert resp.lti_sub is None
+        assert resp.respondent_email is None
+        assert resp.lti_link_id == registered["link"].id
+
+
 # ── Important 4: resolución determinística de plataforma sin client_id ──────
 #
 # `_platform_for` tomaba `.first()` de una consulta sin ORDER BY cuando el

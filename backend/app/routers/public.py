@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from app.db import get_session
-from app.models import Survey, SurveyResponse, SurveyInvitee, SurveyVisit
+from app.models import LtiResourceLink, Survey, SurveyResponse, SurveyInvitee, SurveyVisit
 from app.ratelimit import rate_limit
 from app.schemas import (
     GradeQuestionRequest,
@@ -297,7 +297,20 @@ async def submit(
     # Un vínculo anónimo no guarda identidad: ni el sub de Moodle ni el email.
     # Se conserva `lti_link_id` para saber de qué actividad vino (hace falta
     # para el panel), pero eso no identifica a nadie.
-    anonimo = bool(lti and lti.get("anonymous"))
+    #
+    # `anonymous` se lee acá FRESCO de la base, no del token `lti` (que lo
+    # trae congelado desde el momento del lanzamiento y vive hasta
+    # ACCESS_TTL_S -- 4 horas). Si el docente marca el vínculo como anónimo
+    # después de que un alumno ya lanzó, ese alumno sigue con una cookie
+    # vieja durante toda esa ventana; leer la fila de acá hace que esta mitad
+    # del contrato (no guardar identidad) esté siempre de acuerdo con la otra
+    # (no publicar nota, en `_deliver` de `app/lti/ags.py`, que también lee
+    # `link.anonymous` de la base) -- sin depender de que el token esté al
+    # día.
+    anonimo = False
+    if lti:
+        link = await session.get(LtiResourceLink, uuid.UUID(lti["link_id"]))
+        anonimo = bool(link and link.anonymous)
     r = SurveyResponse(
         survey_id=s.id, answers=payload.answers or {}, completed=payload.completed, meta=payload.meta,
         respondent_email=None if anonimo else resp_email, respondent_code=resp_code,

@@ -472,8 +472,16 @@ async def _resource_link_redirect(claims, platform, user, session):
         link.lineitems_url = ags["lineitems"]
     # El título del curso puede cambiar en Moodle; se refresca en cada
     # lanzamiento igual que los endpoints de notas.
-    contexto = claims.get(CLAIM["CONTEXT"]) or {}
-    titulo = contexto.get("title")
+    #
+    # `or {}` sobre el `.get(...)` entero, no sobre el resultado -- mismo
+    # patrón defensivo que ya usa `_link_from_deep_link_claims` un poco más
+    # arriba para el mismo claim (`context_id`). El `id_token` está validado
+    # por firma, así que hoy esto es cosmético; pero si una plataforma manda
+    # un `context` que no es un dict, `contexto.get("title")` con `contexto`
+    # asignado ANTES del `or {}` reventaría con AttributeError -- un 500 en
+    # el lanzamiento por una inconsistencia evitable entre dos lugares de la
+    # misma función que leen el mismo claim.
+    titulo = (claims.get(CLAIM["CONTEXT"]) or {}).get("title")
     if isinstance(titulo, str) and titulo.strip():
         link.context_title = titulo.strip()[:255]
     session.add(link)
@@ -492,6 +500,14 @@ async def _resource_link_redirect(claims, platform, user, session):
             detail="Esta actividad todavía no tiene una encuesta asignada.",
         )
 
+    # `anonymous` NO viaja en este token a propósito: `submit`
+    # (`app/routers/public.py`) lee `link.anonymous` fresco de la base en
+    # cada envío, no de acá -- este token vive hasta ACCESS_TTL_S (4 horas) y
+    # un valor congelado desde el momento del lanzamiento dejaría de reflejar
+    # que el docente marcó el vínculo como anónimo después de que el alumno
+    # ya entró. Incluir el campo igual, sin que nada lo lea, sería dejar una
+    # segunda fuente de verdad tentadora para que un futuro cambio vuelva a
+    # confiar en ella.
     token = create_purpose_token(
         LTI_PURPOSE,
         {
@@ -500,7 +516,6 @@ async def _resource_link_redirect(claims, platform, user, session):
             "sub": user_sub,
             "email": user_email,
             "name": user_name,
-            "anonymous": link.anonymous,
         },
         ttl_minutes=ACCESS_TTL_S / 60,
     )
