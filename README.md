@@ -193,6 +193,7 @@ Todo se configura por env con prefijo `ENCUESTUM_*`. Ver [`.env.example`](.env.e
 | `LTI_ENABLED` | `false` | Prende la integración **LTI 1.3** (Moodle, Canvas, Blackboard…). Apagado por defecto: nada cambia para instalaciones que no usan un LMS. Guía de conexión completa en [`docs/MOODLE.md`](docs/MOODLE.md) (entorno de prueba con Docker en [`dev/moodle/README.md`](dev/moodle/README.md)). |
 | `LTI_PRIVATE_KEY` | *(generada)* | Clave privada RSA (PEM) con la que el tool firma sus JWT. Sin definirla, se genera una al arrancar y se guarda en la base. |
 | `LTI_KEY_ID` | `encuestum-lti-1` | `kid` publicado en el JWKS. Cambiarlo obliga a las plataformas ya registradas a releer las claves. |
+| `LTI_FRAME_ANCESTORS` | `*` | Quién puede embeber las encuestas mientras LTI está activo. **Sin definir, cualquier sitio de internet puede meterlas en un iframe** — es lo que hace falta para no tener que saber de antemano el dominio del LMS. Si ya lo sabés, listalo: `https://moodle.escuela.edu https://aula.otro.org`. |
 
 ---
 

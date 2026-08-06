@@ -107,9 +107,36 @@ En cada respuesta se setean: `X-Content-Type-Options: nosniff`, `X-Frame-Options
 | Variable | Default | Descripción |
 |---|---|---|
 | `ENCUESTUM_ENABLE_HSTS` | `true` | Manda `Strict-Transport-Security` (solo bajo HTTPS). |
+| `LTI_FRAME_ANCESTORS` | `*` | Con LTI activo, quién puede embeber `/s/{slug}` y el selector. |
 
 También hay un **tope de cuerpo** de 2 MB para JSON/formularios (las subidas de archivos
 van por presigned, exentas del tope).
+
+### El framing con LTI activo
+
+`X-Frame-Options: DENY` vale para toda la app **salvo** con `LTI_ENABLED` prendido: ahí
+`start.sh` genera una regla de nginx que sirve `/s/{slug}` y `/lti-select` sin ese header
+y con `Content-Security-Policy: frame-ancestors`. Es la única forma de que un LMS pueda
+mostrar las encuestas dentro de su iframe — `X-Frame-Options` no sabe expresar "cualquier
+origen", y los dos headers compiten, así que hay que sacar el primero para que la CSP
+mande.
+
+**Sin `LTI_FRAME_ANCESTORS` definida, esa CSP queda en `frame-ancestors *`: cualquier
+sitio de internet puede embeber tus encuestas públicas.** El riesgo que eso agrega es
+acotado —una encuesta pública ya es respondible por cualquiera que tenga el link, así que
+lo único nuevo es el *clickjacking* sobre un formulario de por sí abierto— pero no hay
+razón para dejarlo abierto si sabés desde qué dominios te van a lanzar:
+
+```
+LTI_FRAME_ANCESTORS="https://moodle.escuela.edu https://aula.otrocolegio.org"
+```
+
+Alcanza a **todas** las encuestas públicas, no sólo a las que se usan desde el LMS: la
+regla es por ruta (`/s/`), no por encuesta. Y hay que actualizarla al conectar una
+institución nueva — una vez por institución. Se descartó armar la lista sola con los
+`issuer` de las plataformas registradas porque obligaba a consultar la base en cada carga
+de encuesta, que es la ruta más transitada del producto, para todos los respondientes,
+usen o no un LMS.
 
 ---
 

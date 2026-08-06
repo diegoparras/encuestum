@@ -41,8 +41,28 @@ LTI_SNIPPET=/etc/nginx/conf.d/lti-frame.conf
 # devolviendo 404 en /lti/*. `tr -d '[:space:]'` sólo saca espacios, igual que
 # `.strip()` de Python, sin tocar comillas ni backslashes.
 LTI_RAW="$(printf '%s' "${LTI_ENABLED:-}" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')"
+# Quién puede embeber las encuestas mientras LTI está activo. Sin definir (o
+# vacía) queda `*`, que es lo que se venía haciendo y lo que hace falta para
+# que un LMS cualquiera las muestre. Un despliegue que conoce sus LMS puede
+# cerrar el cerco:
+#
+#   LTI_FRAME_ANCESTORS="https://moodle.escuela.edu https://aula.otro.org"
+#
+# El valor va tal cual al `frame-ancestors` de la CSP, así que la sintaxis es
+# la de esa directiva: orígenes separados por espacios. El precio de cerrarlo
+# es editar la variable al conectar un colegio nuevo — una vez por institución,
+# no todos los días.
+#
+# `:-` y no `-`: una variable definida pero vacía también cae en `*`. Con `-`
+# quedaría `frame-ancestors ` a secas, que es una CSP inválida y bloquearía el
+# framing por completo — el LMS dejaría de mostrar las encuestas y el síntoma
+# aparecería lejísimos de la causa.
+ANCESTROS="${LTI_FRAME_ANCESTORS:-*}"
 case "$LTI_RAW" in
   1|true|yes|on)
+    # Heredoc entrecomillado para que `$http_upgrade` y compañía lleguen a
+    # nginx literales, sin que la shell los expanda. El único valor que sí hay
+    # que interpolar entra después, por su marcador.
     cat > "$LTI_SNIPPET" <<'EOF'
 location = /lti-select {
   proxy_pass http://127.0.0.1:3000;
@@ -56,7 +76,7 @@ location = /lti-select {
   proxy_read_timeout 5m;
   proxy_connect_timeout 5m;
   proxy_hide_header X-Frame-Options;
-  add_header Content-Security-Policy "frame-ancestors *" always;
+  add_header Content-Security-Policy "frame-ancestors __ANCESTROS__" always;
 }
 
 location ^~ /s/ {
@@ -71,9 +91,13 @@ location ^~ /s/ {
   proxy_read_timeout 5m;
   proxy_connect_timeout 5m;
   proxy_hide_header X-Frame-Options;
-  add_header Content-Security-Policy "frame-ancestors *" always;
+  add_header Content-Security-Policy "frame-ancestors __ANCESTROS__" always;
 }
 EOF
+    # `|` como delimitador porque el valor son URLs y trae `/`. El contenido
+    # lo pone quien despliega, mismo nivel de confianza que el resto de este
+    # script.
+    sed -i "s|__ANCESTROS__|${ANCESTROS}|g" "$LTI_SNIPPET"
     ;;
   *)
     # LTI apagado: /lti-select y /s/ quedan sin declarar acá — `location /`
