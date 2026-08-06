@@ -480,6 +480,15 @@ class LtiResourceLink(SQLModel, table=True):
     )
     resource_link_id: str = Field(sa_column=Column(String, nullable=False))
     context_id: Optional[str] = Field(sa_column=Column(String), default=None)
+    # Título del curso tal como lo manda Moodle en el claim de contexto. Se
+    # guarda sólo para poder mostrar algo legible en el panel: sin esto la
+    # única referencia al curso es un id opaco que no le dice nada a nadie.
+    context_title: Optional[str] = Field(sa_column=Column(String), default=None)
+    # Vínculo anónimo: la respuesta no se atribuye a nadie y NO se publica nota.
+    # Las dos cosas van juntas — publicar una nota por alumno es identificarlo.
+    anonymous: bool = Field(
+        sa_column=Column(Boolean, nullable=False, server_default="0"), default=False
+    )
     survey_id: uuid.UUID = Field(
         sa_column=Column(
             ForeignKey("surveys.id", ondelete="CASCADE"), index=True, nullable=False
