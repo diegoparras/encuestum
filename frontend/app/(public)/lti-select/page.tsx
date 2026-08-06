@@ -220,7 +220,11 @@ export default function LtiSelect() {
                         {s.title}
                       </span>
                       <span className="mt-0.5 block text-xs text-neutral-500 dark:text-neutral-400">
-                        {t("public.lti.questions", { n: s.questions })}
+                        {/* `t()` no sabe pluralizar, y "1 preguntas" se ve en
+                            toda encuesta de una sola pregunta. */}
+                        {s.questions === 1
+                          ? t("public.lti.questionsOne")
+                          : t("public.lti.questions", { n: s.questions })}
                         {" · "}
                         {t("public.lti.updated", { date: fecha(s.updated_at) })}
                         {s.is_exam && <> {" · "}{t("public.lti.exam")}</>}

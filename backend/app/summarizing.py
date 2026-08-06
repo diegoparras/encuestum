@@ -33,6 +33,25 @@ def _elements(schema: dict) -> list[dict]:
     return out
 
 
+def count_questions(schema: dict) -> int:
+    """Cuántas preguntas de verdad tiene el esquema.
+
+    No es `len(_elements(...))`. El builder emite acompañantes al MISMO nivel
+    que las preguntas: un `image` por cada pregunta con imagen, un `html` por
+    cada video y otro por cada sección (ver `builder/model.ts`). Contarlos
+    infla el número de forma sistemática, no en un caso raro: una encuesta de
+    10 preguntas con 4 imágenes y 2 secciones daría 16.
+
+    El resumen ya los descarta con `_SKIP_TYPES` y el mismo criterio de "tiene
+    `name`". Esto los comparte para que los dos lugares del producto digan el
+    mismo número sobre la misma encuesta."""
+    return sum(
+        1
+        for el in _elements(schema)
+        if el.get("name") and el.get("type") not in _SKIP_TYPES
+    )
+
+
 def _choice_pairs(el: dict) -> list[tuple[str, str]]:
     """(value, label) for a choice-based question."""
     pairs: list[tuple[str, str]] = []

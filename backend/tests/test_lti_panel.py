@@ -693,10 +693,11 @@ async def test_el_listado_dice_cuantas_preguntas_tiene_cada_encuesta(
     cantidad de preguntas es lo que separa el borrador de dos ítems de la
     evaluación entera.
 
-    El conteo usa el mismo criterio que el resumen (`summarizing._elements`):
-    primer nivel de cada página. Que no baje a los elementos anidados dentro de
-    un panel es una limitación conocida y compartida — se comprueba acá para
-    que quede documentada, no porque sea deseable."""
+    El conteo es el mismo que usa el resumen (`summarizing.count_questions`):
+    primer nivel de cada página, descartando los bloques que no son preguntas.
+    Que no baje a los elementos anidados dentro de un panel es una limitación
+    conocida y compartida — se comprueba acá para que quede documentada, no
+    porque sea deseable."""
     async with db_session() as session:
         session.add(Survey(
             org_id=sin_encuesta["org_id"], title="De dos páginas", status="published",
@@ -716,6 +717,21 @@ async def test_el_listado_dice_cuantas_preguntas_tiene_cada_encuesta(
                 ]},
             ]}]},
         ))
+        # Lo que emite el builder de este producto: una `image` por cada
+        # pregunta con imagen, un `html` por cada video y otro por cada
+        # sección, TODOS al mismo nivel que las preguntas. Contarlos infla el
+        # número de forma sistemática, no en un caso raro.
+        session.add(Survey(
+            org_id=sin_encuesta["org_id"], title="Con imagen y sección",
+            status="published",
+            json_schema={"pages": [{"elements": [
+                {"type": "html", "name": "intro__intro"},
+                {"type": "text", "name": "p1"},
+                {"type": "image", "name": "p1__img"},
+                {"type": "radiogroup", "name": "p2"},
+                {"type": "html", "name": "p2__vid"},
+            ]}]},
+        ))
         # Sin la clave `pages` siquiera.
         session.add(Survey(org_id=sin_encuesta["org_id"], title="Schema vacío",
                            status="published", json_schema={}))
@@ -724,8 +740,11 @@ async def test_el_listado_dice_cuantas_preguntas_tiene_cada_encuesta(
     por_titulo = _listar(sin_encuesta)
 
     assert por_titulo["De dos páginas"]["questions"] == 3, "hay que sumar TODAS las páginas"
-    # El panel cuenta como un elemento y sus dos hijos no: 2, no 3 ni 4.
-    assert por_titulo["Con un panel"]["questions"] == 2
+    # El panel no cuenta, y sus dos hijos tampoco: queda sólo la suelta.
+    assert por_titulo["Con un panel"]["questions"] == 1
+    assert por_titulo["Con imagen y sección"]["questions"] == 2, (
+        "imagen, video y sección no son preguntas: el docente ve 2, igual que en el resumen"
+    )
     assert por_titulo["Schema vacío"]["questions"] == 0
     # La del fixture trae `{"pages": []}`: la lista existe pero está vacía.
     assert por_titulo["Encuesta del selector"]["questions"] == 0
