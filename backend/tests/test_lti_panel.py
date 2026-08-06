@@ -2,6 +2,7 @@
 
 import time
 import uuid
+from datetime import datetime, timezone
 from urllib.parse import parse_qs, urlparse
 
 import jwt
@@ -671,6 +672,153 @@ async def test_el_selector_del_docente_lista_solo_las_encuestas_de_su_organizaci
     titulos = [s["title"] for s in listado.json()["surveys"]]
     assert "Encuesta del selector" in titulos
     assert "Encuesta Ajena Al Vínculo" not in titulos, "fuga entre organizaciones"
+
+
+def _listar(sin_encuesta) -> dict:
+    """El listado del selector indexado por título, en modo `link`."""
+    cliente = _cliente()
+    r = _lanzar(cliente, sin_encuesta, f"rl-{uuid.uuid4().hex[:8]}",
+                [f"{NS_CONTEXTO}#Instructor"])
+    assert r.status_code == 302, r.text
+    listado = cliente.get(f"/lti/select/surveys?link={_token_de_vinculo(r)}")
+    assert listado.status_code == 200, listado.text
+    return {s["title"]: s for s in listado.json()["surveys"]}
+
+
+@pytest.mark.asyncio
+async def test_el_listado_dice_cuantas_preguntas_tiene_cada_encuesta(
+    lti_on, sin_encuesta, db_session
+):
+    """Con veinte títulos parecidos, el título solo no alcanza para elegir: la
+    cantidad de preguntas es lo que separa el borrador de dos ítems de la
+    evaluación entera.
+
+    El conteo usa el mismo criterio que el resumen (`summarizing._elements`):
+    primer nivel de cada página. Que no baje a los elementos anidados dentro de
+    un panel es una limitación conocida y compartida — se comprueba acá para
+    que quede documentada, no porque sea deseable."""
+    async with db_session() as session:
+        session.add(Survey(
+            org_id=sin_encuesta["org_id"], title="De dos páginas", status="published",
+            json_schema={"pages": [
+                {"elements": [{"type": "text", "name": "a"},
+                              {"type": "radiogroup", "name": "b"}]},
+                {"elements": [{"type": "text", "name": "c"}]},
+            ]},
+        ))
+        session.add(Survey(
+            org_id=sin_encuesta["org_id"], title="Con un panel", status="published",
+            json_schema={"pages": [{"elements": [
+                {"type": "text", "name": "suelta"},
+                {"type": "panel", "name": "grupo", "elements": [
+                    {"type": "text", "name": "dentro-1"},
+                    {"type": "text", "name": "dentro-2"},
+                ]},
+            ]}]},
+        ))
+        # Sin la clave `pages` siquiera.
+        session.add(Survey(org_id=sin_encuesta["org_id"], title="Schema vacío",
+                           status="published", json_schema={}))
+        await session.commit()
+
+    por_titulo = _listar(sin_encuesta)
+
+    assert por_titulo["De dos páginas"]["questions"] == 3, "hay que sumar TODAS las páginas"
+    # El panel cuenta como un elemento y sus dos hijos no: 2, no 3 ni 4.
+    assert por_titulo["Con un panel"]["questions"] == 2
+    assert por_titulo["Schema vacío"]["questions"] == 0
+    # La del fixture trae `{"pages": []}`: la lista existe pero está vacía.
+    assert por_titulo["Encuesta del selector"]["questions"] == 0
+
+
+@pytest.mark.asyncio
+async def test_una_encuesta_con_el_schema_roto_no_tumba_el_listado_entero(
+    lti_on, sin_encuesta, db_session
+):
+    """El selector lista de una todas las encuestas de la organización: si
+    contar las preguntas de una sola revienta, el docente pierde el listado
+    completo y no tiene forma de saber por qué. Una página que no es un
+    diccionario se saltea y las sanas se siguen contando."""
+    async with db_session() as session:
+        session.add(Survey(
+            org_id=sin_encuesta["org_id"], title="Schema roto", status="published",
+            json_schema={"pages": ["no soy una página", None,
+                                   {"elements": [{"type": "text", "name": "a"}]}]},
+        ))
+        await session.commit()
+
+    por_titulo = _listar(sin_encuesta)
+
+    assert por_titulo["Schema roto"]["questions"] == 1
+    assert "Encuesta del selector" in por_titulo
+
+
+@pytest.mark.asyncio
+async def test_el_listado_trae_la_fecha_de_edicion_de_cada_encuesta(
+    lti_on, sin_encuesta, db_session
+):
+    """`updated_at` tiene que ser el de CADA encuesta, no la hora de la
+    consulta: es lo que deja distinguir la versión que el docente acaba de
+    editar de la copia vieja con el mismo nombre. Y el orden del listado es por
+    esa misma fecha, así que la vieja tiene que quedar última."""
+    vieja = datetime(2020, 1, 2, 3, 4, 5, tzinfo=timezone.utc)
+    async with db_session() as session:
+        session.add(Survey(
+            org_id=sin_encuesta["org_id"], title="La del año pasado",
+            status="published", json_schema={"pages": []}, updated_at=vieja,
+        ))
+        await session.commit()
+
+    cliente = _cliente()
+    r = _lanzar(cliente, sin_encuesta, f"rl-{uuid.uuid4().hex[:8]}",
+                [f"{NS_CONTEXTO}#Instructor"])
+    listado = cliente.get(f"/lti/select/surveys?link={_token_de_vinculo(r)}")
+    assert listado.status_code == 200, listado.text
+    encuestas = listado.json()["surveys"]
+    por_titulo = {s["title"]: s for s in encuestas}
+
+    assert datetime.fromisoformat(por_titulo["La del año pasado"]["updated_at"]) == vieja
+    # La del fixture se creó recién: la fecha no puede ser la misma para las dos.
+    reciente = datetime.fromisoformat(por_titulo["Encuesta del selector"]["updated_at"])
+    assert reciente > vieja
+    assert encuestas[-1]["title"] == "La del año pasado", "el orden es por updated_at desc"
+
+
+@pytest.mark.asyncio
+async def test_el_selector_de_deep_linking_tambien_trae_preguntas_y_fecha(
+    lti_on, sin_encuesta, db_session
+):
+    """Los dos modos comen del mismo dict: si el camino de `dl` se quedara sin
+    estos campos, el selector mostraría "undefined preguntas" en deep linking y
+    los datos bien en el otro."""
+    from app.lti.deeplink import DL_PURPOSE
+    from app.lti.state import STATE_TTL_S
+    from app.security import create_purpose_token
+
+    vieja = datetime(2021, 6, 7, 8, 9, 10, tzinfo=timezone.utc)
+    async with db_session() as session:
+        session.add(Survey(
+            org_id=sin_encuesta["org_id"], title="La del content item",
+            status="published", updated_at=vieja,
+            json_schema={"pages": [{"elements": [{"type": "text", "name": "a"},
+                                                 {"type": "text", "name": "b"}]}]},
+        ))
+        await session.commit()
+
+    dl = create_purpose_token(
+        DL_PURPOSE,
+        {
+            "platform_id": str(sin_encuesta["platform"].id),
+            "deployment_id": "1",
+            "settings": {"deep_link_return_url": f"{ISSUER_SIN}/return"},
+        },
+        ttl_minutes=STATE_TTL_S / 60,
+    )
+    listado = _cliente().get(f"/lti/select/surveys?dl={dl}")
+    assert listado.status_code == 200, listado.text
+    por_titulo = {s["title"]: s for s in listado.json()["surveys"]}
+    assert por_titulo["La del content item"]["questions"] == 2
+    assert datetime.fromisoformat(por_titulo["La del content item"]["updated_at"]) == vieja
 
 
 @pytest.mark.asyncio

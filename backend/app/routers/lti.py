@@ -46,6 +46,13 @@ from app.models import (
 )
 from app.net_guard import UnsafeUrlError, assert_public_url
 from app.security import create_purpose_token, read_purpose_token
+# Se importa el helper de `summarizing` en vez de reescribir el recorrido:
+# contar preguntas acá con otro criterio garantizaría que el número del
+# selector y el de la vista de resumen se separen apenas alguno de los dos se
+# toque. Es privado del módulo, sí, pero la alternativa es duplicar la misma
+# lógica defensiva (`pages` y `elements` pueden faltar, venir en `null` o traer
+# basura que no es un dict) en dos lugares que tienen que coincidir.
+from app.summarizing import _elements as elementos_del_schema
 
 LOGGER = logging.getLogger(__name__)
 router = APIRouter(prefix="/lti", tags=["lti"])
@@ -724,7 +731,12 @@ async def select_surveys(
     dos resuelven una plataforma y el listado queda acotado igual a la
     organización de ESA plataforma -- lo que no se puede es usar uno en lugar
     del otro (ver `_link_platform`). Sin este segundo camino, el docente
-    llegaría al selector y lo vería vacío."""
+    llegaría al selector y lo vería vacío.
+
+    Cada encuesta viaja con `questions` y `updated_at` porque el selector es lo
+    único que el docente ve de la encuesta antes de atarla a la actividad: con
+    veinte títulos parecidos, "12 preguntas, editada anteayer" es lo que
+    distingue el borrador viejo de la versión que quiere usar."""
     if dl:
         platform, _ = await _dl_platform(session, dl)
     elif link:
@@ -749,6 +761,13 @@ async def select_surveys(
                 "title": s.title or "Sin título",
                 "slug": s.slug,
                 "is_exam": bool((s.evaluation or {}).get("enabled")),
+                # Mismo criterio que el resumen: sólo el primer nivel de cada
+                # página. Lo que esté anidado dentro de un panel no se cuenta
+                # -- es una limitación que ya arrastra `summarizing`, y que el
+                # selector herede el mismo número (aunque sea bajo) es mejor
+                # que mostrar uno distinto del que ve el resto del producto.
+                "questions": len(elementos_del_schema(s.json_schema or {})),
+                "updated_at": s.updated_at.isoformat(),
             }
             for s in rows
         ]

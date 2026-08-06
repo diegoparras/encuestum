@@ -20,6 +20,13 @@ _SEGMENTABLE = _SINGLE_CHOICE | {"boolean"}
 def _elements(schema: dict) -> list[dict]:
     out: list[dict] = []
     for page in (schema or {}).get("pages", []) or []:
+        # `isinstance` también en la página, no sólo en el elemento: el `or []`
+        # cubre `null`, pero con un string o un número ahí `page.get(...)`
+        # levanta `AttributeError`. Antes reventaba el resumen de esa encuesta;
+        # ahora además tumbaría el selector LTI, que lista veinte encuestas de
+        # una y perdería las diecinueve sanas por culpa de una rota.
+        if not isinstance(page, dict):
+            continue
         for el in page.get("elements", []) or []:
             if isinstance(el, dict):
                 out.append(el)
