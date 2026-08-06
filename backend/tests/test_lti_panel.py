@@ -458,9 +458,15 @@ async def sin_encuesta(monkeypatch, db_session):
         return {"pem": pem, "platform": platform, "survey": survey, "org_id": org_id}
 
 
-def _id_token_sin_custom(pem, nonce, resource_link_id, roles):
+_CONTEXTO_NORMAL = {"id": "course-sin", "title": "Historia 3°B"}
+
+
+def _id_token_sin_custom(pem, nonce, resource_link_id, roles, context=_CONTEXTO_NORMAL):
     """Un `LtiResourceLinkRequest` normal, SIN el claim `custom`: es lo que
-    manda Moodle cuando la actividad nunca pasó por deep linking."""
+    manda Moodle cuando la actividad nunca pasó por deep linking.
+
+    `context` se puede pasar con cualquier cosa adentro para probar qué hace el
+    lanzamiento con un claim que no respeta la forma esperada."""
     now = int(time.time())
     return jwt.encode(
         {
@@ -472,7 +478,7 @@ def _id_token_sin_custom(pem, nonce, resource_link_id, roles):
             CLAIM["DEPLOYMENT_ID"]: "1",
             CLAIM["TARGET_LINK_URI"]: "https://encuestum.test/lti/launch",
             CLAIM["RESOURCE_LINK"]: {"id": resource_link_id},
-            CLAIM["CONTEXT"]: {"id": "course-sin", "title": "Historia 3°B"},
+            CLAIM["CONTEXT"]: context,
             CLAIM["ROLES"]: roles,
         },
         pem,
@@ -481,7 +487,7 @@ def _id_token_sin_custom(pem, nonce, resource_link_id, roles):
     )
 
 
-def _lanzar(client, setup, resource_link_id, roles):
+def _lanzar(client, setup, resource_link_id, roles, context=_CONTEXTO_NORMAL):
     login = client.post(
         "/lti/login",
         data={"iss": ISSUER_SIN, "client_id": CLIENT_ID_SIN, "login_hint": "1",
@@ -489,7 +495,8 @@ def _lanzar(client, setup, resource_link_id, roles):
         follow_redirects=False,
     )
     q = parse_qs(urlparse(login.headers["location"]).query)
-    token = _id_token_sin_custom(setup["pem"], q["nonce"][0], resource_link_id, roles)
+    token = _id_token_sin_custom(setup["pem"], q["nonce"][0], resource_link_id, roles,
+                                 context=context)
     return client.post(
         "/lti/launch",
         data={"id_token": token, "state": q["state"][0]},
@@ -506,11 +513,12 @@ def _token_de_vinculo(respuesta) -> str:
 def registered_sin_link(sin_encuesta):
     """Lanza la actividad sin encuesta con los roles pedidos y devuelve
     `(status, location-o-cuerpo)`."""
-    def _lanzamiento(rol: str | None = None, roles: list | None = None):
+    def _lanzamiento(rol: str | None = None, roles: list | None = None,
+                     context=_CONTEXTO_NORMAL):
         if roles is None:
             roles = [f"{NS_CONTEXTO}#{rol}"]
         rl = f"rl-{uuid.uuid4().hex[:8]}"
-        r = _lanzar(_cliente(), sin_encuesta, rl, roles)
+        r = _lanzar(_cliente(), sin_encuesta, rl, roles, context=context)
         return r.status_code, (r.headers.get("location") if r.status_code == 302 else r.text)
 
     return _lanzamiento
@@ -587,6 +595,37 @@ async def test_un_admin_del_sitio_ve_el_selector(lti_on, registered_sin_link):
         roles=["http://purl.imsglobal.org/vocab/lis/v2/system/person#Administrator"]
     )
     assert code == 302, loc
+
+
+@pytest.mark.asyncio
+async def test_un_admin_de_la_institucion_no_ve_el_selector(lti_on, registered_sin_link):
+    """`institution/person#Administrator` no está acotado ni al curso ni al
+    sitio: es "administrador de la institución", que en otra plataforma puede
+    ser alguien sin ningún permiso sobre esta actividad.
+
+    Moodle lo manda siempre junto con el de sistema, así que excluirlo no le
+    quita el selector a ningún admin de Moodle -- lo comprueba el test de
+    arriba, que pasa con el rol de sistema solo."""
+    code, _ = registered_sin_link(
+        roles=["http://purl.imsglobal.org/vocab/lis/v2/institution/person#Administrator"]
+    )
+    assert code == 404
+
+
+@pytest.mark.asyncio
+async def test_un_context_que_no_es_dict_no_revienta_el_lanzamiento(
+    lti_on, registered_sin_link
+):
+    """Una plataforma rota u hostil puede mandar cualquier cosa en el claim de
+    contexto. `(claims.get(...) or {}).get("id")` sólo cubre `None`: con un
+    string ahí, `"x".get("id")` levanta `AttributeError` y el lanzamiento
+    termina en 500 en vez de seguir sin título de curso."""
+    code, loc = registered_sin_link(
+        roles=[f"{NS_CONTEXTO}#Instructor"],
+        context="no soy un diccionario",
+    )
+    assert code == 302, loc
+    assert "/lti-select?" in loc
 
 
 @pytest.mark.asyncio

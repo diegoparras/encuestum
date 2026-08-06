@@ -376,7 +376,7 @@ async def _link_from_deep_link_claims(
     if survey.org_id != platform.org_id:
         return None
 
-    context_id = (claims.get(CLAIM["CONTEXT"]) or {}).get("id")
+    context_id = _contexto(claims).get("id")
     if not isinstance(context_id, str):
         context_id = None
 
@@ -419,12 +419,18 @@ async def _link_from_deep_link_claims(
 # el administrador del curso, no el del sitio (ese llega por `_ADMINS_GLOBALES`).
 _ROLES_QUE_CONFIGURAN = frozenset({"Instructor", "ContentDeveloper", "Administrator"})
 _NS_ROL_DE_CONTEXTO = "http://purl.imsglobal.org/vocab/lis/v2/membership"
-# Administradores del sitio o de la institución: no forman parte del curso (no
-# tienen rol de contexto), pero pueden editar la actividad igual. Moodle manda
-# el primero de los dos para el admin del sitio.
+# Administrador DEL SITIO: no forma parte del curso (no tiene rol de contexto)
+# pero puede editar cualquier actividad. Es el que manda Moodle cuando el que
+# lanza es `is_siteadmin()`.
+#
+# `institution/person#Administrator` NO está acá a propósito: significa
+# "administrador de la institución", sin acotar a este curso ni a este sitio.
+# Moodle lo manda junto con el de sistema en la misma rama, así que sacarlo no
+# le quita el selector a nadie en Moodle -- pero en otra plataforma habilitaría
+# a alguien sin permiso sobre la actividad. El criterio es el mismo que ya se
+# aplica a `institution/person#Instructor`, que tampoco cuenta como docente.
 _ADMINS_GLOBALES = frozenset({
     "http://purl.imsglobal.org/vocab/lis/v2/system/person#Administrator",
-    "http://purl.imsglobal.org/vocab/lis/v2/institution/person#Administrator",
 })
 
 
@@ -474,12 +480,21 @@ def _puede_elegir_la_encuesta(claims: dict) -> bool:
     return False
 
 
-def _titulo_de_contexto(claims: dict) -> str | None:
-    """El título del curso del lanzamiento, normalizado al largo de la columna.
+def _contexto(claims: dict) -> dict:
+    """El claim de contexto del lanzamiento, o `{}` si no vino o no es un dict.
 
-    `or {}` sobre el `.get(...)` entero: una plataforma que mande un `context`
-    que no sea dict no tiene que reventar el lanzamiento."""
-    titulo = (claims.get(CLAIM["CONTEXT"]) or {}).get("title")
+    `or {}` sobre el `.get(...)` sólo cubre `None` y los falsy: si una
+    plataforma manda un `context` que es un string, `"x".get("id")` levanta
+    `AttributeError` y el lanzamiento termina en 500. El `id_token` viene
+    firmado, así que hace falta una plataforma rota u hostil -- pero cubrirlo
+    cuesta esta función."""
+    contexto = claims.get(CLAIM["CONTEXT"])
+    return contexto if isinstance(contexto, dict) else {}
+
+
+def _titulo_de_contexto(claims: dict) -> str | None:
+    """El título del curso del lanzamiento, normalizado al largo de la columna."""
+    titulo = _contexto(claims).get("title")
     if isinstance(titulo, str) and titulo.strip():
         return titulo.strip()[:255]
     return None
@@ -546,7 +561,7 @@ async def _resource_link_redirect(claims, platform, user, session):
                 status_code=404,
                 detail="Esta actividad todavía no tiene una encuesta asignada.",
             )
-        contexto_id = (claims.get(CLAIM["CONTEXT"]) or {}).get("id")
+        contexto_id = _contexto(claims).get("id")
         token = create_purpose_token(
             LINK_PURPOSE,
             {
