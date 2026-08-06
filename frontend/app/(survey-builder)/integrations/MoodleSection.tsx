@@ -52,6 +52,14 @@ import { Input } from "@/components/ui/input";
 // la interpola en vez de reescribirla en cada idioma.
 const PALABRA_CONFIRMACION = "aceptar";
 
+// `t()` no sabe pluralizar, y acá el singular no es un caso raro: un Moodle
+// recién conectado tiene una sola actividad, y una actividad recién publicada
+// una sola respuesta. Sin esto el modal obligatorio diría "Se rompe su 1
+// actividades". Cada clave con contador tiene su variante `...One`.
+function claveSegunCantidad(clave: string, n: number): string {
+  return n === 1 ? `${clave}One` : clave;
+}
+
 // El dominio del LMS, que es lo que un administrador reconoce. El `issuer` es
 // una URL completa; si alguna plataforma mandara algo que no parsea, se
 // muestra crudo antes que nada.
@@ -151,7 +159,12 @@ export default function MoodleSection() {
         [p.id]: err instanceof Error ? err.message : t("integrations.moodle.links.error"),
       }));
     } finally {
-      setCargandoLinks(null);
+      // Sólo si el que termina es el que se está esperando. Con dos plataformas
+      // desplegadas casi a la vez, limpiar incondicionalmente hacía que al
+      // terminar la primera la segunda dejara de mostrarse "cargando" y pintara
+      // "ninguna actividad usa todavía una encuesta" — justo el mensaje que
+      // esta sección existe para no equivocar.
+      setCargandoLinks((actual) => (actual === p.id ? null : actual));
     }
   }
 
@@ -266,8 +279,10 @@ export default function MoodleSection() {
                           {t("integrations.moodle.list.connectedOn", { date: fecha(p.created_at) })}
                         </p>
                         <p className="mt-1 text-xs text-neutral-500 dark:text-neutral-400">
-                          {t("integrations.moodle.list.activities", { count: p.activities })} ·{" "}
-                          {t("integrations.moodle.list.responses", { count: p.responses })}
+                          {t(claveSegunCantidad("integrations.moodle.list.activities", p.activities),
+                             { count: p.activities })} ·{" "}
+                          {t(claveSegunCantidad("integrations.moodle.list.responses", p.responses),
+                             { count: p.responses })}
                         </p>
                       </div>
                       <div className="flex shrink-0 flex-wrap items-center gap-2">
@@ -335,7 +350,8 @@ export default function MoodleSection() {
                                     respuestas sin nota apuntan acá. */}
                                 <p className="text-xs font-medium text-neutral-700 dark:text-neutral-300">
                                   {l.responses > 0
-                                    ? t("integrations.moodle.links.responses", { count: l.responses })
+                                    ? t(claveSegunCantidad("integrations.moodle.links.responses",
+                                                           l.responses), { count: l.responses })
                                     : t("integrations.moodle.links.noResponses")}
                                   {l.last_response_at
                                     ? ` · ${t("integrations.moodle.links.last", {
@@ -423,7 +439,10 @@ function ModalDesconectar({
   const { t } = useI18n();
   const [confirmacion, setConfirmacion] = useState("");
   const [desconectando, setDesconectando] = useState(false);
-  const puedeDesconectar = confirmacion.trim().toLowerCase() === "aceptar";
+  // Contra la constante, no contra el literal: son lo mismo hoy, pero si
+  // alguien cambia la constante, la pantalla pediría una palabra y el botón
+  // aceptaría otra.
+  const puedeDesconectar = confirmacion.trim().toLowerCase() === PALABRA_CONFIRMACION;
 
   async function onConfirmar() {
     if (!puedeDesconectar) return;
@@ -441,7 +460,13 @@ function ModalDesconectar({
   }
 
   return (
-    <div className="fixed inset-0 z-[70] grid place-items-center bg-black/40 p-4" onClick={onClose}>
+    // El backdrop no cierra mientras el DELETE está en vuelo: si cerrara y el
+    // borrado igual saliera bien, la fila seguiría en pantalla hasta recargar y
+    // el siguiente intento daría 404. Mismo criterio que el botón Cancelar.
+    <div
+      className="fixed inset-0 z-[70] grid place-items-center bg-black/40 p-4"
+      onClick={() => { if (!desconectando) onClose(); }}
+    >
       <div
         className="w-full max-w-md rounded-2xl bg-white shadow-2xl dark:bg-neutral-900"
         onClick={(e) => e.stopPropagation()}
@@ -458,10 +483,12 @@ function ModalDesconectar({
             {plataforma.name?.trim() || dominio(plataforma.issuer)}
           </p>
           <p>
-            {t("integrations.moodle.disconnect.breaks", { count: plataforma.activities })}
+            {t(claveSegunCantidad("integrations.moodle.disconnect.breaks", plataforma.activities),
+               { count: plataforma.activities })}
           </p>
           <p className="rounded-lg border border-neutral-200 bg-neutral-50 px-3 py-2 text-xs dark:border-neutral-800 dark:bg-neutral-950">
-            {t("integrations.moodle.disconnect.kept", { count: plataforma.responses })}
+            {t(claveSegunCantidad("integrations.moodle.disconnect.kept", plataforma.responses),
+               { count: plataforma.responses })}
           </p>
           <div className="space-y-1.5">
             <p className="text-xs text-neutral-500 dark:text-neutral-400">

@@ -1541,15 +1541,17 @@ async def disconnect_platform(
     Las respuestas ya recibidas NO se borran: se ponen a mano en el estado
     que la FK promete (`SurveyResponse.lti_link_id` declarado
     `ondelete="SET NULL"`) en vez de confiar en que el motor lo aplique solo.
-    SQLite -- el motor por default de este mismo backend, ver `app/db.py` --
-    no aplica ningún `ON DELETE` a menos que la conexión prenda
-    `PRAGMA foreign_keys`, cosa que este proyecto no hace en ningún lado; sin
-    este bloque, borrar la plataforma en SQLite dejaría los vínculos
-    colgando (apuntando a una plataforma que ya no existe) y las respuestas
-    con un `lti_link_id` que apunta a un vínculo que tampoco se borró. Los
-    tres pasos de abajo reproducen a mano lo que la declaración promete, así
-    que valen en cualquiera de los dos motores (acá y en Postgres, donde el
-    `ON DELETE` del motor los volvería no-ops)."""
+    SQLite -- el motor por default de este mismo backend -- no aplica ningún
+    `ON DELETE` a menos que la conexión prenda `PRAGMA foreign_keys`. Hoy
+    `app/db.py` lo prende, pero eso llegó DESPUÉS de este bloque y es una
+    línea que alguien puede sacar sin darse cuenta de qué se lleva puesto: el
+    día que se saque, borrar la plataforma en SQLite dejaría los vínculos
+    colgando y las respuestas apuntando a un vínculo que tampoco se borró.
+
+    Los tres pasos de abajo reproducen a mano lo que la declaración promete,
+    así que valen en cualquiera de los dos motores y no dependen del PRAGMA
+    (en Postgres, y en SQLite con el PRAGMA prendido, el `ON DELETE` del motor
+    los vuelve no-ops)."""
     _exigir_admin(ctx)
     p = await _plataforma_de_la_org(session, ctx, platform_id)
 
