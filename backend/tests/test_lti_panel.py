@@ -273,6 +273,101 @@ async def test_no_se_puede_desconectar_una_plataforma_ajena(lti_on, db_session):
     assert cliente.delete(f"/api/v1/lti/platforms/{pid}").status_code == 404
 
 
+@pytest.mark.asyncio
+async def test_no_se_pueden_ver_los_vinculos_de_una_plataforma_ajena(lti_on, db_session):
+    """El listado filtra por organización; el detalle tiene que filtrar igual.
+
+    Sin este test, cambiar `_plataforma_de_la_org` por un `session.get` en
+    `list_platform_links` deja la suite en verde mientras el endpoint sirve
+    títulos de encuestas, nombres de curso e identificadores de actividad de
+    otra organización a cualquiera que adivine un UUID."""
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
+    cliente = TestClient(app, base_url="https://testserver")
+    cliente.post("/api/v1/auth/register", json={
+        "email": "cuarto@escuela-panel.example.com", "password": "Clave#2026segura",
+        "name": "Cuarto", "org_name": "Escuela E"})
+
+    async with db_session() as session:
+        ajena = LtiPlatform(issuer="https://moodle.espia", client_id="cid-e",
+                            deployment_ids=["1"], auth_login_url="https://moodle.espia/a",
+                            auth_token_url="https://moodle.espia/t",
+                            jwks_url="https://moodle.espia/j",
+                            org_id=await crear_org(session, "Escuela ajena E"))
+        session.add(ajena)
+        await session.commit()
+        pid = str(ajena.id)
+
+    r = cliente.get(f"/api/v1/lti/platforms/{pid}/links")
+    assert r.status_code == 404, "una plataforma ajena no debe existir para esta org"
+
+
+@pytest.mark.asyncio
+async def test_los_contadores_incluyen_los_vinculos_sin_respuestas(lti_on, db_session):
+    """Los conteos salen de consultas agrupadas, y un `GROUP BY` descarta la
+    fila que no tiene nada que contar. Un vínculo sin respuestas tiene que
+    aparecer igual, con cero y sin fecha -- no faltar de la lista ni traer
+    claves ausentes."""
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+    from app.models import LtiUser, SurveyResponse
+
+    cliente = TestClient(app, base_url="https://testserver")
+    cliente.post("/api/v1/auth/register", json={
+        "email": "quinto@escuela-panel.example.com", "password": "Clave#2026segura",
+        "name": "Quinto", "org_name": "Escuela F"})
+    org = uuid.UUID(cliente.get("/api/v1/auth/me").json()["orgs"][0]["id"])
+
+    async with db_session() as session:
+        p = LtiPlatform(issuer="https://moodle.conteo", client_id="cid-f",
+                        deployment_ids=["1"], auth_login_url="https://moodle.conteo/a",
+                        auth_token_url="https://moodle.conteo/t",
+                        jwks_url="https://moodle.conteo/j", org_id=org)
+        session.add(p)
+        s = Survey(org_id=org, title="Encuesta contada", json_schema={})
+        session.add(s)
+        await session.commit()
+        con = LtiResourceLink(platform_id=p.id, resource_link_id="rl-con",
+                              survey_id=s.id, context_title="Historia 3°B")
+        sin = LtiResourceLink(platform_id=p.id, resource_link_id="rl-sin", survey_id=s.id)
+        session.add(con)
+        session.add(sin)
+        # Un LtiUser para comprobar que desconectar también borra la identidad
+        # cacheada del alumno en el LMS, no sólo los vínculos.
+        session.add(LtiUser(platform_id=p.id, sub="u-conteo",
+                            email="alumno@escuela-panel.example.com"))
+        await session.commit()
+        for _ in range(2):
+            session.add(SurveyResponse(survey_id=s.id, answers={"q": "a"},
+                                       lti_link_id=con.id, lti_sub="u-conteo"))
+        await session.commit()
+        pid = str(p.id)
+
+    lista = cliente.get("/api/v1/lti/platforms").json()
+    fila = next(x for x in lista if x["issuer"] == "https://moodle.conteo")
+    assert fila["activities"] == 2, "los dos vínculos cuentan, tengan respuestas o no"
+    assert fila["responses"] == 2
+
+    detalle = cliente.get(f"/api/v1/lti/platforms/{pid}/links").json()
+    por_rl = {d["resource_link_id"]: d for d in detalle}
+    assert set(por_rl) == {"rl-con", "rl-sin"}, "el vínculo sin respuestas no debe faltar"
+    assert por_rl["rl-con"]["responses"] == 2
+    assert por_rl["rl-con"]["last_response_at"] is not None
+    assert por_rl["rl-con"]["context_title"] == "Historia 3°B"
+    assert por_rl["rl-sin"]["responses"] == 0
+    assert por_rl["rl-sin"]["last_response_at"] is None
+
+    assert cliente.delete(f"/api/v1/lti/platforms/{pid}").status_code == 204
+
+    async with db_session() as session:
+        usuarios = (await session.scalars(
+            select(LtiUser).where(LtiUser.platform_id == uuid.UUID(pid)))).all()
+        assert usuarios == [], "desconectar debe borrar la identidad cacheada del LMS"
+
+
 def test_config_expone_si_lti_esta_activo(lti_on):
     from fastapi.testclient import TestClient
 
