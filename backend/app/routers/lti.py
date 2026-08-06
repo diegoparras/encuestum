@@ -17,7 +17,7 @@ from app.config import get_settings
 from app.db import get_session
 from app.deps import OrgContext, current_context
 from app.lti.ags import ALL_SCOPES
-from app.lti.deeplink import DL_PURPOSE, build_response_jwt
+from app.lti.deeplink import DL_PURPOSE, LINK_PURPOSE, build_response_jwt
 from app.lti.keys import get_tool_key, public_jwk
 from app.lti.state import (
     ACCESS_TTL_S,
@@ -415,6 +415,76 @@ async def _link_from_deep_link_claims(
     return link
 
 
+# Roles DEL CURSO que habilitan configurar la actividad. `Administrator` acá es
+# el administrador del curso, no el del sitio (ese llega por `_ADMINS_GLOBALES`).
+_ROLES_QUE_CONFIGURAN = frozenset({"Instructor", "ContentDeveloper", "Administrator"})
+_NS_ROL_DE_CONTEXTO = "http://purl.imsglobal.org/vocab/lis/v2/membership"
+# Administradores del sitio o de la institución: no forman parte del curso (no
+# tienen rol de contexto), pero pueden editar la actividad igual. Moodle manda
+# el primero de los dos para el admin del sitio.
+_ADMINS_GLOBALES = frozenset({
+    "http://purl.imsglobal.org/vocab/lis/v2/system/person#Administrator",
+    "http://purl.imsglobal.org/vocab/lis/v2/institution/person#Administrator",
+})
+
+
+def _rol_de_contexto(rol: str) -> str | None:
+    """El rol de curso principal que expresa `rol`, o `None` si no expresa uno.
+
+    LTI 1.3 admite tres formas para el mismo rol de contexto:
+
+        Instructor                                       (nombre simple)
+        .../vocab/lis/v2/membership#Instructor           (URI completa)
+        .../vocab/lis/v2/membership/Instructor#Grader    (sub-rol)
+
+    En la tercera, el rol principal es lo que va ANTES del `#`; el sufijo es
+    apenas la especialización. Por eso esto parsea y no mira cómo termina la
+    cadena: `.../membership/Learner#Instructor` es un sub-rol de **Learner**
+    -- un alumno, punto -- y un `endswith("#Instructor")` lo daría por docente.
+    Las URIs de otros vocabularios (`institution/person#...`,
+    `system/person#...`, o cualquier cosa que mande una plataforma) no son
+    roles de contexto y devuelven `None`."""
+    rol = rol.strip()
+    if "#" not in rol:
+        # Los nombres simples sólo son válidos para roles de contexto.
+        return rol or None
+    prefijo, _, sufijo = rol.rpartition("#")
+    if prefijo == _NS_ROL_DE_CONTEXTO:
+        return sufijo
+    if prefijo.startswith(f"{_NS_ROL_DE_CONTEXTO}/"):
+        return prefijo[len(_NS_ROL_DE_CONTEXTO) + 1:]
+    return None
+
+
+def _puede_elegir_la_encuesta(claims: dict) -> bool:
+    """Si quien lanzó puede configurar la actividad desde el LMS.
+
+    Es la única barrera entre un alumno y el selector, así que ante cualquier
+    duda -- claim ausente, no-lista, entradas que no son strings -- da False."""
+    roles = claims.get(CLAIM["ROLES"])
+    if not isinstance(roles, list):
+        return False
+    for rol in roles:
+        if not isinstance(rol, str):
+            continue
+        if rol.strip() in _ADMINS_GLOBALES:
+            return True
+        if _rol_de_contexto(rol) in _ROLES_QUE_CONFIGURAN:
+            return True
+    return False
+
+
+def _titulo_de_contexto(claims: dict) -> str | None:
+    """El título del curso del lanzamiento, normalizado al largo de la columna.
+
+    `or {}` sobre el `.get(...)` entero: una plataforma que mande un `context`
+    que no sea dict no tiene que reventar el lanzamiento."""
+    titulo = (claims.get(CLAIM["CONTEXT"]) or {}).get("title")
+    if isinstance(titulo, str) and titulo.strip():
+        return titulo.strip()[:255]
+    return None
+
+
 async def _resource_link_redirect(claims, platform, user, session):
     """Lanzamiento normal: buscar la encuesta atada a esta actividad y entrar.
 
@@ -460,10 +530,46 @@ async def _resource_link_redirect(claims, platform, user, session):
         # puede, es el mismo 404 de siempre.
         link = await _link_from_deep_link_claims(claims, platform, resource_link_id, session)
     if link is None:
-        raise HTTPException(
-            status_code=404,
-            detail="Esta actividad todavía no tiene una encuesta asignada.",
+        # El deep linking es el camino recomendado, pero nada obliga al docente
+        # a usar "Seleccionar contenido": puede guardar la actividad y salir, y
+        # entonces no hay ni `custom.survey_id` ni fila que crear. Si quien
+        # entra puede arreglarlo, se le ofrece el selector en vez del error.
+        #
+        # A un alumno NO: el vínculo se crea de este lado (`select_link` más
+        # abajo), así que la encuesta que eligiera quedaría atada a la
+        # actividad de todo el curso, sin ningún error visible para nadie --
+        # el docente vería la actividad "ya configurada" con lo que puso un
+        # alumno. Por eso el 404 sigue siendo la respuesta por defecto y el
+        # selector la excepción.
+        if not _puede_elegir_la_encuesta(claims):
+            raise HTTPException(
+                status_code=404,
+                detail="Esta actividad todavía no tiene una encuesta asignada.",
+            )
+        contexto_id = (claims.get(CLAIM["CONTEXT"]) or {}).get("id")
+        token = create_purpose_token(
+            LINK_PURPOSE,
+            {
+                "platform_id": str(platform.id),
+                "resource_link_id": resource_link_id,
+                # El contexto viaja en el token porque `select_link` no ve el
+                # lanzamiento: es la única forma de que el vínculo que se cree
+                # ahí quede con el curso, igual que el que crea
+                # `_link_from_deep_link_claims`.
+                "context_id": contexto_id if isinstance(contexto_id, str) else None,
+                "context_title": _titulo_de_contexto(claims),
+            },
+            ttl_minutes=STATE_TTL_S / 60,
         )
+        # Ojo con la ruta: el selector lo sirve Next.js en /lti-select, fuera
+        # del espacio /lti/ que nginx manda entero al backend.
+        resp = RedirectResponse(f"/lti-select?{urlencode({'link': token})}", status_code=302)
+        # Mismos atributos con los que se escribió la cookie (SameSite=None;
+        # Secure): esta respuesta también cierra un form-POST cross-site, y sin
+        # ellos el navegador descarta el Set-Cookie de borrado (mismo motivo
+        # que en las otras dos salidas de `launch`).
+        resp.delete_cookie(LTI_STATE_COOKIE, **_lti_cookie_kwargs())
+        return resp
 
     # Guardamos los endpoints de notas que vengan en este lanzamiento: pueden
     # cambiar si el docente reconfigura la actividad.
@@ -473,19 +579,11 @@ async def _resource_link_redirect(claims, platform, user, session):
     if ags.get("lineitems"):
         link.lineitems_url = ags["lineitems"]
     # El título del curso puede cambiar en Moodle; se refresca en cada
-    # lanzamiento igual que los endpoints de notas.
-    #
-    # `or {}` sobre el `.get(...)` entero, no sobre el resultado -- mismo
-    # patrón defensivo que ya usa `_link_from_deep_link_claims` un poco más
-    # arriba para el mismo claim (`context_id`). El `id_token` está validado
-    # por firma, así que hoy esto es cosmético; pero si una plataforma manda
-    # un `context` que no es un dict, `contexto.get("title")` con `contexto`
-    # asignado ANTES del `or {}` reventaría con AttributeError -- un 500 en
-    # el lanzamiento por una inconsistencia evitable entre dos lugares de la
-    # misma función que leen el mismo claim.
-    titulo = (claims.get(CLAIM["CONTEXT"]) or {}).get("title")
-    if isinstance(titulo, str) and titulo.strip():
-        link.context_title = titulo.strip()[:255]
+    # lanzamiento igual que los endpoints de notas. Sólo si vino algo usable:
+    # un lanzamiento sin título no debe borrar el que ya estaba guardado.
+    titulo = _titulo_de_contexto(claims)
+    if titulo:
+        link.context_title = titulo
     session.add(link)
     await session.commit()
 
@@ -576,10 +674,48 @@ async def _dl_platform(session: AsyncSession, dl: str) -> tuple[LtiPlatform, dic
     return platform, data
 
 
+async def _link_platform(session: AsyncSession, link: str) -> tuple[LtiPlatform, dict]:
+    """La plataforma detrás de un token de vínculo. Gemela de `_dl_platform`.
+
+    Lo único que cambia es el propósito, y ese es justamente el punto:
+    `read_purpose_token` compara el `purpose` del token contra el que se le
+    pide, así que un token de deep linking leído acá devuelve `None` (y uno de
+    vínculo leído en `_dl_platform`, también). Ninguno de los dos sirve para lo
+    del otro, aunque los dos nombren la misma plataforma."""
+    datos = read_purpose_token(LINK_PURPOSE, link or "")
+    if not datos:
+        raise HTTPException(status_code=400, detail="Sesión de selección vencida.")
+    try:
+        platform_id = uuid.UUID(datos["platform_id"])
+    except (KeyError, TypeError, ValueError) as exc:
+        raise HTTPException(status_code=400, detail="Sesión de selección vencida.") from exc
+    platform = await session.get(LtiPlatform, platform_id)
+    if platform is None:
+        raise HTTPException(status_code=400, detail="Plataforma LTI no registrada.")
+    return platform, datos
+
+
 @router.get("/select/surveys", dependencies=[Depends(require_lti)])
-async def select_surveys(dl: str, session: AsyncSession = Depends(get_session)) -> dict:
-    """Encuestas publicadas de la organización atada a esta plataforma."""
-    platform, _ = await _dl_platform(session, dl)
+async def select_surveys(
+    dl: str | None = None,
+    link: str | None = None,
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """Encuestas publicadas de la organización atada a esta plataforma.
+
+    El selector se abre en dos situaciones y cada una trae su propio token:
+    `dl` cuando la plataforma pidió un content item (deep linking) y `link`
+    cuando un docente entró a una actividad que todavía no tiene encuesta. Los
+    dos resuelven una plataforma y el listado queda acotado igual a la
+    organización de ESA plataforma -- lo que no se puede es usar uno en lugar
+    del otro (ver `_link_platform`). Sin este segundo camino, el docente
+    llegaría al selector y lo vería vacío."""
+    if dl:
+        platform, _ = await _dl_platform(session, dl)
+    elif link:
+        platform, _ = await _link_platform(session, link)
+    else:
+        raise HTTPException(status_code=400, detail="Falta la sesión de selección.")
     rows = (
         await session.scalars(
             select(Survey)
@@ -602,6 +738,92 @@ async def select_surveys(dl: str, session: AsyncSession = Depends(get_session)) 
             for s in rows
         ]
     }
+
+
+class LinkReturn(BaseModel):
+    link: str
+    survey_id: uuid.UUID
+    anonymous: bool = False
+
+
+@router.post("/select/link", dependencies=[Depends(require_lti)])
+async def select_link(
+    payload: LinkReturn,
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """Vincula la encuesta elegida a la actividad desde la que se llegó y
+    devuelve a dónde ir.
+
+    A diferencia de `/select/return`, acá no se le firma nada a la plataforma:
+    el vínculo se guarda de este lado. Quién puede llegar a este endpoint lo
+    decide enteramente el token, que sólo se mintea en la rama de docente de
+    `_resource_link_redirect` -- y con él vienen la plataforma y el
+    `resource_link_id`, que por eso no se aceptan como parámetros sueltos."""
+    platform, datos = await _link_platform(session, payload.link)
+
+    survey = await session.get(Survey, payload.survey_id)
+    if survey is None or survey.deleted_at is not None or survey.org_id != platform.org_id:
+        # Mismo 404 para "no existe" y "no es de tu organización", igual que
+        # `select_return`: distinguirlos revelaría que esa encuesta existe en
+        # otro tenant.
+        raise HTTPException(status_code=404, detail="Encuesta no encontrada.")
+
+    resource_link_id = datos.get("resource_link_id")
+    if not isinstance(resource_link_id, str) or not resource_link_id:
+        raise HTTPException(status_code=400, detail="Sesión de selección vencida.")
+
+    # Todo lo que hace falta después del commit se captura ACÁ, antes de
+    # intentarlo: si el commit choca hay que hacer `session.rollback()`, y ese
+    # rollback expira TODOS los objetos del identity map de la sesión --
+    # `platform` y `survey` incluidas, no sólo la fila que se intentó
+    # insertar. Leer cualquier atributo suyo después reventaría con
+    # `MissingGreenlet` (mismo hallazgo que en `_upsert_lti_user` y
+    # `_link_from_deep_link_claims`, ver los docstrings de ahí).
+    platform_id = platform.id
+    survey_id = survey.id
+    slug = survey.slug
+
+    link = LtiResourceLink(
+        platform_id=platform_id,
+        resource_link_id=resource_link_id,
+        survey_id=survey_id,
+        context_id=datos.get("context_id"),
+        context_title=datos.get("context_title"),
+        anonymous=payload.anonymous,
+    )
+    session.add(link)
+    try:
+        await session.commit()
+    except IntegrityError:
+        # Dos docentes eligiendo a la vez sobre la misma actividad (o uno que
+        # volvió atrás y reenvió): choca contra `uq_lti_link`. Gana el primero
+        # y el segundo sigue con ese vínculo -- mismo patrón
+        # insert-then-reread que el resto de este módulo.
+        await session.rollback()
+        link = (
+            await session.scalars(
+                select(LtiResourceLink).where(
+                    LtiResourceLink.platform_id == platform_id,
+                    LtiResourceLink.resource_link_id == resource_link_id,
+                )
+            )
+        ).first()
+        if link is None:
+            # No era la carrera esperada (la fila no está) -- que salga el
+            # error real.
+            raise
+        if link.survey_id != survey_id:
+            # Ganó otra elección: el redirect tiene que llevar a la encuesta
+            # que efectivamente quedó atada, no a la que este pedido eligió y
+            # que no se guardó. Se relee de la base -- el objeto `survey` de
+            # arriba quedó expirado por el rollback y además ya no es el que
+            # corresponde.
+            ganadora = await session.get(Survey, link.survey_id)
+            if ganadora is None:
+                raise HTTPException(status_code=404, detail="Encuesta no encontrada.")
+            slug = ganadora.slug
+
+    return {"redirect": f"/s/{slug}"}
 
 
 class DeepLinkReturn(BaseModel):

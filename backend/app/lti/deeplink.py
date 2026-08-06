@@ -17,6 +17,15 @@ from app.models import LtiPlatform, Survey
 
 DL_PURPOSE = "lti_deeplink"
 
+# Elegir una encuesta para vincularla a una actividad que YA existe, en vez de
+# devolverle un content item a la plataforma. Propósito distinto -- y no un
+# campo más adentro del token de deep linking -- porque las dos operaciones no
+# tienen el mismo poder: `/lti/select/return` firma con la clave del tool algo
+# que la plataforma va a creer, y `/lti/select/link` crea el vínculo de este
+# lado sin firmar nada. `read_purpose_token` compara el propósito, así que un
+# token no sirve para lo del otro.
+LINK_PURPOSE = "lti_link"
+
 
 def build_response_jwt(
     *,
