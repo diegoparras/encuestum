@@ -470,6 +470,12 @@ async def _resource_link_redirect(claims, platform, user, session):
         link.lineitem_url = ags["lineitem"]
     if ags.get("lineitems"):
         link.lineitems_url = ags["lineitems"]
+    # El título del curso puede cambiar en Moodle; se refresca en cada
+    # lanzamiento igual que los endpoints de notas.
+    contexto = claims.get(CLAIM["CONTEXT"]) or {}
+    titulo = contexto.get("title")
+    if isinstance(titulo, str) and titulo.strip():
+        link.context_title = titulo.strip()[:255]
     session.add(link)
     await session.commit()
 
@@ -494,6 +500,7 @@ async def _resource_link_redirect(claims, platform, user, session):
             "sub": user_sub,
             "email": user_email,
             "name": user_name,
+            "anonymous": link.anonymous,
         },
         ttl_minutes=ACCESS_TTL_S / 60,
     )

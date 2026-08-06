@@ -260,6 +260,10 @@ async def _deliver(response_id: uuid.UUID) -> None:
             link = await session.get(LtiResourceLink, r.lti_link_id)
             if link is None:
                 return
+            # Vínculo anónimo: no se publica nota. Publicar un score por alumno
+            # es identificarlo, así que el anonimato y la nota son excluyentes.
+            if link.anonymous:
+                return
             platform = await session.get(LtiPlatform, link.platform_id)
             if platform is None:
                 return

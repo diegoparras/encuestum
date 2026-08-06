@@ -294,11 +294,15 @@ async def submit(
         data = read_purpose_token(_ACCESS_PURPOSE, payload.access_token or "") or {}
         resp_email, resp_code = data.get("email"), data.get("code")
 
+    # Un vínculo anónimo no guarda identidad: ni el sub de Moodle ni el email.
+    # Se conserva `lti_link_id` para saber de qué actividad vino (hace falta
+    # para el panel), pero eso no identifica a nadie.
+    anonimo = bool(lti and lti.get("anonymous"))
     r = SurveyResponse(
         survey_id=s.id, answers=payload.answers or {}, completed=payload.completed, meta=payload.meta,
-        respondent_email=resp_email, respondent_code=resp_code,
+        respondent_email=None if anonimo else resp_email, respondent_code=resp_code,
         lti_link_id=uuid.UUID(lti["link_id"]) if lti else None,
-        lti_sub=lti.get("sub") if lti else None,
+        lti_sub=None if anonimo else (lti.get("sub") if lti else None),
     )
     session.add(r)
 

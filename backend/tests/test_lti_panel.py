@@ -128,3 +128,49 @@ async def test_anonimato_default_de_la_base_es_falso(db_session):
         assert got is not None
         assert got.anonymous is False
         assert got.context_title is None
+
+
+@pytest.mark.asyncio
+async def test_deliver_no_publica_nota_si_el_vinculo_es_anonimo(monkeypatch, lti_on, db_session):
+    """Un vínculo anónimo no debe generar NINGUNA llamada saliente al LMS."""
+    import httpx
+
+    from app.lti.ags import _deliver
+    from app.models import LtiPlatform, Survey, SurveyResponse
+
+    llamadas = []
+
+    async def registrar(self, url, **kw):
+        llamadas.append(url)
+        return httpx.Response(200, json={}, request=httpx.Request("POST", url))
+
+    monkeypatch.setattr(httpx.AsyncClient, "post", registrar)
+    monkeypatch.setattr(httpx.AsyncClient, "get", registrar)
+
+    async with db_session() as session:
+        plataforma = LtiPlatform(
+            issuer="https://moodle.anon", client_id="cid", deployment_ids=["1"],
+            auth_login_url="https://moodle.anon/a", auth_token_url="https://moodle.anon/t",
+            jwks_url="https://moodle.anon/j", org_id=uuid.uuid4(),
+        )
+        session.add(plataforma)
+        await session.commit()
+        encuesta = Survey(org_id=plataforma.org_id, title="Clima", json_schema={})
+        session.add(encuesta)
+        await session.commit()
+        link = LtiResourceLink(
+            platform_id=plataforma.id, resource_link_id="rl-anon",
+            survey_id=encuesta.id, lineitem_url="https://moodle.anon/li", anonymous=True,
+        )
+        session.add(link)
+        await session.commit()
+        r = SurveyResponse(
+            survey_id=encuesta.id, answers={}, score=8.0, max_score=10.0,
+            lti_link_id=link.id, lti_sub="u-1",
+        )
+        session.add(r)
+        await session.commit()
+        rid = r.id
+
+    await _deliver(rid)
+    assert llamadas == [], f"un vínculo anónimo no debe llamar al LMS, llamó a {llamadas}"
