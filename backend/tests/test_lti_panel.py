@@ -174,3 +174,106 @@ async def test_deliver_no_publica_nota_si_el_vinculo_es_anonimo(monkeypatch, lti
 
     await _deliver(rid)
     assert llamadas == [], f"un vínculo anónimo no debe llamar al LMS, llamó a {llamadas}"
+
+
+@pytest.mark.asyncio
+async def test_el_listado_solo_muestra_plataformas_de_la_organizacion(lti_on, db_session):
+    """El aislamiento entre organizaciones es la propiedad crítica de este panel."""
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+    from app.models import LtiPlatform
+
+    cliente = TestClient(app, base_url="https://testserver")
+    cliente.post("/api/v1/auth/register", json={
+        "email": "duenio@escuela-panel.example.com", "password": "Clave#2026segura",
+        "name": "Dueño", "org_name": "Escuela A"})
+    mia = cliente.get("/api/v1/auth/me").json()["orgs"][0]["id"]
+
+    async with db_session() as session:
+        for org, issuer in ((uuid.UUID(mia), "https://moodle.mio"),
+                            (uuid.uuid4(), "https://moodle.ajeno")):
+            session.add(LtiPlatform(
+                issuer=issuer, client_id=f"cid-{issuer[-4:]}", deployment_ids=["1"],
+                auth_login_url=f"{issuer}/a", auth_token_url=f"{issuer}/t",
+                jwks_url=f"{issuer}/j", org_id=org))
+        await session.commit()
+
+    r = cliente.get("/api/v1/lti/platforms")
+    assert r.status_code == 200
+    issuers = [p["issuer"] for p in r.json()]
+    assert "https://moodle.mio" in issuers
+    assert "https://moodle.ajeno" not in issuers, "fuga entre organizaciones"
+
+
+@pytest.mark.asyncio
+async def test_desconectar_no_borra_las_respuestas(lti_on, db_session):
+    from fastapi.testclient import TestClient
+    from sqlmodel import select
+
+    from app.main import app
+    from app.models import LtiPlatform, Survey, SurveyResponse
+
+    cliente = TestClient(app, base_url="https://testserver")
+    cliente.post("/api/v1/auth/register", json={
+        "email": "otro@escuela-panel.example.com", "password": "Clave#2026segura",
+        "name": "Otro", "org_name": "Escuela B"})
+    org = uuid.UUID(cliente.get("/api/v1/auth/me").json()["orgs"][0]["id"])
+
+    async with db_session() as session:
+        p = LtiPlatform(issuer="https://moodle.borrar", client_id="cid-b",
+                        deployment_ids=["1"], auth_login_url="https://moodle.borrar/a",
+                        auth_token_url="https://moodle.borrar/t",
+                        jwks_url="https://moodle.borrar/j", org_id=org)
+        session.add(p)
+        s = Survey(org_id=org, title="Con respuestas", json_schema={})
+        session.add(s)
+        await session.commit()
+        link = LtiResourceLink(platform_id=p.id, resource_link_id="rl-b", survey_id=s.id)
+        session.add(link)
+        await session.commit()
+        session.add(SurveyResponse(survey_id=s.id, answers={"q": "a"},
+                                   lti_link_id=link.id, lti_sub="u-9"))
+        await session.commit()
+        pid, sid = str(p.id), s.id
+
+    assert cliente.delete(f"/api/v1/lti/platforms/{pid}").status_code == 204
+
+    async with db_session() as session:
+        quedan = (await session.scalars(
+            select(SurveyResponse).where(SurveyResponse.survey_id == sid))).all()
+        assert len(quedan) == 1, "desconectar no debe borrar respuestas"
+        assert quedan[0].lti_link_id is None, "el vínculo debe quedar en nulo"
+
+
+@pytest.mark.asyncio
+async def test_no_se_puede_desconectar_una_plataforma_ajena(lti_on, db_session):
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+    from app.models import LtiPlatform
+
+    cliente = TestClient(app, base_url="https://testserver")
+    cliente.post("/api/v1/auth/register", json={
+        "email": "tercero@escuela-panel.example.com", "password": "Clave#2026segura",
+        "name": "Tercero", "org_name": "Escuela C"})
+
+    async with db_session() as session:
+        ajena = LtiPlatform(issuer="https://moodle.otro", client_id="cid-c",
+                            deployment_ids=["1"], auth_login_url="https://moodle.otro/a",
+                            auth_token_url="https://moodle.otro/t",
+                            jwks_url="https://moodle.otro/j", org_id=uuid.uuid4())
+        session.add(ajena)
+        await session.commit()
+        pid = str(ajena.id)
+
+    assert cliente.delete(f"/api/v1/lti/platforms/{pid}").status_code == 404
+
+
+def test_config_expone_si_lti_esta_activo(lti_on):
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
+    d = TestClient(app, base_url="https://testserver").get("/api/v1/auth/config").json()
+    assert d["lti_enabled"] is True

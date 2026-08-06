@@ -7,6 +7,7 @@ from urllib.parse import urlencode, urlparse
 import httpx
 from fastapi import APIRouter, Depends, Form, HTTPException, Request
 from pydantic import BaseModel
+from sqlalchemy import delete as sa_delete, func, update as sa_update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
@@ -41,6 +42,7 @@ from app.models import (
     LtiUser,
     Organization,
     Survey,
+    SurveyResponse,
 )
 from app.net_guard import UnsafeUrlError, assert_public_url
 from app.security import create_purpose_token, read_purpose_token
@@ -1128,3 +1130,191 @@ async def registration_url(
     base = get_settings().public_base_url
     path = request.app.url_path_for("dynamic_registration")
     return RegistrationUrlOut(url=f"{base}{path}?{urlencode({'enc': token})}")
+
+
+async def _plataforma_de_la_org(session: AsyncSession, ctx: OrgContext, pid: uuid.UUID) -> LtiPlatform:
+    """La plataforma pedida, sólo si pertenece a la organización activa.
+
+    Una plataforma ajena devuelve 404, no 403: quién tiene qué LMS conectado no
+    es información que corresponda filtrar a otra organización."""
+    p = await session.get(LtiPlatform, pid)
+    if p is None or p.org_id != ctx.org.id:
+        raise HTTPException(status_code=404, detail="Plataforma no encontrada.")
+    return p
+
+
+def _exigir_admin(ctx: OrgContext) -> None:
+    if ROLE_RANK.get(ctx.role, 0) < ROLE_RANK[ROLE_ADMIN]:
+        raise HTTPException(status_code=403, detail="Necesitás ser admin de la organización.")
+
+
+@admin_router.get("/platforms", dependencies=[Depends(require_lti)])
+async def list_platforms(
+    ctx: OrgContext = Depends(current_context),
+    session: AsyncSession = Depends(get_session),
+) -> list[dict]:
+    """Los LMS conectados a esta organización, con cuántas actividades y
+    respuestas tiene cada uno.
+
+    Tres queries en total, sin importar cuántas plataformas tenga la
+    organización -- no una por plataforma: el conteo de actividades y el de
+    respuestas salen de un `GROUP BY` cada uno, en vez de repetir la consulta
+    por fila (lo que sí escalaría mal con muchas plataformas)."""
+    _exigir_admin(ctx)
+    plataformas = (
+        await session.scalars(
+            select(LtiPlatform)
+            .where(LtiPlatform.org_id == ctx.org.id)
+            .order_by(LtiPlatform.created_at.desc())
+        )
+    ).all()
+    ids = [p.id for p in plataformas]
+
+    conteo_actividades: dict[uuid.UUID, int] = {}
+    conteo_respuestas: dict[uuid.UUID, int] = {}
+    if ids:
+        conteo_actividades = dict(
+            (
+                await session.execute(
+                    select(LtiResourceLink.platform_id, func.count())
+                    .where(LtiResourceLink.platform_id.in_(ids))
+                    .group_by(LtiResourceLink.platform_id)
+                )
+            ).all()
+        )
+        conteo_respuestas = dict(
+            (
+                await session.execute(
+                    select(LtiResourceLink.platform_id, func.count(SurveyResponse.id))
+                    .join(SurveyResponse, SurveyResponse.lti_link_id == LtiResourceLink.id)
+                    .where(LtiResourceLink.platform_id.in_(ids))
+                    .group_by(LtiResourceLink.platform_id)
+                )
+            ).all()
+        )
+
+    return [
+        {
+            "id": str(p.id),
+            "issuer": p.issuer,
+            "name": p.name,
+            "created_at": p.created_at.isoformat(),
+            "activities": conteo_actividades.get(p.id, 0),
+            "responses": conteo_respuestas.get(p.id, 0),
+        }
+        for p in plataformas
+    ]
+
+
+@admin_router.get("/platforms/{platform_id}/links", dependencies=[Depends(require_lti)])
+async def list_platform_links(
+    platform_id: uuid.UUID,
+    ctx: OrgContext = Depends(current_context),
+    session: AsyncSession = Depends(get_session),
+) -> list[dict]:
+    """Qué encuesta se usa en qué curso, y cuántas respuestas llegaron por ahí.
+
+    Es lo que contesta "¿por qué no me llega la nota?": cero respuestas señala a
+    Moodle, respuestas sin nota señalan acá.
+
+    Mismo criterio que `list_platforms`: los conteos y el título de cada
+    encuesta salen de consultas agrupadas/por lote, no de una consulta por
+    vínculo."""
+    _exigir_admin(ctx)
+    p = await _plataforma_de_la_org(session, ctx, platform_id)
+
+    links = (
+        await session.scalars(
+            select(LtiResourceLink)
+            .where(LtiResourceLink.platform_id == p.id)
+            .order_by(LtiResourceLink.created_at.desc())
+        )
+    ).all()
+    link_ids = [link.id for link in links]
+    survey_ids = {link.survey_id for link in links}
+
+    agregados: dict[uuid.UUID, tuple[int, object]] = {}
+    if link_ids:
+        agregados = {
+            row[0]: (row[1], row[2])
+            for row in (
+                await session.execute(
+                    select(
+                        SurveyResponse.lti_link_id,
+                        func.count(),
+                        func.max(SurveyResponse.submitted_at),
+                    )
+                    .where(SurveyResponse.lti_link_id.in_(link_ids))
+                    .group_by(SurveyResponse.lti_link_id)
+                )
+            ).all()
+        }
+
+    titulos: dict[uuid.UUID, str] = {}
+    if survey_ids:
+        titulos = dict(
+            (
+                await session.execute(
+                    select(Survey.id, Survey.title).where(Survey.id.in_(survey_ids))
+                )
+            ).all()
+        )
+
+    salida = []
+    for link in links:
+        total, ultima = agregados.get(link.id, (0, None))
+        salida.append({
+            "id": str(link.id),
+            "survey_id": str(link.survey_id),
+            "survey_title": titulos.get(link.survey_id) or "Encuesta eliminada",
+            "context_title": link.context_title,
+            "resource_link_id": link.resource_link_id,
+            "anonymous": link.anonymous,
+            "responses": total,
+            "last_response_at": ultima.isoformat() if ultima else None,
+        })
+    return salida
+
+
+@admin_router.delete("/platforms/{platform_id}", status_code=204,
+                     dependencies=[Depends(require_lti)])
+async def disconnect_platform(
+    platform_id: uuid.UUID,
+    ctx: OrgContext = Depends(current_context),
+    session: AsyncSession = Depends(get_session),
+) -> None:
+    """Desconecta un LMS. Rompe todas sus actividades: los alumnos dejan de
+    entrar y las notas dejan de llegar.
+
+    Las respuestas ya recibidas NO se borran: se ponen a mano en el estado
+    que la FK promete (`SurveyResponse.lti_link_id` declarado
+    `ondelete="SET NULL"`) en vez de confiar en que el motor lo aplique solo.
+    SQLite -- el motor por default de este mismo backend, ver `app/db.py` --
+    no aplica ningún `ON DELETE` a menos que la conexión prenda
+    `PRAGMA foreign_keys`, cosa que este proyecto no hace en ningún lado; sin
+    este bloque, borrar la plataforma en SQLite dejaría los vínculos
+    colgando (apuntando a una plataforma que ya no existe) y las respuestas
+    con un `lti_link_id` que apunta a un vínculo que tampoco se borró. Los
+    tres pasos de abajo reproducen a mano lo que la declaración promete, así
+    que valen en cualquiera de los dos motores (acá y en Postgres, donde el
+    `ON DELETE` del motor los volvería no-ops)."""
+    _exigir_admin(ctx)
+    p = await _plataforma_de_la_org(session, ctx, platform_id)
+
+    link_ids = (
+        await session.scalars(
+            select(LtiResourceLink.id).where(LtiResourceLink.platform_id == p.id)
+        )
+    ).all()
+    if link_ids:
+        await session.execute(
+            sa_update(SurveyResponse)
+            .where(SurveyResponse.lti_link_id.in_(link_ids))
+            .values(lti_link_id=None)
+        )
+        await session.execute(
+            sa_delete(LtiResourceLink).where(LtiResourceLink.platform_id == p.id)
+        )
+    await session.execute(sa_delete(LtiUser).where(LtiUser.platform_id == p.id))
+    await session.delete(p)
+    await session.commit()

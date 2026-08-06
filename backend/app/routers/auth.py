@@ -78,9 +78,15 @@ def _safe_next(raw: str | None) -> str:
 
 @router.get("/config")
 async def auth_config():
-    """El frontend consulta esto para saber si mostrar el login local o el botón SSO."""
+    """El frontend consulta esto para saber si mostrar el login local o el botón SSO,
+    y si la integración con LMS está activa en este servidor."""
     s = get_settings()
-    return {"auth_mode": s.auth_mode, "sso": s.is_federated, "allow_registration": s.allow_registration}
+    return {
+        "auth_mode": s.auth_mode,
+        "sso": s.is_federated,
+        "allow_registration": s.allow_registration,
+        "lti_enabled": s.lti_enabled,
+    }
 
 
 @router.get("/sso/login")
