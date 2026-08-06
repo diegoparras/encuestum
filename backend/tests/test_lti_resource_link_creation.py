@@ -22,6 +22,7 @@ from jwt.algorithms import RSAAlgorithm
 from app.lti.validate import CLAIM
 from app.main import app
 from app.models import LtiPlatform, LtiResourceLink, Survey
+from tests.conftest import crear_org
 
 ISSUER = "https://moodle.reslink"
 CLIENT_ID = "cid-reslink"
@@ -60,17 +61,12 @@ async def setup(monkeypatch, db_session):
             )
         ).first()
         if previa is not None:
-            viejos = (
-                await session.scalars(
-                    _select(LtiResourceLink).where(LtiResourceLink.platform_id == previa.id)
-                )
-            ).all()
-            for v in viejos:
-                await session.delete(v)
+            # Ver la nota del fixture equivalente en test_lti_launch.py: el
+            # CASCADE de la FK se lleva los resource links, no hace falta a mano.
             await session.delete(previa)
             await session.commit()
 
-        org_id = uuid.uuid4()
+        org_id = await crear_org(session, "Escuela de resource links")
         survey = Survey(
             org_id=org_id, title="Quiz deep-linkeado", status="published",
             json_schema={"pages": []},
@@ -189,7 +185,8 @@ async def test_custom_survey_id_de_otra_org_no_crea_link_ni_revela_la_encuesta(
 
     async with db_session() as session:
         ajena = Survey(
-            org_id=uuid.uuid4(), title="Ajena", status="published",
+            org_id=await crear_org(session, "Ajena del custom claim"),
+            title="Ajena", status="published",
             json_schema={"pages": []},
         )
         session.add(ajena)

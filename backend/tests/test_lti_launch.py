@@ -1,7 +1,6 @@
 """Flujo de lanzamiento: login init, launch, y acceso a la encuesta sin PIN."""
 
 import time
-import uuid
 from urllib.parse import parse_qs, urlparse
 
 import jwt
@@ -16,6 +15,7 @@ from app.lti.validate import CLAIM
 from app.main import app
 from app.models import LtiPlatform, LtiResourceLink, Survey
 from app.security import create_purpose_token
+from tests.conftest import crear_org
 
 ISSUER = "https://moodle.test"
 CLIENT_ID = "cid-1"
@@ -65,17 +65,13 @@ async def registered(platform_pem, monkeypatch, db_session):
             )
         ).first()
         if previa is not None:
-            viejos_links = (
-                await session.scalars(
-                    _select(LtiResourceLink).where(LtiResourceLink.platform_id == previa.id)
-                )
-            ).all()
-            for viejo in viejos_links:
-                await session.delete(viejo)
+            # Los resource links se van solos: la FK declara ON DELETE CASCADE y
+            # Postgres la aplica. Borrarlos a mano acá provocaba un SAWarning de
+            # "0 rows matched" porque la base ya los había arrastrado.
             await session.delete(previa)
             await session.commit()
 
-        org_id = uuid.uuid4()
+        org_id = await crear_org(session, "Escuela de launch")
         survey = Survey(org_id=org_id, title="Examen", status="published", access_mode="pin",
                         access_pin="1234", json_schema={"pages": []})
         session.add(survey)
@@ -411,7 +407,7 @@ async def test_launch_con_encuesta_de_otra_org_es_rechazado(lti_on, registered, 
     cross-tenant."""
     async with db_session() as session:
         platform = await session.get(LtiPlatform, registered["platform"].id)
-        platform.org_id = uuid.uuid4()
+        platform.org_id = await crear_org(session, "Otra escuela")
         session.add(platform)
         await session.commit()
 

@@ -24,9 +24,11 @@ NEXT_PUBLIC_API_URL=http://localhost:8000 npm run dev
 
 ## Antes de abrir un PR
 
-- **Backend**: `cd backend && pytest` en verde. Si tocás modelos, agregá una
-  migración Alembic **idempotente** (mirá `alembic/versions/`); nunca edites una
-  migración ya publicada.
+- **Backend**: `cd backend && pytest` en verde. La suite necesita el Postgres de
+  tests arriba (`docker compose -f dev/test-db/docker-compose.yml up -d`): corre
+  contra el mismo motor que producción, sin fallback a SQLite. Si tocás modelos,
+  agregá una migración Alembic **idempotente** (mirá `alembic/versions/`); nunca
+  edites una migración ya publicada.
 - **Frontend**: `cd frontend && npx next build` sin errores de TypeScript.
 - Mantené el estilo del código que te rodea. Sin secretos ni claves en los
   commits.

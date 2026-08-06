@@ -6,6 +6,7 @@ import pytest
 from sqlmodel import select
 
 from app.models import LtiPlatform, LtiResourceLink, Survey
+from tests.conftest import crear_org
 
 
 @pytest.mark.asyncio
@@ -54,8 +55,8 @@ async def test_el_vinculo_persiste_titulo_y_anonimato_en_la_base(db_session):
             jwks_url="https://moodle.panel-roundtrip/mod/lti/certs.php",
         )
         survey = Survey(
-            org_id=uuid.uuid4(), title="Encuesta roundtrip", status="published",
-            json_schema={"pages": []},
+            org_id=await crear_org(session, "Roundtrip"), title="Encuesta roundtrip",
+            status="published", json_schema={"pages": []},
         )
         session.add(platform)
         session.add(survey)
@@ -101,8 +102,8 @@ async def test_anonimato_default_de_la_base_es_falso(db_session):
             jwks_url="https://moodle.panel-default/mod/lti/certs.php",
         )
         survey = Survey(
-            org_id=uuid.uuid4(), title="Encuesta default", status="published",
-            json_schema={"pages": []},
+            org_id=await crear_org(session, "Default"), title="Encuesta default",
+            status="published", json_schema={"pages": []},
         )
         session.add(platform)
         session.add(survey)
@@ -151,7 +152,7 @@ async def test_deliver_no_publica_nota_si_el_vinculo_es_anonimo(monkeypatch, lti
         plataforma = LtiPlatform(
             issuer="https://moodle.anon", client_id="cid", deployment_ids=["1"],
             auth_login_url="https://moodle.anon/a", auth_token_url="https://moodle.anon/t",
-            jwks_url="https://moodle.anon/j", org_id=uuid.uuid4(),
+            jwks_url="https://moodle.anon/j", org_id=await crear_org(session, "Anon"),
         )
         session.add(plataforma)
         await session.commit()
@@ -192,7 +193,8 @@ async def test_el_listado_solo_muestra_plataformas_de_la_organizacion(lti_on, db
 
     async with db_session() as session:
         for org, issuer in ((uuid.UUID(mia), "https://moodle.mio"),
-                            (uuid.uuid4(), "https://moodle.ajeno")):
+                            (await crear_org(session, "Escuela ajena"),
+                             "https://moodle.ajeno")):
             session.add(LtiPlatform(
                 issuer=issuer, client_id=f"cid-{issuer[-4:]}", deployment_ids=["1"],
                 auth_login_url=f"{issuer}/a", auth_token_url=f"{issuer}/t",
@@ -262,7 +264,8 @@ async def test_no_se_puede_desconectar_una_plataforma_ajena(lti_on, db_session):
         ajena = LtiPlatform(issuer="https://moodle.otro", client_id="cid-c",
                             deployment_ids=["1"], auth_login_url="https://moodle.otro/a",
                             auth_token_url="https://moodle.otro/t",
-                            jwks_url="https://moodle.otro/j", org_id=uuid.uuid4())
+                            jwks_url="https://moodle.otro/j",
+                            org_id=await crear_org(session, "Escuela ajena D"))
         session.add(ajena)
         await session.commit()
         pid = str(ajena.id)

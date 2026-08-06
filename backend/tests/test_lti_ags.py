@@ -12,7 +12,8 @@ from jwt.algorithms import RSAAlgorithm
 
 from app.lti.ags import ensure_lineitem, get_access_token, get_lineitem_max, post_score
 from app.lti.keys import get_tool_key
-from app.models import LtiPlatform, LtiResourceLink
+from app.models import LtiPlatform, LtiResourceLink, Survey
+from tests.conftest import crear_org
 
 ISSUER = "https://moodle.ags"
 CLIENT_ID = "cid-ags"
@@ -47,29 +48,29 @@ async def ags_setup(db_session):
             )
         ).first()
         if previa is not None:
-            viejos_links = (
-                await session.scalars(
-                    _select(LtiResourceLink).where(LtiResourceLink.platform_id == previa.id)
-                )
-            ).all()
-            for viejo in viejos_links:
-                await session.delete(viejo)
+            # Ver la nota del fixture equivalente en test_lti_launch.py: el
+            # CASCADE de la FK se lleva los resource links, no hace falta a mano.
             await session.delete(previa)
             await session.commit()
 
+        org_id = await crear_org(session, "Escuela de AGS")
         platform = LtiPlatform(
             issuer=ISSUER, client_id=CLIENT_ID, deployment_ids=["1"],
             auth_login_url=f"{ISSUER}/mod/lti/auth.php", auth_token_url=TOKEN_URL,
-            jwks_url=f"{ISSUER}/mod/lti/certs.php", org_id=uuid.uuid4(),
+            jwks_url=f"{ISSUER}/mod/lti/certs.php", org_id=org_id,
         )
         session.add(platform)
+        # La encuesta la crea el fixture y no cada test: el vínculo la referencia
+        # por clave foránea, y bajo Postgres apuntar a una fila inexistente falla.
+        survey = Survey(org_id=org_id, title="Examen", json_schema={})
+        session.add(survey)
         await session.commit()
         link = LtiResourceLink(platform_id=platform.id, resource_link_id="rl-ags",
-                               survey_id=uuid.uuid4(), lineitems_url=LINEITEMS)
+                               survey_id=survey.id, lineitems_url=LINEITEMS)
         session.add(link)
         await session.commit()
         key = await get_tool_key(session)
-        return {"platform": platform, "link": link, "key": key}
+        return {"platform": platform, "link": link, "key": key, "survey": survey}
 
 
 @pytest.mark.asyncio
@@ -318,7 +319,7 @@ async def test_get_lineitem_max_respeta_un_scoreMaximum_en_cero(monkeypatch, lti
 async def test_la_nota_se_reescala_a_la_escala_del_libro(monkeypatch, lti_on, ags_setup, db_session):
     """Rúbrica sobre 10, libro sobre 20: un 8,5 tiene que llegar como 17."""
     from app.lti.ags import _deliver
-    from app.models import Survey, SurveyResponse
+    from app.models import SurveyResponse
 
     ags_setup["link"].lineitem_url = LINEITEM
     enviado = {}
@@ -337,9 +338,7 @@ async def test_la_nota_se_reescala_a_la_escala_del_libro(monkeypatch, lti_on, ag
 
     async with db_session() as session:
         session.add(ags_setup["link"])
-        survey = Survey(id=ags_setup["link"].survey_id, org_id=uuid.uuid4(),
-                        title="Examen", json_schema={})
-        session.add(survey)
+        survey = ags_setup["survey"]
         r = SurveyResponse(survey_id=survey.id, answers={}, score=8.5, max_score=10.0,
                            lti_link_id=ags_setup["link"].id, lti_sub="u-42")
         session.add(r)
@@ -359,7 +358,7 @@ async def test_deliver_manda_pendingmanual_si_la_respuesta_necesita_revision(
     una respuesta que quedó pendiente de revisión se publica igual como
     `FullyGraded`."""
     from app.lti.ags import _deliver
-    from app.models import Survey, SurveyResponse
+    from app.models import SurveyResponse
 
     ags_setup["link"].lineitem_url = LINEITEM
     enviado = {}
@@ -378,9 +377,7 @@ async def test_deliver_manda_pendingmanual_si_la_respuesta_necesita_revision(
 
     async with db_session() as session:
         session.add(ags_setup["link"])
-        survey = Survey(id=ags_setup["link"].survey_id, org_id=uuid.uuid4(),
-                        title="Examen", json_schema={})
-        session.add(survey)
+        survey = ags_setup["survey"]
         r = SurveyResponse(survey_id=survey.id, answers={}, score=5.0, max_score=10.0,
                            needs_review=True,
                            lti_link_id=ags_setup["link"].id, lti_sub="u-42")
@@ -405,7 +402,7 @@ async def test_deliver_no_hace_nada_si_falta_el_lti_sub(monkeypatch, lti_on, ags
     test pasaría igual. Hay que verificar que la llamada directamente no
     ocurrió, registrándola en vez de hacerla explotar."""
     from app.lti.ags import _deliver
-    from app.models import Survey, SurveyResponse
+    from app.models import SurveyResponse
 
     ags_setup["link"].lineitem_url = LINEITEM
     llamadas = []
@@ -419,9 +416,7 @@ async def test_deliver_no_hace_nada_si_falta_el_lti_sub(monkeypatch, lti_on, ags
 
     async with db_session() as session:
         session.add(ags_setup["link"])
-        survey = Survey(id=ags_setup["link"].survey_id, org_id=uuid.uuid4(),
-                        title="Examen", json_schema={})
-        session.add(survey)
+        survey = ags_setup["survey"]
         r = SurveyResponse(survey_id=survey.id, answers={}, score=8.5, max_score=10.0,
                            lti_link_id=ags_setup["link"].id, lti_sub=None)
         session.add(r)
@@ -437,7 +432,7 @@ async def test_deliver_no_hace_nada_si_la_respuesta_no_tiene_nota(monkeypatch, l
     """Una respuesta sin corregir (score None) no puede generar ningún pedido
     HTTP: publicar una nota inexistente sería peor que no publicar nada."""
     from app.lti.ags import _deliver
-    from app.models import Survey, SurveyResponse
+    from app.models import SurveyResponse
 
     ags_setup["link"].lineitem_url = LINEITEM
 
@@ -449,9 +444,7 @@ async def test_deliver_no_hace_nada_si_la_respuesta_no_tiene_nota(monkeypatch, l
 
     async with db_session() as session:
         session.add(ags_setup["link"])
-        survey = Survey(id=ags_setup["link"].survey_id, org_id=uuid.uuid4(),
-                        title="Examen", json_schema={})
-        session.add(survey)
+        survey = ags_setup["survey"]
         r = SurveyResponse(survey_id=survey.id, answers={}, score=None, max_score=None,
                            lti_link_id=ags_setup["link"].id, lti_sub="u-42")
         session.add(r)
@@ -469,7 +462,8 @@ async def test_deliver_no_hace_nada_si_la_respuesta_no_vino_de_lti(db_session):
     from app.models import Survey, SurveyResponse
 
     async with db_session() as session:
-        survey = Survey(org_id=uuid.uuid4(), title="Encuesta suelta", json_schema={})
+        survey = Survey(org_id=await crear_org(session, "Escuela suelta"),
+                        title="Encuesta suelta", json_schema={})
         session.add(survey)
         await session.commit()
         r = SurveyResponse(survey_id=survey.id, answers={}, score=8.0, max_score=10.0)
@@ -497,7 +491,7 @@ async def test_deliver_no_propaga_el_error_si_la_plataforma_esta_caida(
     es un efecto de cómo pytest importa los módulos antes de correr los
     fixtures. Se verifica el log llamando directamente al `LOGGER` del módulo."""
     import app.lti.ags as ags_module
-    from app.models import Survey, SurveyResponse
+    from app.models import SurveyResponse
 
     ags_setup["link"].lineitem_url = LINEITEM
     logueado = {}
@@ -518,9 +512,7 @@ async def test_deliver_no_propaga_el_error_si_la_plataforma_esta_caida(
 
     async with db_session() as session:
         session.add(ags_setup["link"])
-        survey = Survey(id=ags_setup["link"].survey_id, org_id=uuid.uuid4(),
-                        title="Examen", json_schema={})
-        session.add(survey)
+        survey = ags_setup["survey"]
         r = SurveyResponse(survey_id=survey.id, answers={}, score=8.5, max_score=10.0,
                            lti_link_id=ags_setup["link"].id, lti_sub="u-42")
         session.add(r)
@@ -564,7 +556,7 @@ async def test_deliver_sobrevive_a_una_carrera_de_clave_del_tool(
     from app.config import get_settings
     from app.lti.ags import _deliver
     from app.lti.keys import _generate
-    from app.models import LtiKey, Survey, SurveyResponse
+    from app.models import LtiKey, SurveyResponse
 
     monkeypatch.setenv("LTI_KEY_ID", f"race-deliver-{uuid.uuid4().hex}")
     get_settings.cache_clear()
@@ -626,9 +618,7 @@ async def test_deliver_sobrevive_a_una_carrera_de_clave_del_tool(
 
     async with db_session() as session:
         session.add(ags_setup["link"])
-        survey = Survey(id=ags_setup["link"].survey_id, org_id=uuid.uuid4(),
-                        title="Examen", json_schema={})
-        session.add(survey)
+        survey = ags_setup["survey"]
         r = SurveyResponse(survey_id=survey.id, answers={}, score=8.5, max_score=10.0,
                            lti_link_id=ags_setup["link"].id, lti_sub="u-42")
         session.add(r)
@@ -655,7 +645,7 @@ async def test_schedule_score_dispara_deliver_de_verdad(monkeypatch, lti_on, ags
     con el id correcto. Como es fire-and-forget, hay que cederle el control al
     loop para que la tarea corra; nada de dormir un tiempo fijo."""
     import app.lti.ags as ags_module
-    from app.models import Survey, SurveyResponse
+    from app.models import SurveyResponse
 
     alcanzado = {}
 
@@ -665,9 +655,7 @@ async def test_schedule_score_dispara_deliver_de_verdad(monkeypatch, lti_on, ags
     monkeypatch.setattr(ags_module, "_deliver", fake_deliver)
 
     async with db_session() as session:
-        survey = Survey(id=ags_setup["link"].survey_id, org_id=uuid.uuid4(),
-                        title="Examen", json_schema={})
-        session.add(survey)
+        survey = ags_setup["survey"]
         r = SurveyResponse(survey_id=survey.id, answers={}, score=8.5, max_score=10.0,
                            lti_link_id=ags_setup["link"].id, lti_sub="u-42")
         session.add(r)

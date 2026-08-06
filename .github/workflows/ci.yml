@@ -20,6 +20,23 @@ jobs:
     defaults:
       run:
         working-directory: backend
+    # La suite corre contra Postgres, el mismo motor que producción. En SQLite
+    # las cláusulas `ON DELETE` no se aplican salvo con `PRAGMA foreign_keys=ON`,
+    # así que los tests de borrado en cascada no comprobaban nada.
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: encuestum_test
+          POSTGRES_USER: encuestum
+          POSTGRES_PASSWORD: encuestum
+        ports:
+          - 5433:5432
+        options: >-
+          --health-cmd "pg_isready -U encuestum -d encuestum_test"
+          --health-interval 2s
+          --health-timeout 3s
+          --health-retries 30
     steps:
       - uses: actions/checkout@v5
       - uses: actions/setup-python@v6

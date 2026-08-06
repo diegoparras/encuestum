@@ -1,0 +1,44 @@
+# PostgreSQL para la suite de tests.
+#
+# Existe porque los tests corrían en SQLite mientras producción corre en
+# Postgres, y esa diferencia no es cosmética: SQLite ignora las cláusulas
+# `ON DELETE` salvo que se active `PRAGMA foreign_keys=ON` en cada conexión,
+# cosa que este proyecto no hace. `backend/app/models.py` declara 25
+# `ondelete=`; en SQLite ninguna se aplicaba, así que cualquier test que
+# dependiera de un CASCADE o un SET NULL pasaba sin comprobar nada.
+#
+# Los datos van en tmpfs: la base se recrea en cada corrida, no hace falta
+# que sobrevivan al contenedor y en memoria la suite corre bastante más rápido.
+#
+#   docker compose -f dev/test-db/docker-compose.yml up -d
+#
+# El puerto 5433 evita chocar con el 5432 por defecto y con el 5434 que ya usa
+# otro proyecto en esta máquina.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: encuestum-test-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: encuestum_test
+      POSTGRES_USER: encuestum
+      POSTGRES_PASSWORD: encuestum
+      # Sin fsync ni full_page_writes: es una base descartable en RAM y estos
+      # ajustes son los que más pesan en una suite que crea y borra filas todo
+      # el tiempo. Jamás en producción.
+      POSTGRES_INITDB_ARGS: "--nosync"
+    command: >
+      postgres
+      -c fsync=off
+      -c full_page_writes=off
+      -c synchronous_commit=off
+    ports:
+      - "5433:5432"
+    tmpfs:
+      - /var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U encuestum -d encuestum_test"]
+      interval: 2s
+      timeout: 3s
+      retries: 30

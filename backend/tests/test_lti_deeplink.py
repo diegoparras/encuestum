@@ -15,6 +15,7 @@ from app.lti.state import LTI_STATE_COOKIE
 from app.lti.validate import CLAIM
 from app.main import app
 from app.models import LtiPlatform, Survey
+from tests.conftest import crear_org
 
 ISSUER = "https://moodle.dl"
 CLIENT_ID = "cid-dl"
@@ -62,7 +63,7 @@ async def dl_setup(monkeypatch, db_session):
             await session.delete(previa)
             await session.commit()
 
-        org_id = uuid.uuid4()
+        org_id = await crear_org(session, "Escuela de deep linking")
         survey = Survey(org_id=org_id, title="Quiz de prueba", status="published",
                         json_schema={"pages": []})
         session.add(survey)
@@ -163,7 +164,8 @@ async def test_el_selector_no_lista_encuestas_de_otra_organizacion(lti_on, dl_se
     test_el_selector_lista_las_encuestas_de_la_organizacion (que sólo mira
     que la propia esté presente, nunca que una ajena esté ausente)."""
     async with db_session() as session:
-        ajena = Survey(org_id=uuid.uuid4(), title="Encuesta Ajena", status="published",
+        ajena = Survey(org_id=await crear_org(session, "Ajena del selector"),
+                       title="Encuesta Ajena", status="published",
                        json_schema={"pages": []})
         session.add(ajena)
         await session.commit()
@@ -253,7 +255,8 @@ async def test_dl_con_platform_id_invalido_da_400(lti_on, dl_setup):
 async def test_el_retorno_rechaza_una_encuesta_de_otra_organizacion(lti_on, dl_setup, db_session):
     client = _client()
     async with db_session() as session:
-        ajena = Survey(org_id=uuid.uuid4(), title="Ajena", status="published", json_schema={})
+        ajena = Survey(org_id=await crear_org(session, "Ajena del retorno"),
+                       title="Ajena", status="published", json_schema={})
         session.add(ajena)
         await session.commit()
         ajena_id = ajena.id

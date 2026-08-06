@@ -330,11 +330,27 @@ NEXT_PUBLIC_API_URL=http://localhost:8000 npm run dev
 Abrí <http://localhost:3000> → **Crear cuenta**. O usá `docker compose up --build` (dos servicios).
 
 **Tests**
+
+El backend corre contra **Postgres**, el mismo motor que producción. Levantá la
+base de tests una vez y queda andando:
+
+```bash
+docker compose -f dev/test-db/docker-compose.yml up -d
+```
+
 ```bash
 cd backend && pytest              # LLM mockeado; no necesita red
 cd frontend && npx next build     # typecheck + build
 ```
-CI (GitHub Actions) corre ambos en cada push/PR.
+
+Si el Postgres no está arriba, `pytest` falla de entrada con las instrucciones:
+no hay fallback a SQLite. La razón es que SQLite **ignora toda cláusula
+`ON DELETE`** salvo que se emita `PRAGMA foreign_keys=ON` en cada conexión, así
+que mientras la suite corría ahí, los 25 `ondelete=` del modelo no se
+verificaban. (La app sí lo emite ahora en las instalaciones con SQLite —ver
+`app/db.py`— pero la cobertura vive en Postgres.)
+
+CI (GitHub Actions) corre ambos en cada push/PR, con su propio servicio de Postgres.
 
 ---
 

@@ -1,4 +1,20 @@
-"""Test bootstrap: isolated SQLite, insecure cookies (HTTP TestClient), mocked LLM."""
+"""Test bootstrap: Postgres desechable, cookies inseguras (TestClient va por HTTP), LLM mockeado.
+
+La suite corre contra **PostgreSQL**, el mismo motor que producción, no contra
+SQLite. La diferencia no es cosmética: SQLite ignora las cláusulas `ON DELETE`
+salvo que se emita `PRAGMA foreign_keys=ON` en cada conexión, cosa que este
+proyecto no hace en ningún lado. `app/models.py` declara 25 `ondelete=`; bajo
+SQLite ninguna se aplicaba, así que todo test que dependiera de un CASCADE o de
+un SET NULL pasaba sin comprobar nada.
+
+La base la levanta `dev/test-db/docker-compose.yml`:
+
+    docker compose -f dev/test-db/docker-compose.yml up -d
+
+Si no está arriba, la sesión falla de entrada con instrucciones. Deliberadamente
+**no** hay fallback a SQLite: un fallback silencioso es exactamente lo que hizo
+que esto pasara inadvertido durante toda la fase 1.
+"""
 
 import os
 import tempfile
@@ -7,6 +23,12 @@ import uuid
 # Must be set BEFORE importing the app (engine + settings read env at import).
 _TMP = tempfile.mkdtemp()
 os.environ["ENCUESTUM_DATA_DIR"] = _TMP
+# `setdefault`: CI puede apuntar a su propio servicio de Postgres.
+TEST_DATABASE_URL = os.environ.setdefault(
+    "DATABASE_URL", "postgresql://encuestum:encuestum@localhost:5433/encuestum_test"
+)
+# Ver `app.db._engine_kwargs`: la suite mezcla event loops y asyncpg no lo tolera.
+os.environ["ENCUESTUM_DB_NULLPOOL"] = "1"
 os.environ["ENCUESTUM_SESSION_SECRET"] = "test-secret-not-for-prod-but-long-enough-32b+"
 os.environ["ENCUESTUM_COOKIE_SECURE"] = "false"
 os.environ["ENCUESTUM_LOG_FORMAT"] = "text"
@@ -60,10 +82,39 @@ async def _fake_report(*, language, context):
     }
 
 
+def _reset_schema() -> None:
+    """Deja la base vacía antes de migrar.
+
+    El contenedor guarda los datos en tmpfs, pero sobrevive entre corridas de
+    pytest: sin esto, la segunda corrida arrancaría con las filas de la primera
+    y las migraciones ya aplicadas."""
+    import asyncio
+
+    import asyncpg
+
+    async def _run():
+        try:
+            conn = await asyncpg.connect(TEST_DATABASE_URL, timeout=5)
+        except (OSError, asyncpg.PostgresError) as e:
+            raise RuntimeError(
+                f"No hay Postgres en {TEST_DATABASE_URL} ({e}).\n"
+                "La suite corre contra Postgres, no SQLite. Levantalo con:\n"
+                "    docker compose -f dev/test-db/docker-compose.yml up -d"
+            ) from e
+        try:
+            await conn.execute("DROP SCHEMA public CASCADE; CREATE SCHEMA public;")
+        finally:
+            await conn.close()
+
+    asyncio.run(_run())
+
+
 @pytest.fixture(scope="session", autouse=True)
 def _bootstrap():
     import app.grading
     import app.llm_calls
+
+    _reset_schema()
     app.grading.grade_open_answer = _fake_grade
     app.llm_calls.grade_open_answer = _fake_grade
     app.llm_calls.summarize_open_responses = _fake_sum
@@ -103,11 +154,24 @@ def super_client() -> TestClient:
     assert r.status_code in (200, 201), r.text
     # Super-admin via env email requires a VERIFIED account (security fix). Tests
     # don't run the email flow, so we mark it verified directly in the test DB.
-    import sqlite3
-    conn = sqlite3.connect(os.path.join(_TMP, "encuestum.db"))
-    conn.execute("UPDATE users SET email_verified=1 WHERE email='super@example.com'")
-    conn.commit()
-    conn.close()
+    # Conexión cruda y no el engine de la app: asyncpg ata cada conexión al
+    # event loop que la creó, y el pool del engine vive en el loop del
+    # TestClient. Usarlo desde un `asyncio.run()` nuevo cuelga sin error.
+    import asyncio
+
+    import asyncpg
+
+    async def _verify():
+        conn = await asyncpg.connect(TEST_DATABASE_URL, timeout=5)
+        try:
+            await conn.execute(
+                "UPDATE users SET email_verified = true WHERE email = $1",
+                "super@example.com",
+            )
+        finally:
+            await conn.close()
+
+    asyncio.run(_verify())
     return c
 
 
@@ -125,6 +189,22 @@ def db_session():
     from app.db import _session_maker
 
     return _session_maker
+
+
+async def crear_org(session, nombre: str = "Org de prueba"):
+    """Inserta una organización real y devuelve su `id`.
+
+    Bajo Postgres las claves foráneas se aplican de verdad, así que fabricar un
+    `uuid.uuid4()` suelto como `org_id` —que es lo que hacían varios tests
+    mientras la suite corría en SQLite— ahora revienta con
+    `ForeignKeyViolationError`. Es una mejora: esas filas nunca existieron en
+    producción."""
+    from app.models import Organization
+
+    org = Organization(name=nombre)
+    session.add(org)
+    await session.commit()
+    return org.id
 
 
 @pytest.fixture
