@@ -32,15 +32,28 @@ actividades de Encuestum sin decir nada.
 Los dos pueden convivir: son dos puertas distintas y prender una no apaga la
 otra. Encender `MOD_ENABLED` no toca nada de LTI.
 
-> **Problema conocido con los dos instalados a la vez: "Encuestum" aparece dos
-> veces en el selector de actividades.** Una entrada es la herramienta externa
-> preconfigurada que crea `local_encuestum` (`lti_type_*`) y la otra es el módulo
-> nativo, y las dos se llaman igual y usan el mismo ícono: el docente no tiene
-> con qué distinguirlas. Está confirmado contra Moodle 5.0.2. Es una decisión de
-> diseño pendiente (quién de los dos cede el nombre) y **no está arreglado**.
-> Mientras tanto, lo práctico es instalar uno solo de los dos, o renombrar la
-> herramienta externa de `local_encuestum` desde *Administración del sitio →
-> Plugins → Herramienta externa → Gestionar herramientas*.
+> **Con los dos instalados, el selector de actividades muestra una sola
+> entrada: la del módulo nativo.** Antes aparecían las dos —la herramienta
+> externa de `local_encuestum` (`lti_type_*`) y el módulo—, con el mismo nombre
+> y el mismo ícono, y el docente no tenía con qué distinguirlas. El que cede es
+> `local_encuestum`: mientras `mod_encuestum` esté instalado y habilitado, su
+> herramienta externa se sale del selector (`coursevisible` pasa de "aparece en
+> el selector" a "preconfigurada"). Instalar un módulo de actividad es una
+> acción deliberada; esconder la entrada de LTI, en cambio, no rompe nada.
+>
+> **No se desactiva ni se borra nada.** Las actividades ya creadas por LTI
+> siguen funcionando igual, y la herramienta se sigue pudiendo elegir desde
+> *Agregar una actividad → Herramienta externa → Herramienta preconfigurada*:
+> lo único que deja de pasar es que se ofrezca como entrada propia para
+> actividades nuevas.
+>
+> **Es un ajuste, no un comportamiento fijo.** Está en *Administración del
+> sitio → Plugins → Plugins locales → Encuestum*, se llama "Dejar la entrada
+> del selector de actividades al módulo" y viene activado. Destildalo si querés
+> ver las dos a propósito —sirve mientras migrás de una integración a la otra—.
+> Desinstalar o deshabilitar el módulo nativo también devuelve la entrada de
+> LTI sin tocar nada más: lo hace la tarea programada de `local_encuestum`,
+> dentro del minuto siguiente a la próxima corrida del cron.
 
 ## Conectar por LTI 1.3 (`local_encuestum`)
 
@@ -186,7 +199,8 @@ de otra con sólo registrarse segundo.
 | El alumno ve un error de sesión al abrir la actividad | Encuestum no está en HTTPS de verdad (las cookies del flujo LTI son `SameSite=None; Secure`, se descartan sobre HTTP), o Moodle está cargando la actividad en un contexto que bloquea cookies de terceros. Probá con **Contenedor de lanzamiento: Ventana nueva** en la configuración de la herramienta. |
 | El selector de deep linking no lista ninguna encuesta | No hay encuestas **publicadas** en la organización que registró la plataforma. |
 | La nota no llega al libro de calificaciones | La encuesta no tiene evaluación automática configurada (nada que calificar), o el token de AGS venció — revisá los logs del backend de Encuestum. |
-| **(módulo nativo)** "Encuestum" aparece dos veces en el selector de actividades | Están instalados los dos plugins. Problema conocido y sin arreglar: ver el recuadro de "Cuál de los dos plugins". |
+| **(módulo nativo)** "Encuestum" aparece dos veces en el selector de actividades | Están instalados los dos plugins y `local_encuestum` todavía no cedió la entrada: o el ajuste "Dejar la entrada del selector de actividades al módulo" está destildado, o el cron no corrió desde que instalaste el módulo. Ver el recuadro de "Cuál de los dos plugins". |
+| **(módulo nativo)** "Encuestum" no aparece en el selector después de desinstalar el módulo nativo | La entrada de LTI vuelve sola, pero la pone de vuelta la tarea programada de `local_encuestum`: hay que esperar a la próxima corrida del cron. Si el cron del sitio no está corriendo, no va a volver nunca. |
 | **(módulo nativo)** El botón de conectar da 404 / el panel dice que el módulo está apagado | Falta `MOD_ENABLED=true` en el backend de Encuestum. |
 | **(módulo nativo)** Moodle dice que el sitio ya está conectado a otra organización | Es el 409 a propósito. Hay que desconectar el sitio de la otra organización primero. |
 | **(módulo nativo)** El desplegable de encuestas está vacío o el formulario cae al campo de texto | El sitio no está conectado, o Encuestum no contestó a tiempo. El formulario sigue guardándose a propósito: una caída de Encuestum no debe bloquear la edición del curso. |
