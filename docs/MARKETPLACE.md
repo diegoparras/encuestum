@@ -84,15 +84,57 @@ En inglés, que es el idioma del Marketplace.
 > Connect your Moodle to a self-hosted Encuestum site: surveys and exams with AI grading,
 > with grades flowing back to the gradebook.
 
-**Descripción larga** — cubrí estos puntos:
+**Descripción larga** — esto es para pegar tal cual. Cubre lo que el Marketplace exige
+declarar (dependencia de un servicio externo, requisitos, privacidad) y dice
+explícitamente lo que el plugin **no** hace, que es lo que evita la mitad de los rebotes:
 
-- Qué hace: pone "Encuestum" en el selector de actividades y conecta el sitio en un clic.
-- **Que requiere una instalación propia de Encuestum.** Esto es obligatorio declararlo: el
-  Marketplace exige avisar claramente cuando un plugin depende de un servicio externo.
-- Que no implementa LTI: usa el `mod_lti` de Moodle, o sea el código certificado de ellos.
-- Que las respuestas y la corrección viven en Encuestum; Moodle solo recibe la nota.
-- Que la marca se aplica con una tarea programada, así que **el cron de Moodle tiene que
-  estar corriendo**.
+> **Encuestum for Moodle**
+>
+> Encuestum is a self-hosted platform for surveys and exams with AI-assisted grading.
+> This plugin connects your Moodle site to your own Encuestum installation, adds
+> *Encuestum* to the activity chooser, and lets grades flow back into the gradebook.
+>
+> **This plugin requires your own Encuestum installation.** It does not include Encuestum
+> and it does not talk to any service operated by the plugin author. You install Encuestum
+> on your own server and point this plugin at it. Without an Encuestum site of your own,
+> the plugin does nothing.
+>
+> **What it does**
+>
+> * Connects your Moodle site to Encuestum in one click, using OpenID Connect dynamic
+>   registration — no manual copying of keys or endpoints.
+> * Puts *Encuestum* in the activity chooser with its own icon, so teachers add it the
+>   same way they add anything else.
+> * Teachers choose which survey or exam each activity runs, through Moodle's standard
+>   *Select content* screen.
+> * Students answer inside Moodle. Grades are written to the gradebook automatically,
+>   including after a re-grade.
+> * Activities can be marked anonymous: no identity is stored with the response and no
+>   grade is published. Both together — publishing a per-student grade would identify
+>   them.
+>
+> **What it does not do**
+>
+> * **It does not implement LTI.** Launch, identity, deep linking and grade passback are
+>   all handled by `mod_lti`, which ships with Moodle. This plugin only registers the
+>   tool and brands it. If the plugin fails, your Moodle is unaffected: an administrator
+>   can configure the external tool by hand and everything keeps working.
+> * **It does not store responses in Moodle.** Answers and grading live in your Encuestum
+>   site. Moodle receives the grade, not the answers.
+>
+> **Requirements**
+>
+> * Moodle 4.5 or later. Tested against 4.5 LTS and 5.0.
+> * `mod_lti` enabled.
+> * An Encuestum site reachable over HTTPS on a publicly resolvable host name.
+> * **Moodle cron must be running.** Branding is applied by a scheduled task; without
+>   cron the connection completes but the tool stays invisible to teachers. The settings
+>   page has an *Apply branding now* button as a fallback.
+>
+> **Privacy**
+>
+> This plugin stores no personal data of its own. Student identity reaches Encuestum
+> through `mod_lti`, under your own Encuestum site's privacy policy.
 
 Declará también: tipo de plugin **local**, versiones soportadas **Moodle 4.5 y 5.0**,
 licencia **GPL v3 o posterior**, y el enlace al repositorio y a sus Issues.
@@ -123,13 +165,21 @@ La carpeta dentro del ZIP tiene que llamarse `encuestum` (el componente menos el
 `local_`), no `moodle-local_encuestum`. Si el nombre no coincide, Moodle no reconoce el
 plugin al instalarlo.
 
+El repo tiene un script que lo arma y avisa si hay cambios sin commitear:
+
 ```bash
-cd E:\Claude\Escriba-Suite
-git -C moodle-local_encuestum archive --format=zip --prefix=encuestum/ -o local_encuestum.zip HEAD
+bash package.sh
 ```
 
-`git archive` respeta el `.gitignore` y no mete nada que no esté versionado, que es
-justamente lo que querés.
+Produce `local_encuestum-<release>.zip`, tomando la versión de `version.php` — así el
+nombre del archivo y lo que dice adentro no pueden divergir. Usa `git archive`, que
+sólo empaqueta lo versionado: nada que el repo desconozca puede colarse en una release.
+
+**Verificá el contenido antes de subirlo.** La primera línea tiene que ser `encuestum/`:
+
+```bash
+unzip -l local_encuestum-1.0.0.zip | head -5
+```
 
 ---
 
