@@ -43,7 +43,10 @@ def upgrade() -> None:
         # la ventana entre el SELECT y el INSERT del endpoint.
         sa.Column("wwwroot", sa.String(), nullable=False),
         sa.Column("name", sa.String(), nullable=True),
-        sa.Column("secret_hash", sa.String(), nullable=False),
+        # Clave PÚBLICA RSA en PEM, no un secreto ni su hash: Moodle firma el
+        # lanzamiento con su privada (RS256) y acá sólo se verifica. Se guarda
+        # tal cual porque no es secreta -- ver el docstring de `MoodleSite`.
+        sa.Column("public_key", sa.String(), nullable=False),
         sa.Column("ws_token", sa.String(), nullable=True),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.UniqueConstraint("wwwroot", name="uq_mod_site"),

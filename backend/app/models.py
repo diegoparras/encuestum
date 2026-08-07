@@ -529,14 +529,18 @@ class LtiUser(SQLModel, table=True):
 class MoodleSite(SQLModel, table=True):
     """Un Moodle conectado por el módulo nativo (`mod_encuestum`), no por LTI.
 
-    `secret_hash`: nunca se guarda el secreto en claro. Se genera una vez, se
-    devuelve una vez, y de ahí en más sólo se compara el hash -- mismo criterio
-    (y mismo bcrypt) que las contraseñas. Con LTI un atacante necesita la clave
-    privada de la plataforma; acá el secreto compartido es la única barrera, así
-    que un volcado de esta tabla no tiene que alcanzar para lanzar como nadie.
+    `public_key`: la firma del lanzamiento es **asimétrica (RS256)**, no un
+    secreto compartido. El par de claves lo genera Moodle y de acá para este
+    lado viaja **sólo la pública**, que se guarda tal cual porque no es secreta.
+    No es ceremonia: un secreto compartido no se puede guardar hasheado, porque
+    verificar un HMAC exige la misma clave que lo firmó -- Encuestum tendría que
+    guardar en claro y de forma reversible una credencial que alcanza para
+    lanzar como cualquier alumno de cualquier curso. Con firma asimétrica un
+    volcado de esta tabla no sirve para falsificar nada: es la misma propiedad
+    que da LTI, y por la misma razón.
 
     La unicidad es por `wwwroot` SOLO, no por `(org_id, wwwroot)` como decía el
-    plan: un Moodle guarda un único secreto a nivel sitio, así que pertenece a
+    plan: un Moodle firma con una única clave a nivel sitio, así que pertenece a
     exactamente una organización de Encuestum. Con la unicidad compuesta, dos
     organizaciones podían tener su propia fila para el mismo `wwwroot` y el
     chequeo de dueño del registro quedaba siendo puramente de aplicación --
@@ -558,10 +562,16 @@ class MoodleSite(SQLModel, table=True):
     # con una barra.
     wwwroot: str = Field(sa_column=Column(String, nullable=False))
     name: Optional[str] = Field(sa_column=Column(String), default=None)
-    secret_hash: str = Field(sa_column=Column(String, nullable=False))
-    # Token de servicio web de Moodle, para empujarle la nota (Tarea 3). Es un
-    # secreto de ELLOS que guardamos nosotros, y a diferencia del de arriba hay
-    # que poder recuperarlo para usarlo, así que un hash no sirve. Queda en
+    # Clave pública RSA en PEM (SubjectPublicKeyInfo), tal como la deja
+    # `_validar_clave_publica` en `routers/modapi.py`: se reserializa al
+    # guardarla, así que la forma acá adentro es siempre la misma aunque Moodle
+    # la haya mandado en PKCS#1. Con ella se verifica el JWT del lanzamiento
+    # (Tarea 2), siempre con `algorithms=["RS256"]` explícito: aceptar HS256
+    # convertiría esta clave pública en la clave de FIRMAR.
+    public_key: str = Field(sa_column=Column(String, nullable=False))
+    # Token de servicio web de Moodle, para empujarle la nota (Tarea 3). Éste sí
+    # es un secreto -- de ELLOS, guardado por nosotros -- y hay que poder
+    # recuperarlo para usarlo, así que ni hash ni clave pública sirven. Queda en
     # claro, igual que `ai_providers.api_key`: este repo todavía no tiene
     # cifrado en reposo (el plan decía que sí). Ninguna respuesta lo devuelve.
     ws_token: Optional[str] = Field(sa_column=Column(String), default=None)

@@ -1,11 +1,19 @@
 """Registro de sitios Moodle del módulo nativo (`mod_encuestum`).
 
-A diferencia de LTI, acá **el secreto compartido es la única barrera**: quien lo
-tenga puede lanzar como cualquier alumno. Por eso dos de estos tests son
-críticos y los dos fallan en silencio si la protección se saca --
-`test_no_se_puede_robar_el_sitio_de_otra_organizacion` y
-`test_el_secreto_no_se_guarda_en_claro`. Están marcados como tales en su propio
-docstring; el resto es el contorno normal del endpoint.
+A diferencia de LTI, este registro es la única puerta que decide **con qué
+clave se van a verificar los lanzamientos** de un sitio. La firma es asimétrica
+(RS256): Moodle genera el par y manda sólo la pública, así que un volcado de
+`mod_sites` no sirve para falsificar nada. Lo que sí sirve es *reemplazar* esa
+clave pública, y por eso los dos tests críticos de este archivo son:
+
+- `test_no_se_puede_robar_el_sitio_de_otra_organizacion`: registrar el wwwroot
+  de otra organización tiene que dar 409 sin tocar nada. Quien logre pisar la
+  clave de verificación pasa a poder firmar lanzamientos de ese sitio con la
+  privada que sólo él tiene.
+- `test_no_se_acepta_una_clave_que_no_sirve`: una clave rota, una clave privada
+  pegada por error o una RSA de 1024 bits tienen que dar 400 y no guardarse.
+  Ninguna de las tres se caza en una prueba funcional -- las dos últimas firman
+  y verifican perfecto.
 
 El `org_id` sale **únicamente** del token de conexión que mintea
 `POST /api/v1/mod/connect-url` (un admin autenticado de esa organización),
@@ -17,15 +25,60 @@ import uuid
 from urllib.parse import parse_qs, urlparse
 
 import pytest
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import ec, rsa
 from sqlmodel import select
 
 from app.models import MoodleSite
 from app.routers.modapi import MOD_REGISTER_PURPOSE
-from app.security import create_purpose_token, verify_password
+from app.security import create_purpose_token
 from tests.conftest import new_client, register
 
 WWWROOT_A = "https://moodle.escuela-a.test"
 WWWROOT_B = "https://moodle.escuela-b.test"
+
+
+# ── Claves de prueba ─────────────────────────────────────────────────────────
+#
+# Generar RSA es caro (medio segundo por clave de 2048 bits), así que las pocas
+# que hacen falta se arman una vez a nivel de módulo y se reusan. Son de
+# prueba: no hay ninguna razón para que sean distintas en cada test, salvo
+# donde el test compara dos claves entre sí (la rotación), y para eso están
+# `_PUB_1` y `_PUB_2`.
+
+
+def _par(bits: int = 2048) -> tuple[rsa.RSAPrivateKey, str]:
+    """Un par RSA nuevo y su clave pública en PEM."""
+    priv = rsa.generate_private_key(public_exponent=65537, key_size=bits)
+    pub = priv.public_key().public_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PublicFormat.SubjectPublicKeyInfo,
+    ).decode()
+    return priv, pub
+
+
+_PRIV_1, _PUB_1 = _par()
+_PRIV_2, _PUB_2 = _par()
+
+# Lo que el módulo NUNCA tiene que aceptar. Cada una entra por un camino
+# distinto de `_validar_clave_publica`.
+_PRIV_PEM = _PRIV_1.private_bytes(
+    encoding=serialization.Encoding.PEM,
+    format=serialization.PrivateFormat.PKCS8,
+    encryption_algorithm=serialization.NoEncryption(),
+).decode()
+_PUB_1024 = _par(1024)[1]
+_PUB_EC = (
+    ec.generate_private_key(ec.SECP256R1())
+    .public_key()
+    .public_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PublicFormat.SubjectPublicKeyInfo,
+    )
+    .decode()
+)
+# PEM válido al que le falta el final: parsea hasta la mitad y revienta.
+_PUB_TRUNCADA = "\n".join(_PUB_1.splitlines()[:3]) + "\n"
 
 
 def _conectar(client) -> str:
@@ -40,6 +93,13 @@ def _alta_de_org(nombre_wwwroot: str = WWWROOT_A):
     admin = new_client()
     _, _, me = register(admin)
     return admin, me["orgs"][0]["id"], _conectar(admin)
+
+
+def _cuerpo(token: str, wwwroot: str, **extra) -> dict:
+    """El cuerpo mínimo de un registro válido. `public_key` es obligatoria: sin
+    ella pydantic devolvería 422 antes de llegar al endpoint, y varios de estos
+    tests verifican un 400 que nace adentro."""
+    return {"token": token, "wwwroot": wwwroot, "public_key": _PUB_1, **extra}
 
 
 async def _sitios(db_session, wwwroot: str) -> list[MoodleSite]:
@@ -128,52 +188,61 @@ async def test_registro_da_de_alta_el_sitio(mod_on, db_session):
 
     r = new_client().post(
         "/mod/register",
-        json={"token": token, "wwwroot": WWWROOT_A, "ws_token": "wst-1", "name": "Escuela A"},
+        json=_cuerpo(token, WWWROOT_A, ws_token="wst-1", name="Escuela A"),
     )
     assert r.status_code == 200, r.text
     cuerpo = r.json()
     assert cuerpo["site_id"]
-    assert len(cuerpo["secret"]) >= 40
+    # No hay ningún secreto que devolver, y no se devuelve ninguno.
+    assert "secret" not in cuerpo
 
     sitios = await _sitios(db_session, WWWROOT_A)
     assert len(sitios) == 1
     assert str(sitios[0].org_id) == org_id
     assert sitios[0].ws_token == "wst-1"
     assert sitios[0].name == "Escuela A"
+    # Lo guardado es la clave pública, reserializada en SubjectPublicKeyInfo.
+    assert sitios[0].public_key.strip() == _PUB_1.strip()
 
 
 @pytest.mark.asyncio
-async def test_registro_de_la_misma_org_rota_el_secreto(mod_on, db_session):
-    """Reconectar desde el mismo Moodle no crea una segunda fila: rota el
-    secreto sobre la que ya está."""
+async def test_registro_de_la_misma_org_rota_la_clave(mod_on, db_session):
+    """Reconectar desde el mismo Moodle no crea una segunda fila: rota la clave
+    sobre la que ya está. Es la forma soportada de recuperarse de un par
+    comprometido."""
     await _limpiar_previa(db_session, WWWROOT_A)
     admin, org_id, token = _alta_de_org()
     anon = new_client()
 
-    r1 = anon.post("/mod/register", json={"token": token, "wwwroot": WWWROOT_A})
+    r1 = anon.post("/mod/register", json=_cuerpo(token, WWWROOT_A))
     assert r1.status_code == 200, r1.text
 
     token2 = _conectar(admin)
     r2 = anon.post(
-        "/mod/register", json={"token": token2, "wwwroot": WWWROOT_A, "ws_token": "wst-2"}
+        "/mod/register",
+        json={
+            "token": token2,
+            "wwwroot": WWWROOT_A,
+            "public_key": _PUB_2,
+            "ws_token": "wst-2",
+        },
     )
     assert r2.status_code == 200, r2.text
-
     assert r2.json()["site_id"] == r1.json()["site_id"]
-    assert r2.json()["secret"] != r1.json()["secret"]
 
     sitios = await _sitios(db_session, WWWROOT_A)
     assert len(sitios) == 1
-    # El secreto viejo ya no vale; el nuevo sí.
-    assert not verify_password(r1.json()["secret"], sitios[0].secret_hash)
-    assert verify_password(r2.json()["secret"], sitios[0].secret_hash)
+    # La clave vieja ya no está: los lanzamientos firmados con la privada
+    # anterior dejan de verificar, que es justo el punto de rotar.
+    assert sitios[0].public_key.strip() == _PUB_2.strip()
+    assert sitios[0].public_key.strip() != _PUB_1.strip()
     assert sitios[0].ws_token == "wst-2"
 
 
 @pytest.mark.asyncio
 async def test_registro_sin_token_da_400(mod_on, db_session):
     await _limpiar_previa(db_session, WWWROOT_B)
-    r = new_client().post("/mod/register", json={"token": "", "wwwroot": WWWROOT_B})
+    r = new_client().post("/mod/register", json=_cuerpo("", WWWROOT_B))
     assert r.status_code == 400
     assert await _sitios(db_session, WWWROOT_B) == []
 
@@ -184,7 +253,7 @@ async def test_registro_con_token_vencido_da_400(mod_on, db_session):
     admin, org_id, _ = _alta_de_org()
     vencido = create_purpose_token(MOD_REGISTER_PURPOSE, {"org_id": org_id}, ttl_minutes=-1)
 
-    r = new_client().post("/mod/register", json={"token": vencido, "wwwroot": WWWROOT_B})
+    r = new_client().post("/mod/register", json=_cuerpo(vencido, WWWROOT_B))
     assert r.status_code == 400
     assert await _sitios(db_session, WWWROOT_B) == []
 
@@ -198,21 +267,20 @@ async def test_un_token_de_otro_proposito_no_sirve(mod_on, db_session):
     admin, org_id, _ = _alta_de_org()
     ajeno = create_purpose_token("lti_register", {"org_id": org_id}, ttl_minutes=30)
 
-    r = new_client().post("/mod/register", json={"token": ajeno, "wwwroot": WWWROOT_B})
+    r = new_client().post("/mod/register", json=_cuerpo(ajeno, WWWROOT_B))
     assert r.status_code == 400
     assert await _sitios(db_session, WWWROOT_B) == []
 
 
 @pytest.mark.asyncio
 async def test_el_wwwroot_tiene_que_ser_https(mod_on, db_session):
-    """El secreto vuelve en el cuerpo de esta respuesta y después viaja en cada
-    llamada al servicio web: sin HTTPS iría en claro."""
+    """La clave pública no es secreta, pero el `ws_token` que viaja en el mismo
+    cuerpo sí, y una clave que va por HTTP plano la puede reemplazar cualquiera
+    en el camino -- justo el ataque que la firma asimétrica cierra."""
     await _limpiar_previa(db_session, "http://moodle.inseguro.test")
     admin, _, token = _alta_de_org()
 
-    r = new_client().post(
-        "/mod/register", json={"token": token, "wwwroot": "http://moodle.inseguro.test"}
-    )
+    r = new_client().post("/mod/register", json=_cuerpo(token, "http://moodle.inseguro.test"))
     assert r.status_code == 400
     assert await _sitios(db_session, "http://moodle.inseguro.test") == []
 
@@ -226,10 +294,7 @@ async def test_el_org_id_del_cuerpo_se_ignora(mod_on, db_session):
     admin_b, org_b, _ = _alta_de_org()
     assert org_a != org_b
 
-    r = new_client().post(
-        "/mod/register",
-        json={"token": token_a, "wwwroot": WWWROOT_A, "org_id": org_b},
-    )
+    r = new_client().post("/mod/register", json=_cuerpo(token_a, WWWROOT_A, org_id=org_b))
     assert r.status_code == 200, r.text
 
     sitios = await _sitios(db_session, WWWROOT_A)
@@ -246,13 +311,14 @@ async def test_el_wwwroot_se_normaliza(mod_on, db_session):
     admin, org_id, token = _alta_de_org()
     anon = new_client()
 
-    r1 = anon.post("/mod/register", json={"token": token, "wwwroot": f"{WWWROOT_A}/"})
+    r1 = anon.post("/mod/register", json=_cuerpo(token, f"{WWWROOT_A}/"))
     assert r1.status_code == 200, r1.text
     assert r1.json()["wwwroot"] == WWWROOT_A
 
     token2 = _conectar(admin)
     r2 = anon.post(
-        "/mod/register", json={"token": token2, "wwwroot": WWWROOT_A.upper().replace("HTTPS", "https")}
+        "/mod/register",
+        json=_cuerpo(token2, WWWROOT_A.upper().replace("HTTPS", "https")),
     )
     assert r2.status_code == 200, r2.text
     assert r2.json()["site_id"] == r1.json()["site_id"]
@@ -266,20 +332,22 @@ async def test_el_wwwroot_se_normaliza(mod_on, db_session):
 @pytest.mark.asyncio
 async def test_no_se_puede_robar_el_sitio_de_otra_organizacion(mod_on, db_session):
     """CRÍTICO. Registrar el mismo wwwroot desde otra org debe dar 409 y dejar
-    el secreto original intacto -- si se sobreescribe, el Moodle de la escuela
-    A pasa a lanzar contra los datos de la escuela B, sin ningún error visible
-    para nadie. Es exactamente el hallazgo que la revisión del registro LTI
-    cazó como toma de control entre organizaciones."""
+    la fila original intacta -- si se sobreescribe, el Moodle de la escuela A
+    pasa a lanzar contra los datos de la escuela B, sin ningún error visible
+    para nadie. Que lo que se pisaría sea una clave pública no lo hace menos
+    grave: el atacante manda SU clave pública y se queda con la privada, así
+    que a partir de ahí firma lanzamientos válidos para el sitio de A. Es
+    exactamente el hallazgo que la revisión del registro LTI cazó como toma de
+    control entre organizaciones."""
     await _limpiar_previa(db_session, WWWROOT_A)
 
     admin_a, org_a, token_a = _alta_de_org()
     anon = new_client()
     r_a = anon.post(
         "/mod/register",
-        json={"token": token_a, "wwwroot": WWWROOT_A, "ws_token": "wst-de-A", "name": "Escuela A"},
+        json=_cuerpo(token_a, WWWROOT_A, ws_token="wst-de-A", name="Escuela A"),
     )
     assert r_a.status_code == 200, r_a.text
-    secreto_de_a = r_a.json()["secret"]
     site_id_de_a = r_a.json()["site_id"]
 
     sitios = await _sitios(db_session, WWWROOT_A)
@@ -289,12 +357,12 @@ async def test_no_se_puede_robar_el_sitio_de_otra_organizacion(mod_on, db_sessio
         "org_id": sitios[0].org_id,
         "wwwroot": sitios[0].wwwroot,
         "name": sitios[0].name,
-        "secret_hash": sitios[0].secret_hash,
+        "public_key": sitios[0].public_key,
         "ws_token": sitios[0].ws_token,
     }
 
     # La organización B es genuinamente otra -- otro admin, otra cuenta -- y
-    # apunta su registro al wwwroot que ya usa A.
+    # apunta su registro al wwwroot que ya usa A, con SU propia clave.
     admin_b, org_b, token_b = _alta_de_org()
     assert org_b != org_a
 
@@ -303,78 +371,117 @@ async def test_no_se_puede_robar_el_sitio_de_otra_organizacion(mod_on, db_sessio
         json={
             "token": token_b,
             "wwwroot": WWWROOT_A,
+            "public_key": _PUB_2,
             "ws_token": "wst-del-atacante",
             "name": "Escuela B",
         },
     )
     assert r_b.status_code == 409, r_b.text
 
-    # Ni un secreto nuevo ni el site_id de A filtrados en la respuesta del 409.
-    assert "secret" not in r_b.text
+    # Ni el site_id de A filtrado en la respuesta del 409.
     assert site_id_de_a not in r_b.text
 
     sitios = await _sitios(db_session, WWWROOT_A)
     assert len(sitios) == 1, "el 409 no debe dejar una segunda fila para el mismo wwwroot"
     final = sitios[0]
     # Campo por campo, no sólo el status code: si el manejo del choque
-    # adoptara la fila, `org_id` y `secret_hash` son justo los dos que el
+    # adoptara la fila, `org_id` y `public_key` son justo los dos que el
     # atacante reescribiría para lanzar como cualquier alumno de A.
     assert final.id == original["id"]
     assert final.org_id == original["org_id"]
     assert str(final.org_id) == org_a
     assert final.wwwroot == original["wwwroot"]
     assert final.name == original["name"]
-    assert final.secret_hash == original["secret_hash"]
+    assert final.public_key == original["public_key"]
     assert final.ws_token == original["ws_token"]
-    # El secreto de A sigue siendo el que vale: no lo rotó el intento de B.
-    assert verify_password(secreto_de_a, final.secret_hash)
+    # La clave que vale sigue siendo la de A: la de B no entró por ningún lado.
+    assert final.public_key.strip() == _PUB_1.strip()
+    assert _PUB_2.strip() not in final.public_key
 
 
-# ── CRÍTICO 2: el secreto no se guarda en claro ──────────────────────────────
+# ── CRÍTICO 2: no se acepta una clave que no sirve ───────────────────────────
 
 
+@pytest.mark.parametrize(
+    "etiqueta,clave",
+    [
+        ("vacía", ""),
+        ("basura", "no soy una clave"),
+        ("pem truncado", _PUB_TRUNCADA),
+        ("clave privada", _PRIV_PEM),
+        ("rsa de 1024 bits", _PUB_1024),
+        ("clave ec", _PUB_EC),
+    ],
+)
 @pytest.mark.asyncio
-async def test_el_secreto_no_se_guarda_en_claro(mod_on, db_session):
-    """CRÍTICO. Lo que queda en la base no tiene que servir para firmar un
-    lanzamiento: se genera una vez, se devuelve una vez, y de ahí en más sólo
-    se compara el hash."""
+async def test_no_se_acepta_una_clave_que_no_sirve(mod_on, db_session, etiqueta, clave):
+    """CRÍTICO. La clave que se guarda acá es la que va a decidir qué
+    lanzamiento es auténtico, así que una que no sirva tiene que dar 400 y no
+    quedar guardada. Los tres casos que importan y que ninguna prueba funcional
+    caza:
+
+    - **La clave privada pegada por error** es el accidente más probable de
+      todos, y guardarla sería persistir en claro justo la credencial que todo
+      este diseño existe para no tener.
+    - **Una RSA de 1024 bits** firma y verifica perfecto: si se acepta, el
+      sitio queda funcionando con una clave que hoy se considera rompible y
+      nadie se entera nunca.
+    - **Una clave EC** no sirve para RS256; el error aparecería recién en el
+      primer lanzamiento de un alumno, lejos de acá.
+
+    Verificado que discrimina: sacando `_validar_clave_publica` de
+    `register_site`, los seis casos devuelven 200 y guardan la fila."""
     await _limpiar_previa(db_session, WWWROOT_B)
     admin, org_id, token = _alta_de_org()
 
     r = new_client().post(
-        "/mod/register", json={"token": token, "wwwroot": WWWROOT_B, "ws_token": "wst-x"}
+        "/mod/register",
+        json={"token": token, "wwwroot": WWWROOT_B, "public_key": clave, "ws_token": "wst-x"},
+    )
+    assert r.status_code == 400, f"{etiqueta}: {r.status_code} {r.text}"
+    assert await _sitios(db_session, WWWROOT_B) == [], f"{etiqueta}: quedó guardada"
+
+
+@pytest.mark.asyncio
+async def test_la_clave_publica_es_obligatoria(mod_on, db_session):
+    """Sin `public_key` no hay nada con qué verificar un lanzamiento, así que
+    el campo es requerido y pydantic corta con 422 antes de tocar la base. Si
+    fuera opcional, un sitio podría quedar registrado sin clave y el error
+    saldría recién cuando entrara el primer alumno."""
+    await _limpiar_previa(db_session, WWWROOT_B)
+    admin, org_id, token = _alta_de_org()
+
+    r = new_client().post("/mod/register", json={"token": token, "wwwroot": WWWROOT_B})
+    assert r.status_code == 422, r.text
+    assert await _sitios(db_session, WWWROOT_B) == []
+
+
+@pytest.mark.asyncio
+async def test_la_clave_se_guarda_en_forma_canonica(mod_on, db_session):
+    """Moodle puede mandar la misma clave en PKCS#1 (`BEGIN RSA PUBLIC KEY`) o
+    en SubjectPublicKeyInfo, y con basura pegada después del bloque PEM. Lo que
+    se guarda es siempre la reserialización de lo que se parseó: si no, dos
+    registros de la MISMA clave quedarían como textos distintos y cualquier
+    comparación posterior mentiría."""
+    await _limpiar_previa(db_session, WWWROOT_B)
+    admin, org_id, token = _alta_de_org()
+
+    pkcs1 = _PRIV_1.public_key().public_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PublicFormat.PKCS1,
+    ).decode()
+    assert "BEGIN RSA PUBLIC KEY" in pkcs1
+
+    r = new_client().post(
+        "/mod/register",
+        json={"token": token, "wwwroot": WWWROOT_B, "public_key": pkcs1 + "\nbasura al final\n"},
     )
     assert r.status_code == 200, r.text
-    secreto = r.json()["secret"]
-    assert secreto
 
     sitios = await _sitios(db_session, WWWROOT_B)
     assert len(sitios) == 1
-    sitio = sitios[0]
-
-    # Ninguna columna de la fila contiene el secreto -- ni entera ni como
-    # substring, y ni siquiera en la que guarda el token de Moodle.
-    for campo, valor in sitio.model_dump().items():
-        if isinstance(valor, str):
-            assert secreto not in valor, f"el secreto quedó en claro en la columna {campo}"
-
-    # Lo guardado sólo sirve para COMPARAR, y compara bien.
-    assert sitio.secret_hash != secreto
-    assert verify_password(secreto, sitio.secret_hash)
-    assert not verify_password(secreto + "x", sitio.secret_hash)
-
-    # Dos registros del mismo secreto nunca darían el mismo hash (salt), así
-    # que el hash tampoco sirve como identificador estable del secreto.
-    from app.security import hash_password
-
-    assert hash_password(secreto) != sitio.secret_hash
-
-    # Y no hay ninguna superficie que lo devuelva de nuevo: el segundo registro
-    # entrega un secreto NUEVO, no el mismo.
-    token2 = _conectar(admin)
-    r2 = new_client().post("/mod/register", json={"token": token2, "wwwroot": WWWROOT_B})
-    assert r2.status_code == 200, r2.text
-    assert r2.json()["secret"] != secreto
+    assert sitios[0].public_key.strip() == _PUB_1.strip()
+    assert "basura" not in sitios[0].public_key
 
 
 # ── MOD_ENABLED apagado: la superficie no existe ─────────────────────────────
@@ -392,11 +499,11 @@ async def test_con_mod_apagado_la_superficie_no_existe(db_session):
 
     r = new_client().post(
         "/mod/register",
-        json={
-            "token": create_purpose_token(
+        json=_cuerpo(
+            create_purpose_token(
                 MOD_REGISTER_PURPOSE, {"org_id": str(uuid.uuid4())}, ttl_minutes=30
             ),
-            "wwwroot": WWWROOT_B,
-        },
+            WWWROOT_B,
+        ),
     )
     assert r.status_code == 404

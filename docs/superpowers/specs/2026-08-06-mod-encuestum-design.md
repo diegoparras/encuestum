@@ -60,18 +60,30 @@ fina y propia.
 No hay LTI. El módulo firma un token corto y redirige (o embebe):
 
 ```
-GET /enc/launch?t=<JWT>
+GET /mod/launch?t=<JWT>
 ```
 
-El JWT lo firma Moodle con un secreto compartido establecido al conectar, y
-lleva: `survey_id`, identificador estable del alumno, nombre y email (o nada, si
-la actividad es anónima), `course_id`, `cmid`, y si el que entra es docente.
-Vence en 2 minutos: se canjea inmediatamente por la cookie de sesión de
-Encuestum, igual que hace hoy `/lti/launch`.
+**La firma es asimétrica (RS256), no un secreto compartido.** Moodle genera un
+par de claves al conectar y le manda a Encuestum **sólo la pública**. Esto no es
+ceremonia: un secreto compartido no se puede guardar hasheado, porque verificar
+un HMAC exige la misma clave que lo firmó. O sea que con secreto compartido
+Encuestum tendría que guardar, en claro y de forma reversible, una credencial
+que alcanza para lanzar como cualquier alumno de cualquier curso. Con firma
+asimétrica, un volcado de la base de Encuestum **no sirve para falsificar
+nada** — es la misma propiedad que da LTI, y por la misma razón.
+
+El JWT lleva: `survey_id`, identificador estable del alumno, nombre y email (o
+nada, si la actividad es anónima), `course_id`, `cmid`, y si el que entra es
+docente. Vence en 2 minutos y trae un `jti` de un solo uso: se canjea
+inmediatamente por la cookie de sesión de Encuestum, igual que hace hoy
+`/lti/launch`.
 
 **El identificador del alumno no es el `id` de Moodle.** Es un HMAC de
-`(secreto, user_id)`: estable para el mismo sitio, inútil fuera de él, y no
-revela cuántos usuarios tiene la instalación.
+`(secreto local de Moodle, user_id)`. Ese secreto **no se comparte**: Encuestum
+recibe el `sub` ya calculado y nunca necesita reproducirlo. Resolverlo al revés
+—de `sub` a alumno— lo hace Moodle, que sí tiene la clave. Es estable para el
+mismo sitio, inútil fuera de él, y no revela cuántos usuarios tiene la
+instalación.
 
 ### Vuelta: la nota
 
@@ -105,10 +117,24 @@ resolvió `get_lineitem_max()`.
 
 ## Riesgos que hay que tener a la vista
 
-**El secreto compartido es la única barrera.** Con LTI, un atacante necesita la
-clave privada de la plataforma; acá, quien tenga el secreto puede lanzar como
-cualquier alumno y publicar cualquier nota. Tiene que poder rotarse desde la
-interfaz, y el servicio web tiene que exigir HTTPS sin excepción.
+**El riesgo se movió, no desapareció.** Con firma asimétrica, la dirección de
+entrada (lanzar como un alumno) queda tan protegida como con LTI. Pero la
+dirección de **vuelta** no: para publicar la nota, Encuestum guarda un token de
+servicio web de Moodle, que es un *bearer token* y no se puede hashear. Quien lo
+robe puede llamar al servicio web con los permisos que tenga ese token.
+
+Consecuencias que hay que respetar, no adornos:
+
+- El token de servicio se emite para un **usuario de servicio dedicado**, con la
+  capacidad de publicar notas de este módulo y nada más. Nunca el token de un
+  administrador.
+- Tiene que poder rotarse desde la interfaz sin reinstalar nada.
+- El servicio web exige **HTTPS sin excepción**, y el `wwwroot` guardado se
+  revalida con `assert_public_url` en cada envío, no sólo al registrar: pudo
+  quedar apuntando a otro lado.
+
+Esto es peor que LTI en esa dirección, donde el token de AGS es de vida corta y
+con alcance acotado. Es el precio de no depender de `mod_lti`.
 
 **La revisión del Marketplace es más estricta con los módulos de actividad** que
 con los `local_`: piden Privacy API completa (acá sí hay datos personales que
@@ -123,7 +149,8 @@ y ceder el lugar.
 
 ## Orden sugerido
 
-1. El esqueleto del módulo y la conexión (secreto compartido, rotación).
+1. El esqueleto del módulo y la conexión (par de claves, registro de la pública,
+   rotación).
 2. El lanzamiento del alumno y del docente.
 3. El libro de calificaciones (`grade_update`, escala, recorrección).
 4. Finalización de actividad.

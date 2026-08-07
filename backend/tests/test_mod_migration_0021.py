@@ -69,11 +69,14 @@ def test_migracion_0021_encadena_desde_la_0020_y_crea_mod_sites():
     assert "mod_sites" in set(insp.get_table_names())
 
     cols = {c["name"]: c for c in insp.get_columns("mod_sites")}
+    # `public_key`, no `secret_hash`: la firma del lanzamiento es asimétrica y
+    # lo que se guarda es la clave PÚBLICA de Moodle. Ver el docstring de
+    # `MoodleSite`.
     assert set(cols) == {
-        "id", "org_id", "wwwroot", "name", "secret_hash", "ws_token", "created_at",
+        "id", "org_id", "wwwroot", "name", "public_key", "ws_token", "created_at",
     }
     assert cols["org_id"]["nullable"] is False
-    assert cols["secret_hash"]["nullable"] is False
+    assert cols["public_key"]["nullable"] is False
     assert cols["ws_token"]["nullable"] is True
 
     # La unicidad es por `wwwroot` SOLO: si fuera `(org_id, wwwroot)` -- lo que
@@ -114,7 +117,7 @@ def test_migracion_0021_es_idempotente_sobre_una_tabla_que_ya_estaba():
     with engine.begin() as conn:
         conn.exec_driver_sql(
             "CREATE TABLE mod_sites (id TEXT PRIMARY KEY, org_id TEXT NOT NULL, "
-            "wwwroot TEXT NOT NULL, name TEXT, secret_hash TEXT NOT NULL, "
+            "wwwroot TEXT NOT NULL, name TEXT, public_key TEXT NOT NULL, "
             "ws_token TEXT, created_at TEXT NOT NULL, "
             "CONSTRAINT uq_mod_site UNIQUE (wwwroot))"
         )

@@ -7,14 +7,15 @@
 una encuesta, el alumno la responda embebida y la nota aparezca en el libro de
 calificaciones de Moodle — sin `mod_lti` de por medio.
 
-**Architecture:** el módulo no usa LTI. Moodle firma un token corto con un secreto
-compartido y redirige al alumno; Encuestum lo canjea por su cookie de sesión. La nota
-vuelve por un servicio web que expone el propio módulo y que llama a `grade_update()`.
-El porqué —y el hecho de Moodle que lo fuerza— está en
+**Architecture:** el módulo no usa LTI. Moodle genera un par de claves RSA, le da a
+Encuestum **sólo la pública**, firma un token corto con la privada (RS256) y redirige al
+alumno; Encuestum lo canjea por su cookie de sesión. La nota vuelve por un servicio web
+que expone el propio módulo y que llama a `grade_update()`. El porqué —y el hecho de
+Moodle que lo fuerza— está en
 `docs/superpowers/specs/2026-08-06-mod-encuestum-design.md`.
 
-**Tech Stack:** PHP 8.1+ / Moodle 4.5+, FastAPI + SQLModel + Alembic, PyJWT (HS256),
-httpx.
+**Tech Stack:** PHP 8.1+ / Moodle 4.5+, FastAPI + SQLModel + Alembic, PyJWT (RS256),
+`cryptography`, httpx.
 
 ## Global Constraints
 
@@ -52,11 +53,13 @@ httpx.
 class MoodleSite(SQLModel, table=True):
     """Un Moodle conectado por el módulo nativo (no por LTI).
 
-    `secret_hash`: nunca se guarda el secreto en claro. Se genera una vez, se
-    devuelve una vez, y de ahí en más sólo se compara el hash -- mismo criterio
-    que las contraseñas."""
+    `public_key`: la firma es asimétrica (RS256). Moodle genera el par y manda
+    sólo la pública, que se guarda tal cual porque no es secreta. Un secreto
+    compartido no se puede guardar hasheado -- verificar un HMAC exige la misma
+    clave que lo firmó -- así que habría que guardarlo en claro y de forma
+    reversible."""
     __tablename__ = "mod_sites"
-    __table_args__ = (UniqueConstraint("org_id", "wwwroot", name="uq_mod_site"),)
+    __table_args__ = (UniqueConstraint("wwwroot", name="uq_mod_site"),)
 
     id: uuid.UUID = Field(primary_key=True, default_factory=uuid.uuid4)
     org_id: uuid.UUID = Field(
@@ -64,7 +67,7 @@ class MoodleSite(SQLModel, table=True):
                          nullable=False, index=True))
     wwwroot: str = Field(sa_column=Column(String, nullable=False))
     name: Optional[str] = Field(sa_column=Column(String), default=None)
-    secret_hash: str = Field(sa_column=Column(String, nullable=False))
+    public_key: str = Field(sa_column=Column(String, nullable=False))
     # Token de servicio web de Moodle, para empujarle la nota. Es un secreto de
     # ELLOS que guardamos nosotros; va cifrado igual que el resto de las
     # credenciales salientes del producto.
@@ -76,28 +79,38 @@ class MoodleSite(SQLModel, table=True):
 Mirar cómo `LtiPlatform` declara `org_id` y copiar exactamente ese patrón (tipo de
 columna GUID, índice, `ondelete`).
 
-**Registro.** `POST /mod/register` recibe `{token, wwwroot, ws_token}`:
+La unicidad va por `wwwroot` **solo**, no compuesta con `org_id`: un Moodle firma con
+una única clave a nivel sitio, así que pertenece a exactamente una organización. Con la
+compuesta, dos organizaciones podían tener su fila para el mismo `wwwroot` y el 409 de
+abajo quedaba dependiendo sólo de la aplicación, con la carrera SELECT→INSERT abierta.
+
+**Registro.** `POST /mod/register` recibe `{token, wwwroot, public_key, ws_token}`:
 
 1. `read_purpose_token(MOD_REGISTER_PURPOSE, token)` → de ahí sale el `org_id`, **nunca**
    de un parámetro que controle quien llama. Vencido o ausente → 400.
 2. `assert_public_url(wwwroot, require_https=True)` — si no, 400. Esto ya existe en
    `app/net_guard.py` y se usa igual en el registro LTI.
-3. Si ya hay un sitio con ese `(org_id, wwwroot)`, se **rota** el secreto. Si el
-   `wwwroot` existe pero bajo **otra** organización, 409 y no se toca nada:
+3. `public_key` tiene que ser una clave pública **RSA** parseable de al menos **2048
+   bits**; si no, 400 y no se guarda nada. Una clave privada pegada por error, una EC o
+   una RSA de 1024 bits pasan cualquier prueba funcional: firman y verifican bien.
+4. Si ya hay un sitio con ese `wwwroot` bajo la misma organización, se **rota** la
+   clave. Si el `wwwroot` existe pero bajo **otra** organización, 409 y no se toca nada:
    sin ese chequeo, el que registra segundo se queda con el sitio del primero.
-4. Devuelve `{"secret": "<48 bytes url-safe>", "site_id": "..."}`. Se genera con
-   `secrets.token_urlsafe(36)` y se guarda **hasheado**.
+5. Devuelve `{"site_id": "...", "wwwroot": "<forma canónica>"}`. **No hay ningún secreto
+   que devolver.**
 
 **Tests que importan** (los dos fallan en silencio si se rompen):
 
 ```python
 async def test_no_se_puede_robar_el_sitio_de_otra_organizacion(...):
-    """Registrar el mismo wwwroot desde otra org debe dar 409 y dejar el
-    secreto original intacto -- si se sobreescribe, el Moodle de la escuela A
-    pasa a lanzar contra los datos de la escuela B."""
+    """Registrar el mismo wwwroot desde otra org debe dar 409 y dejar la fila
+    original intacta -- si se sobreescribe, el atacante manda SU clave pública,
+    se queda con la privada y el Moodle de la escuela A pasa a lanzar contra
+    los datos de la escuela B."""
 
-async def test_el_secreto_no_se_guarda_en_claro(...):
-    """Lo que queda en la base no tiene que servir para firmar un lanzamiento."""
+async def test_no_se_acepta_una_clave_que_no_sirve(...):
+    """Basura, clave privada en vez de pública, RSA de 1024 bits: 400 y nada
+    guardado."""
 ```
 
 - [ ] Escribir los dos tests y verlos fallar.
@@ -118,7 +131,8 @@ async def test_el_secreto_no_se_guarda_en_claro(...):
 **Interfaces:**
 - Produces: `GET /mod/launch?t=<JWT>` → 302 a `/s/{slug}` con la cookie sembrada.
 
-El JWT lo firma Moodle con el secreto compartido (HS256) y trae:
+El JWT lo firma Moodle con **su clave privada (RS256)** — Encuestum sólo tiene la
+pública, ver la Tarea 1 — y trae:
 
 ```
 iss = wwwroot        exp <= iat + 120        jti (aleatorio, único)
@@ -133,14 +147,17 @@ anonymous = bool
 
 | Validación | Si falta |
 |---|---|
-| Firma con el secreto de ESE `site_id` | cualquiera lanza como cualquiera |
+| Firma con la clave pública de ESE `site_id` | cualquiera lanza como cualquiera |
 | `exp` presente y `<= iat + 120` | un token robado sirve para siempre |
 | `jti` no visto antes (cache con TTL de 120 s) | replay: repetir el mismo lanzamiento |
 | La encuesta pertenece a la org del sitio | acceso cruzado entre organizaciones |
-| `alg` es exactamente `HS256` | `alg: none`, o confusión de algoritmo |
+| `alg` es exactamente `RS256` | `alg: none`, o confusión de algoritmo — si se acepta HS256 con la clave pública como secreto, la pública **es** la de firmar |
 
-El `sub` **no** es el `id` de Moodle: es `HMAC(secreto, user_id)`. Estable para el mismo
-sitio, inútil fuera de él, y no revela cuántos usuarios tiene la instalación.
+Esa última fila no es teórica: es la confusión de algoritmo clásica. Pasar
+`algorithms=["RS256"]` explícito a `jwt.decode`, nunca leerlo del header.
+
+El `sub` **no** es el `id` de Moodle: es un HMAC que calcula Moodle con un secreto
+**suyo**, que no se comparte. Encuestum lo recibe hecho y nunca necesita reproducirlo.
 
 Reusar la cookie que ya existe (`LTI_COOKIE`, `_lti_cookie_kwargs()`): el lado público
 (`_lti_context` en `routers/public.py`) ya sabe leerla y saltear el PIN. **No inventar
@@ -219,11 +236,14 @@ exactamente qué se manda.
 **Files:** `settings.php`, `classes/connect.php`, `launch.php`, `view.php`
 
 - Ajustes: campo "URL de conexión" (la que genera Encuestum) + botón *Conectar*.
-  Al conectar: crea un token de servicio web para el usuario de servicio, hace el `POST
-  /mod/register` con `wwwroot` + ese token, y guarda el secreto que vuelve.
-- `view.php`: arma el JWT y embebe `/mod/launch?t=...` en un iframe.
+  Al conectar: **genera el par de claves RSA de 2048 bits**, guarda la privada en la
+  configuración del plugin, crea un token de servicio web para el usuario de servicio y
+  hace el `POST /mod/register` con `wwwroot` + la clave **pública** + ese token. Lo único
+  que vuelve es el `site_id`.
+- `view.php`: firma el JWT con la privada (RS256) y embebe `/mod/launch?t=...` en un
+  iframe.
 - El docente ve además un selector de encuesta en `mod_form.php`, que consulta a Encuestum
-  con el mismo secreto.
+  autenticándose con la misma firma.
 
 > El botón lee la URL **guardada**, no la que está en pantalla. Mismo tropiezo que
 > documenta `docs/INSTALAR-PLUGIN-VPS.md` para `local_encuestum`: hay que guardar antes.

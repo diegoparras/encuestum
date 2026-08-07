@@ -1,27 +1,29 @@
 """Endpoints de `mod_encuestum`, la actividad nativa de Moodle.
 
-Nada de esto usa LTI: Moodle firma un token corto con un secreto compartido que
-se establece acá, en el registro. Todo el router vive detrás de `MOD_ENABLED`.
+Nada de esto usa LTI: Moodle firma un token corto de lanzamiento con **su clave
+privada RSA** y Encuestum lo verifica con la pública que quedó registrada acá.
+Todo el router vive detrás de `MOD_ENABLED`.
 
 El diseño está en `docs/superpowers/specs/2026-08-06-mod-encuestum-design.md`.
 Esta parte es sólo el registro del sitio; el lanzamiento y la nota son otras
 tareas.
 
-OJO para quien siga con el lanzamiento: acá el secreto se guarda **hasheado con
-bcrypt**, de una sola vía, y eso es deliberado (un volcado de `mod_sites` no
-tiene que alcanzar para lanzar como nadie). Verificar un JWT HS256 firmado por
-Moodle con ese mismo secreto exige tener el secreto, no su hash: las dos cosas
-no pueden ser ciertas a la vez. La salida recomendada es que Moodle canjee el
-secreto por un token de lanzamiento servidor a servidor (comparando el hash) en
-vez de firmar el JWT él mismo. Está desarrollado en
-`.superpowers/sdd/task-mod-1-report.md`.
+La firma es asimétrica y no un secreto compartido por una razón concreta:
+verificar un HMAC exige tener la misma clave que lo firmó, así que con secreto
+compartido Encuestum tendría que guardarlo en claro y de forma reversible --
+una credencial que alcanza para lanzar como cualquier alumno de cualquier
+curso. Acá lo que se guarda es una clave pública: un volcado de `mod_sites` no
+sirve para falsificar ningún lanzamiento. El razonamiento completo (y por qué
+la primera versión de esta tarea, con `secret_hash` de bcrypt, era
+incompatible con la Tarea 2) está en `.superpowers/sdd/task-mod-1b-report.md`.
 """
 
 import logging
-import secrets
 import uuid
 from urllib.parse import urlencode, urlsplit, urlunsplit
 
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy.exc import IntegrityError
@@ -33,7 +35,7 @@ from app.db import get_session
 from app.deps import OrgContext, current_context
 from app.models import ROLE_ADMIN, ROLE_RANK, MoodleSite, Organization
 from app.net_guard import UnsafeUrlError, assert_public_url
-from app.security import create_purpose_token, hash_password, read_purpose_token
+from app.security import create_purpose_token, read_purpose_token
 
 LOGGER = logging.getLogger(__name__)
 
@@ -46,9 +48,18 @@ LOGGER = logging.getLogger(__name__)
 MOD_REGISTER_PURPOSE = "mod_register"
 MOD_REGISTER_TOKEN_TTL_MIN = 30
 
-# 36 bytes al azar -> 48 caracteres url-safe (288 bits). Por debajo del tope de
-# 72 bytes de bcrypt, así que `hash_password` no lo trunca.
-_SECRET_BYTES = 36
+# Piso de tamaño de la clave con la que Moodle firma los lanzamientos: el mismo
+# que este repositorio usa para generar su propio par LTI (`app/lti/keys.py`),
+# así que no hay dos criterios distintos conviviendo. Una RSA de 1024 bits se
+# parsea sin problemas y firma tokens que verifican perfecto -- por eso hay que
+# rechazarla acá y no confiar en que "si anda, está bien": aceptarla dejaría la
+# puerta de entrada al valor de una clave que hoy se considera débil.
+_BITS_MINIMOS = 2048
+
+# Una clave RSA de 8192 bits en PEM ronda los 1,6 kB; el tope corta payloads
+# absurdos antes de que `load_pem_public_key` (que es C y no tiene límite
+# propio) los procese.
+_PEM_MAX_BYTES = 8192
 
 _PUERTO_POR_DEFECTO = {"http": 80, "https": 443}
 
@@ -112,6 +123,60 @@ def _normalizar_wwwroot(crudo: str) -> str:
     return urlunsplit((esquema, autoridad, partes.path.rstrip("/"), "", ""))
 
 
+def _validar_clave_publica(pem: str) -> str:
+    """Devuelve la clave en PEM canónico, o levanta 400 si no sirve para nada.
+
+    Esta función es la única barrera entre "Moodle mandó algo" y "Encuestum va
+    a verificar firmas de lanzamiento con eso". Una clave que no se pueda usar
+    no puede guardarse: el error saldría recién en el primer lanzamiento de un
+    alumno, lejos del registro y sin nadie mirando. Se rechazan tres cosas
+    distintas, cada una por su motivo:
+
+    - **No parsea** (basura, PEM truncado, texto suelto): no hay con qué
+      verificar nada.
+    - **No es una clave pública RSA**: pegar la clave PRIVADA por error es el
+      accidente más probable de todos, y guardarla sería persistir en claro
+      justo la credencial que todo este diseño existe para no tener. También
+      cae acá una clave EC o DSA, que no sirve para RS256.
+    - **Menos de `_BITS_MINIMOS`**: una RSA de 1024 bits firma y verifica sin
+      quejarse, así que ninguna prueba funcional la caza.
+
+    Lo que vuelve es la reserialización en SubjectPublicKeyInfo, no el texto
+    que llegó: así lo guardado es exactamente lo que se parseó (sin basura
+    pegada después del bloque PEM, y con PKCS#1 y SPKI convergiendo a una sola
+    forma, para que dos registros de la misma clave no queden distintos)."""
+    pem = (pem or "").strip()
+    if not pem:
+        raise HTTPException(status_code=400, detail="public_key: falta la clave pública.")
+    crudo = pem.encode("utf-8", "replace")
+    if len(crudo) > _PEM_MAX_BYTES:
+        raise HTTPException(status_code=400, detail="public_key: la clave es demasiado grande.")
+    try:
+        clave = serialization.load_pem_public_key(crudo)
+    except Exception as exc:
+        # `load_pem_public_key` levanta ValueError, UnsupportedAlgorithm y algún
+        # error propio de OpenSSL según lo que le entre: se atrapa ancho a
+        # propósito, porque acá cualquier fallo significa lo mismo.
+        raise HTTPException(
+            status_code=400,
+            detail="public_key: no es una clave pública en formato PEM.",
+        ) from exc
+    if not isinstance(clave, rsa.RSAPublicKey):
+        raise HTTPException(
+            status_code=400,
+            detail="public_key: tiene que ser una clave pública RSA.",
+        )
+    if clave.key_size < _BITS_MINIMOS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"public_key: la clave RSA tiene que ser de al menos {_BITS_MINIMOS} bits.",
+        )
+    return clave.public_bytes(
+        encoding=serialization.Encoding.PEM,
+        format=serialization.PublicFormat.SubjectPublicKeyInfo,
+    ).decode("ascii")
+
+
 # ── POST /api/v1/mod/connect-url ─────────────────────────────────────────────
 
 
@@ -168,6 +233,10 @@ async def connect_url(
 class RegisterIn(BaseModel):
     token: str
     wwwroot: str
+    # Clave PÚBLICA RSA en PEM: la mitad que Moodle puede regalar del par que
+    # generó al conectar. La privada -- la que firma los lanzamientos -- no sale
+    # nunca de Moodle, así que Encuestum no la puede perder.
+    public_key: str
     # Token de servicio web con el que después le empujamos la nota a Moodle.
     ws_token: str | None = None
     name: str | None = None
@@ -175,10 +244,10 @@ class RegisterIn(BaseModel):
 
 class RegisterOut(BaseModel):
     site_id: str
+    # Forma canónica del `wwwroot`: el plugin la necesita para saber contra qué
+    # `iss` va a firmar. No hay ningún secreto en esta respuesta -- no hay
+    # ninguno que dar.
     wwwroot: str
-    # La única vez que este secreto sale de acá. No hay ningún otro endpoint
-    # que lo devuelva: lo que queda guardado es sólo su hash.
-    secret: str
 
 
 @router.post("/register", name="mod_register", dependencies=[Depends(require_mod)])
@@ -186,7 +255,7 @@ async def register_site(
     payload: RegisterIn,
     session: AsyncSession = Depends(get_session),
 ) -> RegisterOut:
-    """Da de alta (o reconecta) un Moodle y le entrega su secreto compartido.
+    """Da de alta (o reconecta) un Moodle y guarda su clave pública de firma.
 
     Es necesariamente anónimo: lo llama el servidor de Moodle, sin ninguna
     sesión de Encuestum. Por eso el `org_id` sale ÚNICAMENTE del token de
@@ -198,13 +267,16 @@ async def register_site(
     los datos de la escuela B con sólo registrarse segundo, sin ningún error
     visible para nadie: es el mismo hallazgo que la revisión del registro LTI
     cazó como toma de control entre organizaciones (ver
-    `dynamic_registration` en `routers/lti.py`). Un sitio propio, en cambio, sí
-    rota el secreto: reconectar es la forma soportada de recuperarse de un
-    secreto perdido o comprometido.
+    `dynamic_registration` en `routers/lti.py`). Y no importa que lo que se
+    pise sea una clave pública en vez de un secreto: quien reemplaza la clave
+    de verificación pasa a poder firmar los lanzamientos de ese sitio con la
+    privada que sólo él tiene. Un sitio propio, en cambio, sí rota la clave:
+    reconectar es la forma soportada de recuperarse de un par comprometido.
 
-    `require_https`: el secreto vuelve en el cuerpo de esta misma respuesta y
-    después viaja en cada llamada al servicio web de Moodle. Sin HTTPS iría en
-    claro las dos veces."""
+    `require_https`: la clave pública no es secreta, pero el `ws_token` que
+    viene en este mismo cuerpo sí lo es, y además una clave que viaje por HTTP
+    plano la puede reemplazar cualquiera en el camino -- que es exactamente el
+    ataque que la firma asimétrica existe para cerrar."""
     datos = read_purpose_token(MOD_REGISTER_PURPOSE, payload.token or "")
     if not datos:
         raise HTTPException(
@@ -231,8 +303,10 @@ async def register_site(
     except UnsafeUrlError as exc:
         raise HTTPException(status_code=400, detail=f"wwwroot: {exc}") from exc
 
-    secreto = secrets.token_urlsafe(_SECRET_BYTES)
-    secret_hash = hash_password(secreto)
+    # Antes de tocar la base: una clave que no sirve no se guarda. Si esto
+    # pasara después del INSERT, una reconexión con la clave equivocada dejaría
+    # el sitio sin poder lanzar hasta que alguien lo notara.
+    public_key = _validar_clave_publica(payload.public_key)
 
     existente = await _sitio_por_wwwroot(session, wwwroot)
     if existente is None:
@@ -240,7 +314,7 @@ async def register_site(
             org_id=org_id,
             wwwroot=wwwroot,
             name=payload.name,
-            secret_hash=secret_hash,
+            public_key=public_key,
             ws_token=payload.ws_token,
         )
         # El id se captura ANTES del commit, no después: hoy el sessionmaker va
@@ -265,7 +339,7 @@ async def register_site(
                 raise
         else:
             LOGGER.info("sitio Moodle registrado: %s (org %s)", wwwroot, org_id)
-            return RegisterOut(site_id=str(site_id), wwwroot=wwwroot, secret=secreto)
+            return RegisterOut(site_id=str(site_id), wwwroot=wwwroot)
 
     if existente.org_id != org_id:
         # La fila ya es de OTRA organización: no se adopta ni se toca nada. El
@@ -276,19 +350,20 @@ async def register_site(
             detail="Ese Moodle ya está conectado a otra organización de Encuestum.",
         )
 
-    # Reconexión del mismo sitio: rota el secreto sobre la fila que ya está, no
+    # Reconexión del mismo sitio: rota la clave sobre la fila que ya está, no
     # crea una segunda. `ws_token` y `name` sólo se pisan si vinieron: una
-    # reconexión que no los manda no debe borrar los que ya estaban.
+    # reconexión que no los manda no debe borrar los que ya estaban. La clave
+    # sí se pisa siempre, porque siempre viene: es obligatoria en el cuerpo.
     site_id = existente.id
-    existente.secret_hash = secret_hash
+    existente.public_key = public_key
     if payload.ws_token is not None:
         existente.ws_token = payload.ws_token
     if payload.name is not None:
         existente.name = payload.name
     session.add(existente)
     await session.commit()
-    LOGGER.info("sitio Moodle reconectado (secreto rotado): %s (org %s)", wwwroot, org_id)
-    return RegisterOut(site_id=str(site_id), wwwroot=wwwroot, secret=secreto)
+    LOGGER.info("sitio Moodle reconectado (clave rotada): %s (org %s)", wwwroot, org_id)
+    return RegisterOut(site_id=str(site_id), wwwroot=wwwroot)
 
 
 async def _sitio_por_wwwroot(session: AsyncSession, wwwroot: str) -> MoodleSite | None:
