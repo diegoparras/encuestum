@@ -224,88 +224,145 @@ async def post_score(
     resp.raise_for_status()
 
 
-async def _deliver(response_id: uuid.UUID) -> None:
-    """Toma la respuesta ya corregida y publica su nota. Nunca propaga errores:
-    que falle el LMS no puede romper el envío del alumno."""
+async def _origen(response_id: uuid.UUID) -> str | None:
+    """Por qué transporte tiene que volver la nota de esta respuesta.
+
+    `"lti"` (AGS, contra un `LtiResourceLink`), `"mod"` (el servicio web de
+    `mod_encuestum`) o `None` si no vino de Moodle o si todavía no hay nota.
+
+    No hay ningún caso ambiguo que desempatar: el CHECK
+    `ck_survey_responses_un_solo_origen` (ver `app/models.py`) impide a nivel de
+    motor que una respuesta tenga los dos orígenes. El orden de los `if` no es
+    una desambiguación, es sólo un orden.
+
+    Abre su propia sesión y la cierra antes de que arranque el transporte. El
+    camino LTI necesita pedir la clave del tool ANTES de cargar cualquier fila
+    (ver el comentario adentro de `_deliver_lti`), así que sostener esta sesión
+    hasta ahí reintroduciría justo el problema que ese orden existe para evitar.
+    """
     from app.db import _session_maker
-    from app.lti.keys import get_tool_key
-    from app.models import Survey, SurveyResponse
+    from app.models import SurveyResponse
 
+    async with _session_maker() as session:
+        r = await session.get(SurveyResponse, response_id)
+        if r is None or r.score is None:
+            return None
+        if r.mod_site_id is not None:
+            return "mod"
+        if r.lti_link_id is not None:
+            return "lti"
+        return None
+
+
+async def _deliver(response_id: uuid.UUID) -> None:
+    """Despacha la nota de una respuesta ya corregida por el transporte que le
+    corresponde, y nunca propaga errores: que falle el LMS no puede romper el
+    envío del alumno, que del lado de Encuestum ya salió bien y está guardado.
+
+    Este es el ÚNICO `except` de los dos caminos: tanto `_deliver_lti` como
+    `app/mod/grades.py` propagan a propósito, para que la garantía viva en un
+    solo lugar y no haya que confiar en que cada transporte se acuerde.
+
+    El *momento* de publicar (al responder y al recorregir) lo decide
+    `schedule_score`, que es único para las dos integraciones. Lo único que
+    cambia entre ellas es el transporte, y eso es lo que elige esta función."""
     try:
-        async with _session_maker() as session:
-            # `get_tool_key` corre PRIMERO, antes de cargar `r`/`link`/
-            # `platform`/`survey`: mismo hallazgo del rollback sweep del fix
-            # de la carrera de `LtiResourceLink` en `app/routers/lti.py` (ver
-            # `_upsert_lti_user`/`_link_from_deep_link_claims` ahí). Si
-            # todavía no existe la fila de `LtiKey` (primer arranque) y dos
-            # entregas piden una clave casi a la vez, `get_tool_key`
-            # (`app/lti/keys.py`) hace su propio `session.rollback()` para
-            # recuperarse -- y ese rollback expira TODO el identity map de la
-            # sesión. Si `platform`/`link`/`survey` ya estuvieran cargados en
-            # ese momento, `ensure_lineitem`/`get_access_token` (que leen sus
-            # atributos de forma síncrona, sin `await`) reventarían con
-            # `MissingGreenlet` -- silenciado acá por el `except Exception`
-            # de más abajo, pero la nota nunca se publicaría. Pidiendo la
-            # clave antes de cargar nada más, ese rollback no tiene nada que
-            # invalidar.
-            key = await get_tool_key(session)
+        origen = await _origen(response_id)
+        if origen == "mod":
+            from app.mod.grades import entregar_nota
 
-            r = await session.get(SurveyResponse, response_id)
-            if r is None or r.lti_link_id is None or r.score is None or not r.lti_sub:
-                # `lti_sub` es nullable: sin él no hay a quién asignarle la
-                # nota en el libro, y postear `userId: ""` sólo cambia un
-                # "no se intentó" por un "se intentó y la plataforma lo
-                # rechazó", igual de silencioso para el docente.
-                return
-            link = await session.get(LtiResourceLink, r.lti_link_id)
-            if link is None:
-                return
-            # Vínculo anónimo: no se publica nota. Publicar un score por alumno
-            # es identificarlo, así que el anonimato y la nota son excluyentes.
-            if link.anonymous:
-                return
-            platform = await session.get(LtiPlatform, link.platform_id)
-            if platform is None:
-                return
-            survey = await session.get(Survey, r.survey_id)
-
-            link.lineitem_url = await ensure_lineitem(
-                platform, link, key,
-                label=(survey.title if survey else None) or "Encuesta",
-                score_maximum=DEFAULT_SCORE_MAXIMUM,
-            )
-            # La escala la manda el libro, no la rúbrica: puede haberla cambiado
-            # el docente en Moodle.
-            maximum = await get_lineitem_max(platform, link.lineitem_url, key)
-            link.max_score = maximum
-            session.add(link)
-            await session.commit()
-
-            # La rúbrica tiene su propia escala: se reescala antes de publicar.
-            given = float(r.score)
-            if r.max_score and float(r.max_score) > 0 and float(r.max_score) != maximum:
-                given = given / float(r.max_score) * maximum
-
-            await post_score(
-                platform, link, key,
-                sub=r.lti_sub,
-                score=given,
-                score_maximum=maximum,
-                comment=(r.grade or {}).get("feedback") if isinstance(r.grade, dict) else None,
-                needs_review=bool(r.needs_review),
-            )
+            await entregar_nota(response_id)
+        elif origen == "lti":
+            await _deliver_lti(response_id)
     except Exception as exc:  # noqa: BLE001 — el LMS no puede romper el submit del alumno
         # Este catch también atrapa errores de programación, no sólo fallas de
         # red -- y esta línea es el único diagnóstico que queda, porque para
         # el docente el envío falló en silencio. Sin exc_info no hay traceback.
         LOGGER.warning(
-            "no se pudo publicar la nota LTI de %s: %s", response_id, exc, exc_info=True
+            "no se pudo publicar la nota de %s: %s", response_id, exc, exc_info=True
+        )
+
+
+async def _deliver_lti(response_id: uuid.UUID) -> None:
+    """Publica la nota por AGS: el camino de `mod_lti`/`local_encuestum`.
+
+    **Propaga** lo que falle; el `except` único está en `_deliver`."""
+    from app.db import _session_maker
+    from app.lti.keys import get_tool_key
+    from app.models import Survey, SurveyResponse
+
+    async with _session_maker() as session:
+        # `get_tool_key` corre PRIMERO, antes de cargar `r`/`link`/
+        # `platform`/`survey`: mismo hallazgo del rollback sweep del fix
+        # de la carrera de `LtiResourceLink` en `app/routers/lti.py` (ver
+        # `_upsert_lti_user`/`_link_from_deep_link_claims` ahí). Si
+        # todavía no existe la fila de `LtiKey` (primer arranque) y dos
+        # entregas piden una clave casi a la vez, `get_tool_key`
+        # (`app/lti/keys.py`) hace su propio `session.rollback()` para
+        # recuperarse -- y ese rollback expira TODO el identity map de la
+        # sesión. Si `platform`/`link`/`survey` ya estuvieran cargados en
+        # ese momento, `ensure_lineitem`/`get_access_token` (que leen sus
+        # atributos de forma síncrona, sin `await`) reventarían con
+        # `MissingGreenlet` -- silenciado por el `except Exception` de
+        # `_deliver`, pero la nota nunca se publicaría. Pidiendo la clave
+        # antes de cargar nada más, ese rollback no tiene nada que
+        # invalidar. Por el mismo motivo `_origen` cierra su sesión antes
+        # de llamar acá, en vez de pasarnos la fila ya cargada.
+        key = await get_tool_key(session)
+
+        r = await session.get(SurveyResponse, response_id)
+        if r is None or r.lti_link_id is None or r.score is None or not r.lti_sub:
+            # `lti_sub` es nullable: sin él no hay a quién asignarle la
+            # nota en el libro, y postear `userId: ""` sólo cambia un
+            # "no se intentó" por un "se intentó y la plataforma lo
+            # rechazó", igual de silencioso para el docente.
+            return
+        link = await session.get(LtiResourceLink, r.lti_link_id)
+        if link is None:
+            return
+        # Vínculo anónimo: no se publica nota. Publicar un score por alumno
+        # es identificarlo, así que el anonimato y la nota son excluyentes.
+        if link.anonymous:
+            return
+        platform = await session.get(LtiPlatform, link.platform_id)
+        if platform is None:
+            return
+        survey = await session.get(Survey, r.survey_id)
+
+        link.lineitem_url = await ensure_lineitem(
+            platform, link, key,
+            label=(survey.title if survey else None) or "Encuesta",
+            score_maximum=DEFAULT_SCORE_MAXIMUM,
+        )
+        # La escala la manda el libro, no la rúbrica: puede haberla cambiado
+        # el docente en Moodle.
+        maximum = await get_lineitem_max(platform, link.lineitem_url, key)
+        link.max_score = maximum
+        session.add(link)
+        await session.commit()
+
+        # La rúbrica tiene su propia escala: se reescala antes de publicar.
+        given = float(r.score)
+        if r.max_score and float(r.max_score) > 0 and float(r.max_score) != maximum:
+            given = given / float(r.max_score) * maximum
+
+        await post_score(
+            platform, link, key,
+            sub=r.lti_sub,
+            score=given,
+            score_maximum=maximum,
+            comment=(r.grade or {}).get("feedback") if isinstance(r.grade, dict) else None,
+            needs_review=bool(r.needs_review),
         )
 
 
 def schedule_score(response_id: uuid.UUID) -> None:
-    """Dispara el envío sin bloquear la respuesta al alumno, igual que los webhooks."""
+    """Dispara el envío sin bloquear la respuesta al alumno, igual que los
+    webhooks. Es el único disparador de los DOS transportes (AGS y el servicio
+    web de `mod_encuestum`): quién publica lo decide `_deliver`, no quien llama
+    acá. Por eso `routers/public.py` no tiene que saber de dónde vino la
+    respuesta para pedir que se publique la nota."""
     try:
         asyncio.get_running_loop().create_task(_deliver(response_id))
     except RuntimeError:  # sin loop corriendo (tests sincrónicos): no hacemos nada
-        LOGGER.debug("sin event loop: se omite el envío de nota LTI de %s", response_id)
+        LOGGER.debug("sin event loop: se omite el envío de nota de %s", response_id)

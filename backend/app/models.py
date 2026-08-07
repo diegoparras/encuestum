@@ -6,6 +6,7 @@ import uuid
 from sqlalchemy import (
     JSON,
     Boolean,
+    CheckConstraint,
     Column,
     DateTime,
     Float,
@@ -246,8 +247,24 @@ class Survey(SQLModel, table=True):
     )
 
 
+# Una respuesta que vino de Moodle pertenece a UN solo origen: o al vínculo LTI
+# (`lti_link_id`, camino `mod_lti`/`local_encuestum`) o al sitio del módulo
+# nativo (`mod_site_id`, camino `mod_encuestum`). Nunca a los dos.
+#
+# El invariante lo garantiza el motor y no la aplicación a propósito: el
+# despacho de la nota (`_deliver` en `app/lti/ags.py`) elige el transporte
+# mirando estas dos columnas, y una fila con las dos puestas es un caso
+# ambiguo -- el desenlace más probable es publicar la misma nota dos veces,
+# por AGS y por el servicio web, en dos actividades distintas de Moodle. Una
+# regla que vive sólo en el código se rompe con el primer script de migración
+# de datos que alguien escriba a mano.
+_CK_UN_SOLO_ORIGEN = "ck_survey_responses_un_solo_origen"
+_SQL_UN_SOLO_ORIGEN = "NOT (lti_link_id IS NOT NULL AND mod_site_id IS NOT NULL)"
+
+
 class SurveyResponse(SQLModel, table=True):
     __tablename__ = "survey_responses"
+    __table_args__ = (CheckConstraint(_SQL_UN_SOLO_ORIGEN, name=_CK_UN_SOLO_ORIGEN),)
 
     id: uuid.UUID = Field(primary_key=True, default_factory=uuid.uuid4)
     survey_id: uuid.UUID = Field(
@@ -275,7 +292,36 @@ class SurveyResponse(SQLModel, table=True):
         sa_column=Column(ForeignKey("lti_resource_links.id", ondelete="SET NULL"), index=True),
         default=None,
     )
+    # El identificador opaco del alumno del lado de Moodle. Se llama `lti_sub`
+    # por historia, pero lo comparten los DOS caminos: en LTI es el `sub` del
+    # id_token y en `mod_encuestum` es el HMAC que calcula Moodle con un
+    # secreto suyo. En ambos es "a quién le corresponde la nota", y en ambos
+    # queda en NULL cuando la actividad es anónima -- que es lo que corta la
+    # publicación de la nota antes de cualquier request saliente.
     lti_sub: Optional[str] = Field(sa_column=Column(String, index=True), default=None)
+    # ── Atribución del módulo nativo (`mod_encuestum`) ───────────────────────
+    #
+    # A diferencia de LTI, acá Encuestum no persiste la actividad: no hay
+    # `LtiResourceLink` que apuntar porque el vínculo vive del lado de Moodle.
+    # Lo único que llega es el token de lanzamiento, y de él salen estas tres
+    # columnas. Sin ellas la respuesta no tenía ninguna referencia a la
+    # actividad de origen y la nota no tenía a dónde volver.
+    #
+    # `ondelete="SET NULL"`: desconectar el Moodle borra la fila de `mod_sites`
+    # y las respuestas quedan en pie -- son datos del alumno, no del vínculo.
+    mod_site_id: Optional[uuid.UUID] = Field(
+        sa_column=Column(ForeignKey("mod_sites.id", ondelete="SET NULL"), index=True),
+        default=None,
+    )
+    # `course_module id` de Moodle: identifica la actividad concreta dentro del
+    # curso, y es el primer argumento del servicio web que publica la nota.
+    mod_cmid: Optional[int] = Field(sa_column=Column(Integer), default=None)
+    # `grademax` del `grade_item` de esa actividad, congelado en el momento del
+    # lanzamiento. La escala la define Moodle, no la rúbrica, y viaja en el
+    # token porque preguntarla costaría un round-trip sincrónico más y una
+    # segunda función de servicio web. El razonamiento completo (y por qué la
+    # ventana de desfasaje es aceptable) está en `app/mod/grades.py`.
+    mod_grademax: Optional[float] = Field(sa_column=Column(Float), default=None)
     # Grading
     score: Optional[float] = Field(sa_column=Column(Float), default=None)
     max_score: Optional[float] = Field(sa_column=Column(Float), default=None)

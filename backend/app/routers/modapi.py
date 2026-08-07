@@ -436,11 +436,18 @@ async def launch(
         # Sin `link_id`: no hay `LtiResourceLink` que apuntar, y `submit` lo
         # trata como opcional justamente para distinguir los dos orígenes.
         "anonymous": anonimo,
-        # Lo que la Tarea 3 necesita para empujar la nota al servicio web de
-        # Moodle: de qué sitio y de qué actividad vino. No hay otro lado de
-        # donde sacarlo -- Encuestum no persiste la actividad.
+        # Lo que hace falta para empujar la nota al servicio web de Moodle: de
+        # qué sitio y de qué actividad vino. No hay otro lado de donde sacarlo
+        # -- Encuestum no persiste la actividad.
         "mod_site_id": str(sitio.id),
         "cmid": claims.get("cmid"),
+        # La escala del libro la define Moodle, no la rúbrica: es el `grademax`
+        # del `grade_item` de esta actividad, y viaja en el token porque el
+        # único otro camino sería preguntárselo a Moodle con un round-trip más
+        # (y una segunda función de servicio web) por cada nota. La ventana de
+        # desfasaje es la misma que la de `anonymous`, acá arriba; el detalle
+        # de por qué es aceptable está en `app/mod/grades.py`.
+        "grademax": claims.get("grademax"),
     }
     if not anonimo:
         # Con la actividad anónima, Moodle ya no manda nombre ni email; el

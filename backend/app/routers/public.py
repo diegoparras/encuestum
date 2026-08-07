@@ -83,6 +83,51 @@ def _lti_context(request: Request, s: Survey) -> dict | None:
     return data
 
 
+def _entero(valor) -> int | None:
+    """El claim tal como lo mandó Moodle, si es un entero. `None` si no.
+
+    Los claims del token de lanzamiento vienen de JSON: `cmid` puede llegar como
+    número o como string según cómo lo serialice el plugin, y un plugin roto
+    puede mandar cualquier cosa. Que un valor raro deje la columna en NULL (y la
+    nota sin publicar) es preferible a un 500 en el submit de un alumno cuya
+    respuesta, del lado de Encuestum, salió perfecta."""
+    try:
+        return int(valor)
+    except (TypeError, ValueError):
+        return None
+
+
+def _flotante(valor) -> float | None:
+    """Idem `_entero`, para `grademax`. Un valor no positivo se descarta: una
+    escala de 0 o negativa no sirve para reescalar nada y dejarla pasar sólo
+    correría el error hasta una división por cero en `app/mod/grades.py`."""
+    try:
+        numero = float(valor)
+    except (TypeError, ValueError):
+        return None
+    return numero if numero > 0 else None
+
+
+async def _sitio_del_modulo(session: AsyncSession, crudo) -> uuid.UUID | None:
+    """El `site_id` del token de lanzamiento, **sólo si la fila todavía existe**.
+
+    El SELECT extra parece de más -- el token lo firmamos nosotros y el sitio
+    existía cuando se emitió -- pero la cookie vive `ACCESS_TTL_S` (4 horas) y
+    en ese rato un admin puede desconectar el Moodle. Sin este chequeo, el
+    INSERT chocaría contra la FK y el alumno vería un 500 al enviar una
+    respuesta que del lado de Encuestum está perfecta. Así, lo peor que pasa es
+    que la respuesta se guarda sin origen y la nota no se publica."""
+    from app.models import MoodleSite
+
+    if not crudo:
+        return None
+    try:
+        site_id = uuid.UUID(str(crudo))
+    except (TypeError, ValueError):
+        return None
+    return site_id if await session.get(MoodleSite, site_id) is not None else None
+
+
 async def _visible(slug: str, session: AsyncSession) -> Survey:
     """A survey that has been published at least once (published or closed).
     Drafts / unknown slugs are 404 — they never existed publicly. Una encuesta en
@@ -331,11 +376,29 @@ async def submit(
         anonimo = bool(link and link.anonymous)
     elif lti:
         anonimo = bool(lti.get("anonymous"))
+
+    # De qué actividad del módulo nativo vino la respuesta. Sin esto la nota no
+    # tiene a dónde volver: `mod_encuestum` no deja ninguna fila del lado de
+    # Encuestum, así que el token del lanzamiento es la ÚNICA copia de ese dato
+    # que llega hasta acá.
+    #
+    # Sólo cuando NO hay `link_id`: los dos orígenes son excluyentes y el CHECK
+    # `ck_survey_responses_un_solo_origen` lo hace cumplir el motor. Una fila
+    # con los dos haría que el despacho de la nota (`_deliver` en
+    # `app/lti/ags.py`) tuviera un caso ambiguo.
+    mod_site_id, mod_cmid, mod_grademax = (None, None, None)
+    if lti and not link_id:
+        mod_site_id = await _sitio_del_modulo(session, lti.get("mod_site_id"))
+        if mod_site_id is not None:
+            mod_cmid = _entero(lti.get("cmid"))
+            mod_grademax = _flotante(lti.get("grademax"))
+
     r = SurveyResponse(
         survey_id=s.id, answers=payload.answers or {}, completed=payload.completed, meta=payload.meta,
         respondent_email=None if anonimo else resp_email, respondent_code=resp_code,
         lti_link_id=uuid.UUID(link_id) if link_id else None,
         lti_sub=None if anonimo else (lti.get("sub") if lti else None),
+        mod_site_id=mod_site_id, mod_cmid=mod_cmid, mod_grademax=mod_grademax,
     )
     session.add(r)
 
