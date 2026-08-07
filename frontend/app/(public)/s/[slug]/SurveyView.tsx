@@ -2,6 +2,8 @@
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { Model } from "survey-core";
+// Debe ir antes de instanciar el Model: desactiva el atajo "valor|etiqueta".
+import "@/lib/surveyjs";
 import { Survey } from "survey-react-ui";
 import "survey-core/survey-core.min.css";
 import "survey-core/i18n/spanish";
