@@ -37,6 +37,7 @@ import { GradebookPanel } from "../../GradebookPanel";
 import { InsightsPanel } from "../../InsightsPanel";
 import { FunnelCard, SummaryPanel } from "../../SummaryPanel";
 import { ReportPanel } from "../../ReportPanel";
+import { ResponsesPanel } from "../../ResponsesPanel";
 import { themeToAccent } from "../../builder/model";
 
 export default function SurveyDetailPage() {
@@ -72,7 +73,7 @@ export default function SurveyDetailPage() {
   const [duplicating, setDuplicating] = useState(false);
   const [resultsTab, setResultsTab] = useState<"summary" | "report" | "responses">("summary");
   const [evalTab, setEvalTab] = useState<
-    "gradebook" | "grading" | "summary" | "report"
+    "gradebook" | "grading" | "responses" | "summary" | "report"
   >("gradebook");
 
   // Lista completa de respuestas: carga perezosa. `null` = todavía no pedida.
@@ -97,17 +98,15 @@ export default function SurveyDetailPage() {
   }, [id]);
 
   // Bajamos la lista completa SÓLO cuando la pestaña "Respuestas" está activa
-  // (encuestas comunes). En "Resumen" no se descarga nada de respuestas.
+  // (tanto en encuestas comunes como en exámenes). En "Resumen" no se descarga
+  // nada de respuestas.
   useEffect(() => {
-    if (
-      survey &&
-      !survey.evaluation?.enabled &&
-      resultsTab === "responses" &&
-      responses === null
-    ) {
-      loadResponses();
-    }
-  }, [survey, resultsTab, responses, loadResponses]);
+    if (!survey || responses !== null) return;
+    const viendoRespuestas = survey.evaluation?.enabled
+      ? evalTab === "responses"
+      : resultsTab === "responses";
+    if (viendoRespuestas) loadResponses();
+  }, [survey, resultsTab, evalTab, responses, loadResponses]);
 
   // En evaluaciones sólo necesitamos un número (para habilitar la exportación).
   // Lo tomamos del funnel (agregados) en vez de bajar toda la lista.
@@ -502,6 +501,7 @@ export default function SurveyDetailPage() {
                   [
                     ["gradebook", t("surveys.tabGrades")],
                     ["grading", t("surveys.tabGrading")],
+                    ["responses", t("surveys.tabResponses")],
                     ["summary", t("surveys.tabSummary")],
                     ["report", t("surveys.tabReport")],
                   ] as const
@@ -523,7 +523,7 @@ export default function SurveyDetailPage() {
                   );
                 })}
               </div>
-              {(evalTab === "gradebook" || evalTab === "grading") && (
+              {(evalTab === "gradebook" || evalTab === "grading" || evalTab === "responses") && (
                 <ExportButtons
                   exporting={exporting}
                   disabled={evalResponseCount === 0}
@@ -535,6 +535,20 @@ export default function SurveyDetailPage() {
               <GradebookPanel surveyId={id} accent={themeToAccent(survey.theme)} />
             ) : evalTab === "grading" ? (
               <GradesPanel surveyId={id} accent={themeToAccent(survey.theme)} />
+            ) : evalTab === "responses" ? (
+              responses === null ? (
+                <div className="text-sm text-neutral-400 dark:text-neutral-500">{t("surveys.loading")}</div>
+              ) : responses.length === 0 ? (
+                <div className="rounded-lg border border-dashed border-neutral-300 dark:border-neutral-700 py-10 text-center text-neutral-400 dark:text-neutral-500 text-sm">
+                  {t("surveys.noResponses")}
+                </div>
+              ) : (
+                <ResponsesPanel
+                  responses={responses}
+                  schema={survey.json_schema}
+                  accent={themeToAccent(survey.theme)}
+                />
+              )
             ) : evalTab === "summary" ? (
               <div className="space-y-4">
                 {/* Embudo de conversión: vistas → comenzaron → completaron */}
@@ -609,7 +623,11 @@ export default function SurveyDetailPage() {
                 {t("surveys.noResponses")}
               </div>
             ) : (
-              <ResponsesTable responses={responses} />
+              <ResponsesPanel
+                responses={responses}
+                schema={survey.json_schema}
+                accent={themeToAccent(survey.theme)}
+              />
             )}
           </>
         )}
@@ -676,57 +694,6 @@ function hasOpenText(schema: Record<string, any> | null | undefined): boolean {
     }
   }
   return false;
-}
-
-function ResponsesTable({ responses }: { responses: ResponseItem[] }) {
-  const { t } = useI18n();
-  // Union of all answer keys across responses, preserving first-seen order.
-  const columns = useMemo(() => {
-    const seen: string[] = [];
-    for (const r of responses) {
-      for (const k of Object.keys(r.answers || {})) {
-        if (!seen.includes(k)) seen.push(k);
-      }
-    }
-    return seen;
-  }, [responses]);
-
-  return (
-    <div className="overflow-x-auto rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900">
-      <table className="min-w-full text-sm">
-        <thead className="bg-neutral-50 dark:bg-neutral-950 text-neutral-500 dark:text-neutral-400">
-          <tr>
-            <th className="text-left font-medium px-3 py-2 whitespace-nowrap">{t("surveys.colDate")}</th>
-            {columns.map((c) => (
-              <th key={c} className="text-left font-medium px-3 py-2 whitespace-nowrap">
-                {c}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody className="divide-y divide-neutral-100 dark:divide-neutral-800">
-          {responses.map((r) => (
-            <tr key={r.id}>
-              <td className="px-3 py-2 whitespace-nowrap text-neutral-400 dark:text-neutral-500">
-                {new Date(r.submitted_at).toLocaleString()}
-              </td>
-              {columns.map((c) => (
-                <td key={c} className="px-3 py-2 align-top">
-                  {formatCell(r.answers?.[c])}
-                </td>
-              ))}
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
-
-function formatCell(value: any): string {
-  if (value === undefined || value === null) return "—";
-  if (typeof value === "object") return JSON.stringify(value);
-  return String(value);
 }
 
 function BackLink() {

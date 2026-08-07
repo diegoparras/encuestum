@@ -203,6 +203,9 @@ export interface GradebookRow {
   score: number | null;
   max_score: number | null;
   percent: number | null;
+  /** false cuando la respuesta no tiene puntaje posible (max_score 0): no está
+   * desaprobada, está sin evaluar. */
+  scorable?: boolean;
   passed: boolean;
   needs_review: boolean;
   graded: boolean;

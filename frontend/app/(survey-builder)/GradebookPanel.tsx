@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useMemo, useState } from "react";
-import { Download, ArrowUpDown } from "lucide-react";
+import { Download, ArrowUpDown, Search, X } from "lucide-react";
 import { surveyApi, GradebookRow, SURVEY_ACCENT } from "./surveyApi";
 import { useAsyncData } from "@/lib/useAsyncData";
 import { LoadError, LoadSpinner } from "@/components/LoadError";
@@ -12,20 +12,39 @@ interface Props {
 }
 
 type SortKey = "percent" | "name";
+type StateKey = "pending" | "review" | "passed" | "failed" | "unscored";
+type Filter = "all" | StateKey;
 
 /** Estado de corrección de una fila, con su etiqueta y estilo de chip. */
-function rowState(r: GradebookRow): { label: string; className: string } {
+function rowState(r: GradebookRow): { key: StateKey; label: string; className: string } {
   if (!r.graded)
     return {
+      key: "pending",
       label: "Sin corregir",
       className: "bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300",
     };
+  // Sin puntaje posible (max_score 0, p. ej. se respondió antes de que hubiera
+  // preguntas puntuadas): no está desaprobada, está sin evaluar.
+  if (r.scorable === false)
+    return {
+      key: "unscored",
+      label: "Sin evaluar",
+      className: "bg-neutral-100 text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400",
+    };
   if (r.needs_review)
-    return { label: "A revisar", className: "bg-amber-100 text-amber-700 dark:bg-amber-950/40" };
+    return { key: "review", label: "A revisar", className: "bg-amber-100 text-amber-700 dark:bg-amber-950/40" };
   if (r.passed)
-    return { label: "Aprobado", className: "bg-green-100 text-green-700 dark:bg-green-950/40" };
-  return { label: "Desaprobado", className: "bg-red-100 text-red-700 dark:bg-red-950/40" };
+    return { key: "passed", label: "Aprobado", className: "bg-green-100 text-green-700 dark:bg-green-950/40" };
+  return { key: "failed", label: "Desaprobado", className: "bg-red-100 text-red-700 dark:bg-red-950/40" };
 }
+
+const FILTERS: { key: Filter; label: string }[] = [
+  { key: "all", label: "Todos" },
+  { key: "passed", label: "Aprobados" },
+  { key: "review", label: "A revisar" },
+  { key: "failed", label: "Desaprobados" },
+  { key: "unscored", label: "Sin evaluar" },
+];
 
 /**
  * Planilla de notas (gradebook) de una evaluación: una fila por respondiente
@@ -39,9 +58,32 @@ export function GradebookPanel({ surveyId, accent = SURVEY_ACCENT }: Props) {
   );
   const [sortKey, setSortKey] = useState<SortKey>("percent");
   const [asc, setAsc] = useState(false);
+  const [filter, setFilter] = useState<Filter>("all");
+  const [query, setQuery] = useState("");
+
+  // Conteo por estado para las pestañas de filtro (sobre el total, no sobre lo
+  // ya filtrado, para que los números no bailen al cambiar de filtro).
+  const counts = useMemo(() => {
+    const acc: Record<string, number> = { all: data?.rows.length ?? 0 };
+    for (const r of data?.rows ?? []) {
+      const k = rowState(r).key;
+      acc[k] = (acc[k] ?? 0) + 1;
+    }
+    return acc;
+  }, [data]);
 
   const rows = useMemo(() => {
-    const list = [...(data?.rows ?? [])];
+    let list = [...(data?.rows ?? [])];
+    if (filter !== "all") list = list.filter((r) => rowState(r).key === filter);
+    const q = query.trim().toLowerCase();
+    if (q) {
+      list = list.filter(
+        (r) =>
+          (r.name || "").toLowerCase().includes(q) ||
+          (r.email || "").toLowerCase().includes(q) ||
+          (r.code || "").toLowerCase().includes(q)
+      );
+    }
     list.sort((a, b) => {
       let cmp: number;
       if (sortKey === "name") {
@@ -55,7 +97,7 @@ export function GradebookPanel({ surveyId, accent = SURVEY_ACCENT }: Props) {
       return asc ? cmp : -cmp;
     });
     return list;
-  }, [data, sortKey, asc]);
+  }, [data, sortKey, asc, filter, query]);
 
   function toggleSort(key: SortKey) {
     if (key === sortKey) {
@@ -127,9 +169,57 @@ export function GradebookPanel({ surveyId, accent = SURVEY_ACCENT }: Props) {
         </button>
       </div>
 
+      {/* Filtros por estado + buscador */}
+      {(data.rows.length > 0) && (
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="inline-flex flex-wrap rounded-lg border border-neutral-200 bg-neutral-50 p-0.5 dark:border-neutral-800 dark:bg-neutral-950">
+            {FILTERS.filter((f) => f.key === "all" || (counts[f.key] ?? 0) > 0).map((f) => {
+              const active = filter === f.key;
+              return (
+                <button
+                  key={f.key}
+                  onClick={() => setFilter(f.key)}
+                  className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
+                    active
+                      ? "bg-white text-neutral-900 shadow-sm dark:bg-neutral-900 dark:text-neutral-100"
+                      : "text-neutral-500 hover:text-neutral-800 dark:text-neutral-400 dark:hover:text-neutral-200"
+                  }`}
+                  style={active ? { color: accent } : undefined}
+                >
+                  {f.label}
+                  <span className="ml-1 tabular-nums text-neutral-400">{counts[f.key] ?? 0}</span>
+                </button>
+              );
+            })}
+          </div>
+
+          <div className="relative min-w-[180px] flex-1 sm:max-w-xs">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-neutral-400" />
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Buscar por nombre o correo…"
+              aria-label="Buscar respondiente"
+              className="w-full rounded-lg border border-neutral-200 bg-white py-1.5 pl-8 pr-7 text-sm outline-none placeholder:text-neutral-400 focus:border-neutral-400 dark:border-neutral-800 dark:bg-neutral-900 dark:focus:border-neutral-600"
+            />
+            {query && (
+              <button
+                onClick={() => setQuery("")}
+                aria-label="Limpiar búsqueda"
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+
       {rows.length === 0 ? (
         <div className="rounded-lg border border-dashed border-neutral-300 py-10 text-center text-neutral-400 text-sm dark:border-neutral-700 dark:text-neutral-500">
-          Todavía no hay respondientes con nota.
+          {data.rows.length === 0
+            ? "Todavía no hay respondientes con nota."
+            : "Ningún respondiente coincide con el filtro."}
         </div>
       ) : (
         <div className="overflow-x-auto rounded-lg border border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-900">
@@ -183,12 +273,15 @@ export function GradebookPanel({ surveyId, accent = SURVEY_ACCENT }: Props) {
                       {r.email || "—"}
                     </td>
                     <td className="px-3 py-2 whitespace-nowrap text-neutral-700 dark:text-neutral-300">
-                      {r.score != null && r.max_score != null
-                        ? `${r.score} / ${r.max_score}`
-                        : "—"}
+                      {r.scorable === false
+                        ? "—"
+                        : r.score != null && r.max_score != null
+                          ? `${r.score} / ${r.max_score}`
+                          : "—"}
                     </td>
                     <td className="px-3 py-2">
-                      {r.percent != null ? (
+                      {/* Un 0% en una respuesta sin puntaje posible engaña: va guion. */}
+                      {r.scorable !== false && r.percent != null ? (
                         <span
                           className="font-semibold"
                           style={{ color: st.label === "Desaprobado" ? "#dc2626" : accent }}

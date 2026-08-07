@@ -7,7 +7,10 @@ from typing import List
 
 from app.models import Survey, SurveyResponse
 
-_META = ["id", "submitted_at", "completed", "score", "max_score", "percent", "needs_review"]
+_META = [
+    "id", "submitted_at", "completed", "respondent_name", "respondent_email",
+    "score", "max_score", "percent", "needs_review",
+]
 
 
 def survey_columns(schema: dict) -> List[tuple]:
@@ -35,16 +38,24 @@ def cell(value) -> str:
 
 
 def export_rows(survey: Survey, responses: List[SurveyResponse]) -> List[list]:
-    cols = survey_columns(survey.json_schema or {})
+    from app.identity import identity_fields, respondent_identity
+
+    schema = survey.json_schema or {}
+    cols = survey_columns(schema)
+    # Quién respondió: el invitado si lo hay; si no, lo que contestó (nombre/mail).
+    fields = identity_fields(schema)
     rows: List[list] = [_META + [title for (_n, title) in cols]]
     for r in responses:
         answers = r.answers or {}
         grade = r.grade or {}
+        ans_name, ans_email = respondent_identity(schema, answers, fields=fields)
         rows.append(
             [
                 str(r.id),
                 r.submitted_at.isoformat() if r.submitted_at else "",
                 "sí" if r.completed else "no",
+                cell(ans_name or ""),
+                cell(r.respondent_email or ans_email or ""),
                 cell(r.score), cell(r.max_score), cell(grade.get("percent")),
                 "sí" if r.needs_review else "no",
             ]
