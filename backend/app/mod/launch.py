@@ -20,6 +20,16 @@ resueltas a propósito:
    MAX_VIDA_S` es un chequeo aparte, a mano: sin él, quien vea la URL de
    lanzamiento una vez (el historial del navegador, los logs de un proxy, un
    `Referer`) la puede reusar durante toda esa ventana.
+
+   Ese límite mide `exp - iat`, así que **depende de que `iat` no esté en el
+   futuro**: con `iat = ahora + 86400` y `exp = iat + 120` la resta da 120 y el
+   token pasa, pero vive 86400 s reales. Rechazar un `iat` futuro lo hace
+   PyJWT, en `_validate_iat`, y esa barrera existe recién desde **PyJWT
+   2.10** -- con la 2.8/2.9 que `requirements.txt` llegó a permitir, la
+   protección no estaba. Por eso el chequeo está también acá, a mano: un
+   invariante de seguridad de este módulo no puede colgar del default de una
+   dependencia. (El piso de `requirements.txt`/`pyproject.toml` se subió a
+   2.10 igual: las dos cosas, no una.)
 3. **`jti` de un solo uso.** Es lo que convierte "corto" en "una sola vez".
 """
 
@@ -37,6 +47,14 @@ from app.mod.wwwroot import normalizar_wwwroot
 # lo que tarda un navegador en seguir un redirect, con margen de sobra, y es la
 # ventana durante la cual un token filtrado sirve para algo.
 MAX_VIDA_S = 120
+
+# Tolerancia de reloj entre el Moodle que firma y Encuestum que verifica. Sin
+# ella, un Moodle adelantado **un segundo** no puede lanzar nunca: `exp` e `iat`
+# se comparan contra nuestro reloj y el alumno se come un 401 genérico que no le
+# dice nada a nadie. El reloj de un Moodle ajeno no lo controlamos, así que
+# darle margen es lo mínimo; 60 s es lo que aplica todo el mundo y sigue siendo
+# chico frente a la ventana de 120 s que el token puede durar.
+LEEWAY_S = 60
 
 # Explícito y en un solo lugar. Que esta lista sea constante -- y no salga del
 # header del token -- es la mitad de la defensa contra la confusión de
@@ -92,6 +110,7 @@ def verificar_lanzamiento(token: str, public_key: str, wwwroot: str) -> dict:
             public_key,
             algorithms=ALGORITMOS,
             options={"require": CLAIMS_REQUERIDOS},
+            leeway=LEEWAY_S,
         )
     except jwt.PyJWTError as exc:
         raise LanzamientoInvalido(f"token inválido: {exc}") from exc
@@ -101,6 +120,14 @@ def verificar_lanzamiento(token: str, public_key: str, wwwroot: str) -> dict:
         exp = int(claims["exp"])
     except (KeyError, TypeError, ValueError) as exc:
         raise LanzamientoInvalido("iat/exp no son instantes") from exc
+    if iat > time.time() + LEEWAY_S:
+        # La ventana de abajo se mide como `exp - iat`: un `iat` en el futuro la
+        # falsea entera. `iat = ahora + 86400`, `exp = iat + 120` -> la resta da
+        # 120 y el token vive un día. PyJWT rechaza el `iat` futuro desde la
+        # 2.10 y `requirements.txt` exige ese piso, pero un invariante de
+        # seguridad de este módulo no puede depender de la versión que quedó
+        # instalada: acá está a mano, y es lo que lo vuelve testeable.
+        raise LanzamientoInvalido("el iat está en el futuro")
     if exp - iat > MAX_VIDA_S:
         # PyJWT ya comprobó que no está vencido; lo que falta comprobar es que
         # la ventana sea corta. Un `exp` a una hora pasa el chequeo de PyJWT.

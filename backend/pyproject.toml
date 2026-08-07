@@ -11,6 +11,9 @@ dependencies = [
     "httpx>=0.27",
     "pydantic>=2.6",
     "cryptography>=42.0",
+    # >=2.10: el rechazo de un `iat` en el futuro (`_validate_iat`) se agregó en
+    # esa versión. Ver el comentario largo en `requirements.txt`.
+    "pyjwt>=2.10",
 ]
 
 [project.optional-dependencies]

@@ -41,6 +41,9 @@ def upgrade() -> None:
         # `MoodleSite` en `app/models.py`). Con la unicidad compuesta, dos
         # registros concurrentes desde organizaciones distintas se colaban por
         # la ventana entre el SELECT y el INSERT del endpoint.
+        # Se guarda en forma canónica (ver `normalizar_wwwroot` en
+        # `app/mod/wwwroot.py`): si cada variante de escritura fuera una fila
+        # distinta, la unicidad de acá abajo se esquivaría con una barra final.
         sa.Column("wwwroot", sa.String(), nullable=False),
         sa.Column("name", sa.String(), nullable=True),
         # Clave PÚBLICA RSA en PEM, no un secreto ni su hash: Moodle firma el

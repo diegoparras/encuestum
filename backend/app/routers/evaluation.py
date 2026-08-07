@@ -43,23 +43,52 @@ async def _grade_and_store(s, r, session):
     return r
 
 
-def _schedule_lti_score(*response_ids: uuid.UUID) -> None:
+def _vino_de_un_lms(r: SurveyResponse) -> bool:
+    """Si la respuesta tiene a dónde devolverle la nota.
+
+    Son DOS orígenes, no uno: un `LtiResourceLink` (camino `mod_lti`, la nota
+    vuelve por AGS) o un sitio del módulo nativo (camino `mod_encuestum`, la
+    nota vuelve por el servicio web de Moodle). Filtrar sólo por `lti_link_id`
+    excluía al módulo **por construcción**: una respuesta del módulo tiene
+    `lti_link_id` en NULL siempre, y lo garantiza el motor con el CHECK
+    `ck_survey_responses_un_solo_origen` (ver `app/models.py`). O sea que la
+    instalación que la Fase A viene a habilitar -- sólo el módulo nativo --
+    nunca republicaba una nota recorregida, y sin ningún error visible.
+
+    Qué transporte le corresponde a cada una no se decide acá: lo decide
+    `_origen` en `app/lti/ags.py`, que es el único lugar que lo sabe."""
+    return r.lti_link_id is not None or r.mod_site_id is not None
+
+
+def _agendar_nota(*response_ids: uuid.UUID) -> None:
     """Avisa al LMS de una nota que se corrigió o corrigió de nuevo fuera del
     submit original -- override manual, re-corrida individual o masiva.
 
-    Gateado en `LTI_ENABLED`, igual que el único otro trigger (`submit()`, vía
-    `_lti_context` en `public.py`): una respuesta puede seguir teniendo
-    `lti_link_id` mucho después de que la instancia apagara LTI -- ese dato no
-    se borra solo -- y sin este chequeo una corrección manual sobre esa
-    respuesta vieja seguiría mandando un POST saliente al LMS con LTI
-    apagado. "LTI apagado" tiene que significar que nada de este módulo le
-    habla al LMS, no sólo que no se generen links nuevos.
+    No se llama `_schedule_lti_score` porque no es sólo de LTI: `schedule_score`
+    es el disparador único de los DOS transportes (AGS y el servicio web de
+    `mod_encuestum`), y quién publica lo decide `_deliver`.
+
+    Gateado en `LTI_ENABLED` **o** `MOD_ENABLED`, igual que el único otro
+    trigger (`submit()`, vía `_lti_context` en `public.py`, que mira las dos):
+    una respuesta puede seguir teniendo `lti_link_id`/`mod_site_id` mucho
+    después de que la instancia apagara la integración -- ese dato no se borra
+    solo -- y sin este chequeo una corrección manual sobre esa respuesta vieja
+    seguiría mandando un POST saliente al LMS con la integración apagada.
+    "Apagado" tiene que significar que nada de este módulo le habla al LMS, no
+    sólo que no se generen links nuevos.
+
+    Es un `or` y no un `and` de la bandera con el origen de cada respuesta
+    porque la bandera fina la aplica `_origen` (`app/lti/ags.py`), que ya tiene
+    la fila cargada y sabe por qué transporte iba a salir: con `MOD_ENABLED=1`
+    y `LTI_ENABLED=0`, agendar una respuesta LTI acá no publica nada -- ese
+    gate corta después, del lado del transporte.
 
     `schedule_score` ya vive detrás de un import perezoso en todos los otros
     puntos que la disparan (`public.py::submit`), así que se mantiene acá:
-    importar `app.lti.ags` en el tope de este módulo lo cargaría siempre, LTI
-    esté prendido o no."""
-    if not get_settings().lti_enabled:
+    importar `app.lti.ags` en el tope de este módulo lo cargaría siempre, la
+    integración esté prendida o no."""
+    ajustes = get_settings()
+    if not (ajustes.lti_enabled or ajustes.mod_enabled):
         return
     from app.lti.ags import schedule_score
 
@@ -85,8 +114,8 @@ async def grade_one(sid: uuid.UUID, rid: uuid.UUID, ctx: OrgContext = Depends(cu
     # ver el finding de "grade passback con un solo trigger" del review): sin
     # esto, Moodle se queda mostrando la nota vieja hasta que algo más la
     # dispare.
-    if r.lti_link_id is not None:
-        _schedule_lti_score(r.id)
+    if _vino_de_un_lms(r):
+        _agendar_nota(r.id)
     return ResponseItem.from_model(r)
 
 
@@ -103,14 +132,14 @@ async def grade_all(sid: uuid.UUID, only_ungraded: bool = True, ctx: OrgContext 
     from app.ai_usage import track_ai_call
     provider = await resolve_provider(session, ctx.org.id)
     graded = 0
-    lti_a_notificar: list[uuid.UUID] = []
+    a_notificar: list[uuid.UUID] = []
     async with track_ai_call(session, provider, ctx.org.id, "grade", sid, ctx.user.id):
         for r in responses:
             try:
                 await _grade_and_store(s, r, session)
                 graded += 1
-                if r.lti_link_id is not None:
-                    lti_a_notificar.append(r.id)
+                if _vino_de_un_lms(r):
+                    a_notificar.append(r.id)
             except Exception:
                 r.needs_review = True
                 session.add(r)
@@ -118,8 +147,8 @@ async def grade_all(sid: uuid.UUID, only_ungraded: bool = True, ctx: OrgContext 
     # Recién después del commit: si se agendara adentro del loop, una
     # entrega en background podría leer la fila antes de que este commit la
     # persista.
-    if lti_a_notificar:
-        _schedule_lti_score(*lti_a_notificar)
+    if a_notificar:
+        _agendar_nota(*a_notificar)
     return {"graded": graded, "total": len(responses)}
 
 
@@ -171,8 +200,8 @@ async def override_grade(sid: uuid.UUID, rid: uuid.UUID, payload: OverrideReques
     # corrigiendo una nota de IA. Sin esto, esa corrección nunca llegaba al
     # libro de calificaciones del LMS -- Moodle seguía mostrando la nota
     # original.
-    if r.lti_link_id is not None:
-        _schedule_lti_score(r.id)
+    if _vino_de_un_lms(r):
+        _agendar_nota(r.id)
     return ResponseItem.from_model(r)
 
 

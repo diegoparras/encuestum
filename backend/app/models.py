@@ -602,7 +602,7 @@ class MoodleSite(SQLModel, table=True):
             ForeignKey("organizations.id", ondelete="CASCADE"), index=True, nullable=False
         )
     )
-    # Forma canónica (ver `_normalizar_wwwroot` en `routers/modapi.py`): sin
+    # Forma canónica (ver `normalizar_wwwroot` en `app/mod/wwwroot.py`): sin
     # barra final, host en minúsculas y sin query ni fragmento. Si cada variante
     # de escritura fuera una fila distinta, la unicidad de arriba se esquivaría
     # con una barra.

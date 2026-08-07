@@ -5,9 +5,11 @@ privada RSA** y Encuestum lo verifica con la pública que quedó registrada acá
 Todo el router vive detrás de `MOD_ENABLED`.
 
 El diseño está en `docs/superpowers/specs/2026-08-06-mod-encuestum-design.md`.
-Acá viven el registro del sitio y el lanzamiento; la nota de vuelta es otra
-tarea. La verificación del token en sí está en `app/mod/launch.py`, aparte de
-FastAPI y de la base.
+Acá viven el registro del sitio y el lanzamiento. La verificación del token en
+sí está en `app/mod/launch.py`, aparte de FastAPI y de la base, y la nota de
+vuelta en `app/mod/grades.py` (el POST al servicio web de Moodle), despachada
+por `_deliver` en `app/lti/ags.py` -- que es también donde `MOD_ENABLED` corta
+cualquier request saliente, no sólo acá.
 
 La firma es asimétrica y no un secreto compartido por una razón concreta:
 verificar un HMAC exige tener la misma clave que lo firmó, así que con secreto

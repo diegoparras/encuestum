@@ -11,6 +11,7 @@ protección no pone el test en rojo, el test no sirve. Está anotado en el
 docstring de cada uno.
 """
 
+import math
 import time
 import uuid
 
@@ -583,6 +584,102 @@ async def test_submit_guarda_de_que_actividad_del_modulo_vino_la_respuesta(
 
 
 @pytest.mark.asyncio
+async def test_un_cmid_fuera_del_rango_de_la_columna_no_tumba_el_submit(
+    mod_on, sitio, db_session
+):
+    """`mod_cmid` es un `Integer` (un `int4` de Postgres). Un `cmid` de 13
+    dígitos pasa `int()` sin problema, entra al `SurveyResponse` y revienta en
+    el INSERT: `asyncpg.exceptions.DataError: value out of int32 range`. Y como
+    el `cmid` viaja en el MISMO INSERT que la respuesta del alumno, **se pierde
+    la respuesta entera** -- un 500 en el submit de alguien que contestó
+    perfecto. Es el modo de falla que `_sitio_del_modulo` fue agregado para
+    evitar, por el mismo camino y con el mismo remedio: fuera de rango -> NULL,
+    la respuesta se guarda y lo único que falta es la nota.
+
+    Verificado que discrimina: sacando la comprobación de rango de `_entero`
+    (`app/routers/public.py`), el submit falla con `DataError` y este test se
+    pone en rojo antes del primer assert."""
+    from fastapi.testclient import TestClient
+
+    from app.main import app
+
+    client = TestClient(app, base_url="https://testserver")
+    assert _lanzar(client, sitio, cmid=10**12).status_code == 302
+
+    async with db_session() as session:
+        slug = (await session.get(Survey, sitio["survey_id"])).slug
+
+    r = client.post(
+        f"/api/v1/survey/public/{slug}/submit",
+        json={"answers": {"q1": "hola"}, "completed": True},
+    )
+    assert r.status_code == 201, r.text
+
+    async with db_session() as session:
+        fila = await session.get(SurveyResponse, uuid.UUID(r.json()["id"]))
+        assert fila.mod_cmid is None
+        # El origen sí se guarda: lo que se descarta es el claim que no entra en
+        # la columna, no la atribución entera.
+        assert fila.mod_site_id == sitio["site_id"]
+
+
+@pytest.mark.asyncio
+async def test_un_grademax_infinito_no_se_guarda_ni_sale_como_nota(
+    monkeypatch, mod_on, sitio, db_session
+):
+    """`float("inf") > 0` es `True`, así que `inf` pasaba el único filtro de
+    `_flotante`. Y `inf` es un valor que un token puede traer de verdad: el
+    `json` de la stdlib serializa y parsea `Infinity` por defecto, y PyJWT usa
+    ese `json` tal cual.
+
+    De punta a punta, sin el arreglo: la cookie lleva `grademax: inf`, la fila
+    lo guarda, `reescalar` devuelve `inf` y sale `grade=inf` en el POST al
+    servicio web -- donde PHP lo castea a **0**. Nota cero, en silencio, sin un
+    solo error en ningún lado. Por eso el test mira las dos puntas: la columna
+    y el cuerpo que sale.
+
+    Verificado que discrimina: sacando `math.isfinite` de `_flotante`
+    (`app/routers/public.py`), la fila guarda `inf` y el POST sale con
+    `grade=inf`."""
+    from fastapi.testclient import TestClient
+
+    from app.lti.ags import _deliver
+    from app.main import app
+
+    client = TestClient(app, base_url="https://testserver")
+    assert _lanzar(client, sitio, grademax=float("inf")).status_code == 302
+
+    async with db_session() as session:
+        slug = (await session.get(Survey, sitio["survey_id"])).slug
+
+    r = client.post(
+        f"/api/v1/survey/public/{slug}/submit",
+        json={"answers": {"q1": "hola"}, "completed": True},
+    )
+    assert r.status_code == 201, r.text
+    response_id = uuid.UUID(r.json()["id"])
+
+    async with db_session() as session:
+        fila = await session.get(SurveyResponse, response_id)
+        assert fila.mod_grademax is None, "una escala infinita no se puede guardar"
+        # La encuesta del fixture no tiene evaluación, así que el submit no dejó
+        # nota: se pone a mano para poder mirar la otra punta (lo que sale).
+        fila.score, fila.max_score = 8.5, 10.0
+        session.add(fila)
+        await session.commit()
+
+    envios = _capturar(monkeypatch)
+    await _deliver(response_id)
+
+    assert len(envios) == 1
+    grade = float(envios[0]["data"]["grade"])
+    assert math.isfinite(grade), f"salió una nota no finita: {grade}"
+    # Sin `grademax` la escala cae en el default de Moodle (100), no en `inf`.
+    assert grade == 85.0
+    assert float(envios[0]["data"]["max"]) == 100.0
+
+
+@pytest.mark.asyncio
 async def test_una_actividad_anonima_no_guarda_ni_el_sub_ni_la_escala_de_nadie(
     mod_on, sitio, db_session
 ):
@@ -612,3 +709,213 @@ async def test_una_actividad_anonima_no_guarda_ni_el_sub_ni_la_escala_de_nadie(
         assert fila.mod_cmid == CMID
         assert fila.lti_sub is None
         assert fila.respondent_email is None
+
+
+# ── La recorrección: los tres triggers manuales y el módulo ──────────────────
+#
+# `submit()` no es el único disparador de una nota: `override_grade`,
+# `grade_one` y `grade_all` (`app/routers/evaluation.py`) publican la nota
+# recorregida. Los tres quedaron hablando sólo de LTI, con dos bugs que dan el
+# mismo síntoma y se tapan entre sí:
+#
+#   a) el gate miraba `LTI_ENABLED` en vez de `LTI_ENABLED or MOD_ENABLED`, y
+#   b) el filtro de cada trigger era `r.lti_link_id is not None`, que excluye al
+#      módulo POR CONSTRUCCIÓN: una respuesta del módulo tiene `lti_link_id` en
+#      NULL siempre, y lo garantiza el CHECK `ck_survey_responses_un_solo_origen`.
+#
+# O sea que la instalación que la Fase A viene a habilitar -- sólo el módulo
+# nativo, `MOD_ENABLED=1` y `LTI_ENABLED=0` -- nunca republicaba una nota
+# recorregida, y sin ningún error visible para nadie.
+
+_SCHEMA = {"pages": [{"name": "p", "elements": [
+    {"type": "radiogroup", "name": "cap", "title": "Capital", "choices": ["Madrid", "Paris"]},
+]}]}
+_EVAL = {"enabled": True, "passingScore": 60, "questions": {
+    "cap": {"gradable": True, "grader": "auto", "points": 2, "correct": "Paris"},
+}}
+
+
+def _espiar_schedule(monkeypatch) -> list:
+    """Intercepta `schedule_score` -- el disparador único de los dos
+    transportes -- para ver qué se agenda sin ejercitar la entrega."""
+    import app.lti.ags as ags_module
+
+    llamados: list = []
+    monkeypatch.setattr(ags_module, "schedule_score", lambda rid: llamados.append(rid))
+    return llamados
+
+
+def _encuesta_evaluable(client):
+    """Una encuesta publicada con evaluación: `grade_one`/`grade_all` devuelven
+    400 sobre una que no lo sea."""
+    sv = client.post(
+        "/api/v1/survey/surveys",
+        json={"title": "E", "json_schema": _SCHEMA, "evaluation": _EVAL},
+    ).json()
+    client.post(f"/api/v1/survey/surveys/{sv['id']}/publish")
+    return sv
+
+
+async def _respuesta_del_modulo(db_session, sitio: dict, survey_id: uuid.UUID) -> uuid.UUID:
+    """Una respuesta atribuida a la actividad del módulo, sin corregir todavía.
+
+    `lti_link_id` queda en NULL, que es lo que el CHECK obliga y lo que el
+    filtro viejo tomaba por "no vino de ningún LMS"."""
+    async with db_session() as session:
+        r = SurveyResponse(
+            survey_id=survey_id,
+            answers={"cap": "Paris"},
+            mod_site_id=sitio["site_id"],
+            mod_cmid=CMID,
+            mod_grademax=20.0,
+            lti_sub=SUB,
+        )
+        session.add(r)
+        await session.commit()
+        return r.id
+
+
+@pytest.mark.asyncio
+async def test_override_en_respuesta_del_modulo_dispara_entrega(
+    monkeypatch, mod_on, sitio, db_session
+):
+    """El override manual es EL workflow de `needs_review`: un docente
+    corrigiendo una nota de IA. Con sólo el módulo prendido no llegaba nunca al
+    libro de Moodle.
+
+    Verificado que discrimina, y de las dos formas -- los dos bugs dan el mismo
+    síntoma:
+      - volviendo el gate a `if not get_settings().lti_enabled`, `llamados`
+        queda vacío (MOD=1, LTI=0);
+      - volviendo el filtro a `r.lti_link_id is not None`, también."""
+    from tests.conftest import new_client, register
+
+    llamados = _espiar_schedule(monkeypatch)
+    c = new_client()
+    register(c)
+    sv = _encuesta_evaluable(c)
+    rid = await _respuesta_del_modulo(db_session, sitio, uuid.UUID(sv["id"]))
+
+    ov = c.post(f"/api/v1/survey/surveys/{sv['id']}/responses/{rid}/override", json={"total": 2})
+    assert ov.status_code == 200, ov.text
+    assert llamados == [rid]
+
+
+@pytest.mark.asyncio
+async def test_grade_one_en_respuesta_del_modulo_dispara_entrega(
+    monkeypatch, mod_on, sitio, db_session
+):
+    """Re-corrida individual: misma historia que el override."""
+    from tests.conftest import new_client, register
+
+    llamados = _espiar_schedule(monkeypatch)
+    c = new_client()
+    register(c)
+    sv = _encuesta_evaluable(c)
+    rid = await _respuesta_del_modulo(db_session, sitio, uuid.UUID(sv["id"]))
+
+    resp = c.post(f"/api/v1/survey/surveys/{sv['id']}/responses/{rid}/grade")
+    assert resp.status_code == 200, resp.text
+    assert llamados == [rid]
+
+
+@pytest.mark.asyncio
+async def test_grade_all_dispara_entrega_para_las_del_modulo(
+    monkeypatch, mod_on, sitio, db_session
+):
+    """La re-corrida masiva encolaba con `if r.lti_link_id is not None`, que
+    para una respuesta del módulo es `False` **siempre**. Se corrigen las dos
+    (la del módulo y una pública) y sólo la del módulo tiene a dónde avisar.
+
+    Verificado que discrimina: con el filtro viejo, `llamados` queda vacío."""
+    from tests.conftest import new_client, register
+
+    llamados = _espiar_schedule(monkeypatch)
+    c = new_client()
+    register(c)
+    sv = _encuesta_evaluable(c)
+    rid = await _respuesta_del_modulo(db_session, sitio, uuid.UUID(sv["id"]))
+    async with db_session() as session:
+        session.add(SurveyResponse(survey_id=uuid.UUID(sv["id"]), answers={"cap": "Paris"}))
+        await session.commit()
+
+    resp = c.post(f"/api/v1/survey/surveys/{sv['id']}/grade-all")
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["graded"] == 2
+
+    assert llamados == [rid]
+
+
+def _todo_apagado(monkeypatch, request) -> None:
+    """Ni LTI ni el módulo. Simétrico con los fixtures `lti_on`/`mod_on`: hay
+    que limpiar la `lru_cache` de `get_settings` al entrar **y** al salir."""
+    from app.config import get_settings
+
+    monkeypatch.delenv("LTI_ENABLED", raising=False)
+    monkeypatch.delenv("MOD_ENABLED", raising=False)
+    get_settings.cache_clear()
+    request.addfinalizer(get_settings.cache_clear)
+    assert get_settings().lti_enabled is False
+    assert get_settings().mod_enabled is False
+
+
+@pytest.mark.asyncio
+async def test_con_todo_apagado_una_recorreccion_del_modulo_no_agenda_nada(
+    monkeypatch, sitio, db_session, request
+):
+    """La otra mitad del gate: ensancharlo a `lti_enabled or mod_enabled` no
+    puede volverlo un `True` constante. Con las dos banderas apagadas, una
+    corrección manual sobre una respuesta vieja del módulo no agenda nada.
+
+    Verificado que discrimina: sacando el `return` temprano de `_agendar_nota`,
+    este test se pone en rojo."""
+    from tests.conftest import new_client, register
+
+    _todo_apagado(monkeypatch, request)
+    llamados = _espiar_schedule(monkeypatch)
+    c = new_client()
+    register(c)
+    sv = _encuesta_evaluable(c)
+    rid = await _respuesta_del_modulo(db_session, sitio, uuid.UUID(sv["id"]))
+
+    ov = c.post(f"/api/v1/survey/surveys/{sv['id']}/responses/{rid}/override", json={"total": 2})
+    assert ov.status_code == 200, ov.text
+    assert llamados == []
+
+
+# ── `MOD_ENABLED=0` corta la publicación saliente ────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_con_mod_enabled_apagado_no_sale_ningun_post_con_el_ws_token(
+    monkeypatch, sitio, db_session, request
+):
+    """CRÍTICO como interruptor de emergencia. `MOD_ENABLED=0` apagaba el router
+    (`/mod/register`, `/mod/launch`) pero **no** la publicación de notas: las
+    filas no se borran al bajar la bandera -- una respuesta guarda su
+    `mod_site_id` para siempre -- así que cualquier recorrección seguía sacando
+    un POST real al `wwwroot` con el `ws_token` del sitio en el cuerpo. Que es
+    justo la credencial por la que alguien apagaría el módulo de apuro.
+
+    El repositorio ya había decidido que esto importa: el docstring del gate de
+    LTI dice, con todas las letras, que "LTI apagado tiene que significar que
+    nada de este módulo le habla al LMS, no sólo que no se generen links
+    nuevos". El módulo no había heredado la regla.
+
+    Se comprueba la decisión de `_origen` y no sólo su consecuencia: los guards
+    de `entregar_nota` son una segunda capa y casi cualquier error de despacho
+    termina igual en "no salió ningún request", lo que haría pasar el test por
+    el motivo equivocado.
+
+    Verificado que discrimina: sacando el gate de `_origen` (`app/lti/ags.py`),
+    `_origen` devuelve `"mod"` e `intentos` queda con la URL del POST -- el
+    mismo request que la revisión capturó con el token adentro."""
+    from app.lti.ags import _deliver, _origen
+
+    _todo_apagado(monkeypatch, request)
+    intentos = _sin_red(monkeypatch)
+    response_id = await _respuesta(db_session, sitio)
+
+    assert await _origen(response_id) is None
+    await _deliver(response_id)
+    assert intentos == [], "con MOD_ENABLED=0 no puede salir ni un request al LMS"

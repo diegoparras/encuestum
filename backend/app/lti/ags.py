@@ -228,7 +228,22 @@ async def _origen(response_id: uuid.UUID) -> str | None:
     """Por qué transporte tiene que volver la nota de esta respuesta.
 
     `"lti"` (AGS, contra un `LtiResourceLink`), `"mod"` (el servicio web de
-    `mod_encuestum`) o `None` si no vino de Moodle o si todavía no hay nota.
+    `mod_encuestum`) o `None` si no vino de Moodle, si todavía no hay nota, o si
+    la integración por la que hubiera vuelto está **apagada**.
+
+    Ese último caso es el interruptor de emergencia y por eso vive acá y en un
+    solo lugar: `MOD_ENABLED=0` (o `LTI_ENABLED=0`) tiene que significar que
+    nada de este módulo le habla al LMS, no sólo que no se generen
+    lanzamientos nuevos. Las filas no se borran al apagar la bandera -- una
+    respuesta guarda su `mod_site_id`/`lti_link_id` para siempre -- así que sin
+    este gate una recorrección seguía sacando un POST con el `ws_token` del
+    sitio adentro, que es justamente la credencial por la que alguien apagaría
+    el módulo de apuro.
+
+    Se gatea el DESPACHO y no cada trigger porque los triggers son varios
+    (`submit`, `override_grade`, `grade_one`, `grade_all`) y crecen: la
+    garantía tiene que vivir donde se decide el request saliente, no repartida
+    en cada quien podría pedirlo.
 
     No hay ningún caso ambiguo que desempatar: el CHECK
     `ck_survey_responses_un_solo_origen` (ver `app/models.py`) impide a nivel de
@@ -240,6 +255,7 @@ async def _origen(response_id: uuid.UUID) -> str | None:
     (ver el comentario adentro de `_deliver_lti`), así que sostener esta sesión
     hasta ahí reintroduciría justo el problema que ese orden existe para evitar.
     """
+    from app.config import get_settings
     from app.db import _session_maker
     from app.models import SurveyResponse
 
@@ -247,10 +263,11 @@ async def _origen(response_id: uuid.UUID) -> str | None:
         r = await session.get(SurveyResponse, response_id)
         if r is None or r.score is None:
             return None
+        ajustes = get_settings()
         if r.mod_site_id is not None:
-            return "mod"
+            return "mod" if ajustes.mod_enabled else None
         if r.lti_link_id is not None:
-            return "lti"
+            return "lti" if ajustes.lti_enabled else None
         return None
 
 
@@ -265,7 +282,12 @@ async def _deliver(response_id: uuid.UUID) -> None:
 
     El *momento* de publicar (al responder y al recorregir) lo decide
     `schedule_score`, que es único para las dos integraciones. Lo único que
-    cambia entre ellas es el transporte, y eso es lo que elige esta función."""
+    cambia entre ellas es el transporte, y eso es lo que elige esta función.
+
+    El *si* -- `LTI_ENABLED`/`MOD_ENABLED` -- lo decide `_origen`, no cada quien
+    llama a `schedule_score`: los triggers son varios y crecen, y la garantía de
+    que una integración apagada no le hable al LMS tiene que vivir donde se
+    resuelve el request saliente."""
     try:
         origen = await _origen(response_id)
         if origen == "mod":

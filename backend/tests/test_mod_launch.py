@@ -190,7 +190,8 @@ async def test_lanzamiento_valido_redirige_a_la_encuesta_y_siembra_la_cookie(mod
 
 @pytest.mark.asyncio
 async def test_el_iss_se_compara_en_forma_canonica(mod_on, sitio):
-    """El `wwwroot` se guarda canónico (`_normalizar_wwwroot` de la Tarea 1),
+    """El `wwwroot` se guarda canónico (`normalizar_wwwroot`, hoy en
+    `app/mod/wwwroot.py`),
     pero el `iss` llega como lo escribió Moodle. Sin normalizarlo antes de
     comparar, un `wwwroot` con barra final -- o en mayúsculas -- no matchea
     nunca y el síntoma aparece lejísimos de la causa.
@@ -334,6 +335,75 @@ async def test_sin_iat_da_401(mod_on, sitio):
     compararse."""
     r = _lanzar(_client(), _firmar(_claims(sitio, iat=_SIN)))
     assert r.status_code == 401, r.text
+
+
+def _pyjwt_sin_chequeo_de_iat(monkeypatch) -> None:
+    """Emula PyJWT 2.8/2.9: sin `_validate_iat`.
+
+    Ese método -- el que rechaza un `iat` en el futuro -- se agregó en **PyJWT
+    2.10**, y `requirements.txt` llegó a pedir `pyjwt>=2.8`. Con la versión
+    instalada hoy (2.13) la barrera está, así que un test que mande un `iat`
+    futuro da 401 **con o sin** nuestro chequeo: pasaría por el motivo
+    equivocado y no probaría nada. Neutralizarla es lo que deja al descubierto
+    el invariante propio de `app/mod/launch.py`.
+
+    Se parchea el método de la clase y no el módulo: `jwt.decode` es un alias
+    del método de una instancia global (`jwt.api_jwt._jwt_global_obj`), así que
+    el parche sobre `PyJWT` la alcanza."""
+    import jwt.api_jwt
+
+    monkeypatch.setattr(
+        jwt.api_jwt.PyJWT, "_validate_iat", lambda self, payload, now, leeway: None
+    )
+
+
+@pytest.mark.asyncio
+async def test_un_iat_en_el_futuro_da_401_aunque_pyjwt_no_lo_chequee(
+    monkeypatch, mod_on, sitio
+):
+    """CRÍTICO, y la pata que le faltaba a la ventana de 120 s: ese límite se
+    mide como `exp - iat`, así que **depende de que `iat` no esté en el
+    futuro**. Con `iat = ahora + 86400` y `exp = iat + 120` la resta da 120 --
+    pasa el chequeo -- y el token vive un día entero: quien vea la URL una vez
+    la reusa durante 24 horas.
+
+    Quien lo tapaba era PyJWT (`_validate_iat`), y sólo desde la 2.10; con el
+    `pyjwt>=2.8` que pedía `requirements.txt` la protección no existía. Este
+    test corre con esa barrera neutralizada a propósito, para probar la
+    nuestra y no la de la dependencia.
+
+    Verificado que discrimina: sacando `if iat > time.time() + LEEWAY_S` de
+    `verificar_lanzamiento`, este test devuelve 302 -- y el token dura 86400 s
+    reales."""
+    _pyjwt_sin_chequeo_de_iat(monkeypatch)
+    ahora = int(time.time())
+    futuro = ahora + 86400
+    r = _lanzar(_client(), _firmar(_claims(sitio, iat=futuro, exp=futuro + 120)))
+    assert r.status_code == 401, r.text
+
+
+@pytest.mark.asyncio
+async def test_un_reloj_desfasado_pocos_segundos_igual_puede_lanzar(mod_on, sitio):
+    """La otra dirección del mismo problema. El reloj del Moodle ajeno no lo
+    controlamos: sin `leeway`, un Moodle adelantado **un segundo** firma un
+    token con `iat` en el futuro y no puede lanzar nunca -- el alumno se come un
+    401 genérico que no le dice nada a nadie, y el docente tampoco tiene cómo
+    darse cuenta. Un minuto de tolerancia es lo que aplica todo el mundo, en las
+    dos direcciones, y sigue siendo chico frente a la ventana de 120 s.
+
+    Verificado que discrimina: sacando `leeway=LEEWAY_S` de `jwt.decode`, las
+    dos mitades de este test devuelven 401 (`ImmatureSignatureError` la primera,
+    `ExpiredSignatureError` la segunda)."""
+    ahora = int(time.time())
+
+    # Moodle adelantado: firma con `iat` cinco segundos en el futuro.
+    adelantado = _lanzar(_client(), _firmar(_claims(sitio, iat=ahora + 5, exp=ahora + 125)))
+    assert adelantado.status_code == 302, adelantado.text
+
+    # Moodle atrasado: el token le parece fresco a él y a nosotros nos llega con
+    # el `exp` recién pasado.
+    atrasado = _lanzar(_client(), _firmar(_claims(sitio, iat=ahora - 150, exp=ahora - 30)))
+    assert atrasado.status_code == 302, atrasado.text
 
 
 # ── Validación 3: el jti es de un solo uso ───────────────────────────────────

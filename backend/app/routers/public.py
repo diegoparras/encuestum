@@ -1,4 +1,5 @@
 import logging
+import math
 import uuid
 from typing import Optional
 
@@ -83,29 +84,55 @@ def _lti_context(request: Request, s: Survey) -> dict | None:
     return data
 
 
+# Rango de `mod_cmid` en la base: la columna es `Integer` (ver `app/models.py` y
+# la 0022), o sea un `int4` de Postgres. Un entero fuera de este rango no es un
+# valor "grande": es un INSERT que asyncpg rechaza con `DataError: value out of
+# int32 range` -- y como el `cmid` viaja en el MISMO INSERT que la respuesta del
+# alumno, se cae la fila entera.
+_INT32_MIN = -(2**31)
+_INT32_MAX = 2**31 - 1
+
+
 def _entero(valor) -> int | None:
-    """El claim tal como lo mandó Moodle, si es un entero. `None` si no.
+    """El claim tal como lo mandó Moodle, si es un entero que la columna acepta.
+    `None` si no.
 
     Los claims del token de lanzamiento vienen de JSON: `cmid` puede llegar como
     número o como string según cómo lo serialice el plugin, y un plugin roto
     puede mandar cualquier cosa. Que un valor raro deje la columna en NULL (y la
     nota sin publicar) es preferible a un 500 en el submit de un alumno cuya
-    respuesta, del lado de Encuestum, salió perfecta."""
+    respuesta, del lado de Encuestum, salió perfecta.
+
+    Por eso no alcanza con que `int()` no levante: `int("1000000000000")`
+    devuelve un entero perfecto que la columna `int4` no puede guardar, y el
+    error sale recién en el `flush`, cuando el `SurveyResponse` ya es parte del
+    INSERT. Es el mismo modo de falla que `_sitio_del_modulo` existe para
+    evitar, y se cierra igual: fuera de rango -> NULL."""
     try:
-        return int(valor)
+        numero = int(valor)
     except (TypeError, ValueError):
         return None
+    return numero if _INT32_MIN <= numero <= _INT32_MAX else None
 
 
 def _flotante(valor) -> float | None:
     """Idem `_entero`, para `grademax`. Un valor no positivo se descarta: una
     escala de 0 o negativa no sirve para reescalar nada y dejarla pasar sólo
-    correría el error hasta una división por cero en `app/mod/grades.py`."""
+    correría el error hasta una división por cero en `app/mod/grades.py`.
+
+    `math.isfinite` y no sólo `> 0`: `float("inf") > 0` es `True` y `inf` es un
+    valor que el JSON de un token puede traer (`json.loads` acepta `Infinity`
+    por defecto, y PyJWT usa el `json` de la stdlib tal cual). Sin este
+    chequeo, `inf` se guardaba en la fila, `reescalar` devolvía `inf` y la nota
+    salía como `grade=inf` en el POST al servicio web -- donde PHP lo castea a
+    **0**. Una nota cero, en silencio, sin ningún error en ningún lado.
+    `nan` ya caía por el `> 0` (toda comparación con `nan` es falsa), pero
+    entra acá igual para que el motivo quede escrito."""
     try:
         numero = float(valor)
     except (TypeError, ValueError):
         return None
-    return numero if numero > 0 else None
+    return numero if math.isfinite(numero) and numero > 0 else None
 
 
 async def _sitio_del_modulo(session: AsyncSession, crudo) -> uuid.UUID | None:

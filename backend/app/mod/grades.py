@@ -114,6 +114,13 @@ async def publicar_nota(
     assert_public_url(wwwroot, require_https=True)
 
     url = f"{wwwroot.rstrip('/')}/webservice/rest/server.php"
+    # `follow_redirects` se queda en el default de httpx (`False`) A PROPÓSITO,
+    # y por eso está escrito: este POST lleva el `ws_token` en el cuerpo. Si un
+    # `wwwroot` secuestrado (o un Moodle mal configurado detrás de un proxy)
+    # contesta 302 hacia otro host, seguir el redirect reenviaría el cuerpo --
+    # con la credencial adentro -- a un destino que `assert_public_url` nunca
+    # miró. Poner `follow_redirects=True` acá para "arreglar" un 302 convierte
+    # esto en una fuga de credencial.
     async with httpx.AsyncClient(timeout=_TIMEOUT_S) as client:
         resp = await client.post(
             url,
