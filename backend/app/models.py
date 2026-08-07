@@ -332,6 +332,25 @@ class SurveyResponse(SQLModel, table=True):
     graded_at: Optional[datetime] = Field(
         sa_column=Column(DateTime(timezone=True)), default=None
     )
+    # ── Higiene de resultados ────────────────────────────────────────────────
+    #
+    # Dos formas de sacar una respuesta de los resultados SIN destruirla, que es
+    # lo que hace falta la mayoría de las veces (limpiar la vista, no borrar
+    # datos). Ambas la excluyen de tablas, resumen, estadísticas, informe y
+    # exportaciones, y ambas se pueden revertir.
+    #
+    # `excluded`: alguien la sacó a mano (respuesta basura, duplicada, de prueba).
+    # `is_test`: la marcó el sistema porque la envió alguien del equipo dueño de
+    # la encuesta mientras la probaba. Se distinguen para poder decir POR QUÉ no
+    # está contada.
+    excluded: bool = Field(
+        sa_column=Column(Boolean, nullable=False, server_default="0", index=True),
+        default=False,
+    )
+    is_test: bool = Field(
+        sa_column=Column(Boolean, nullable=False, server_default="0", index=True),
+        default=False,
+    )
 
 
 # ── AI providers, usage tracking and editable pricing ────────────────────────
@@ -476,6 +495,41 @@ class SurveyVisit(SQLModel, table=True):
         sa_column=Column(
             DateTime(timezone=True), nullable=False, default=_utcnow, onupdate=_utcnow
         )
+    )
+
+
+class ResponseDeletion(SQLModel, table=True):
+    """Quién borró qué respuesta y cuándo.
+
+    Borrar una respuesta es irreversible y solo pueden hacerlo los admins, así
+    que queda rastro. A propósito NO hay clave foránea a la respuesta: la fila
+    sobrevive justamente porque la respuesta ya no existe. Se guarda un resumen
+    de a quién correspondía (sin arrastrar todas las respuestas) para que el
+    registro sirva de algo al leerlo.
+    """
+
+    __tablename__ = "response_deletions"
+
+    id: uuid.UUID = Field(primary_key=True, default_factory=uuid.uuid4)
+    survey_id: uuid.UUID = Field(
+        sa_column=Column(
+            ForeignKey("surveys.id", ondelete="CASCADE"), index=True, nullable=False
+        )
+    )
+    response_id: uuid.UUID = Field(index=True)
+    # Quién borró. SET NULL para no perder el registro si se da de baja la cuenta.
+    deleted_by: Optional[uuid.UUID] = Field(
+        sa_column=Column(ForeignKey("users.id", ondelete="SET NULL"), index=True),
+        default=None,
+    )
+    deleted_by_email: Optional[str] = Field(sa_column=Column(String), default=None)
+    # A quién correspondía la respuesta borrada (lo que se supiera).
+    respondent: Optional[str] = Field(sa_column=Column(String), default=None)
+    submitted_at: Optional[datetime] = Field(
+        sa_column=Column(DateTime(timezone=True)), default=None
+    )
+    deleted_at: datetime = Field(
+        sa_column=Column(DateTime(timezone=True), nullable=False, default=_utcnow)
     )
 
 

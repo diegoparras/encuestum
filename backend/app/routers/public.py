@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
 from app.db import get_session
+from app.hygiene import counted_only
 from app.models import LtiResourceLink, Survey, SurveyResponse, SurveyInvitee, SurveyVisit
 from app.ratelimit import rate_limit
 from app.schemas import (
@@ -173,7 +174,7 @@ async def _response_count(survey_id, session: AsyncSession) -> int:
 
     return int(
         await session.scalar(
-            select(func.count(SurveyResponse.id)).where(SurveyResponse.survey_id == survey_id)
+            counted_only(select(func.count(SurveyResponse.id)).where(SurveyResponse.survey_id == survey_id))
         )
         or 0
     )

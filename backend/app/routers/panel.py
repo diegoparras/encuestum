@@ -13,6 +13,7 @@ from sqlmodel import select
 from app.db import get_session
 from app.deps import current_user, require_superadmin
 from app.exporting import XLSX_MEDIA, export_rows, sheets_to_xlsx
+from app.hygiene import counted_only
 from app.models import Membership, Organization, Survey, SurveyResponse, User
 
 router = APIRouter(tags=["panel"])
@@ -36,7 +37,7 @@ async def _response_counts(session: AsyncSession, survey_ids: list) -> dict:
         return {}
     rows = (
         await session.execute(
-            select(SurveyResponse.survey_id, func.count(SurveyResponse.id))
+            counted_only(select(SurveyResponse.survey_id, func.count(SurveyResponse.id)))
             .where(SurveyResponse.survey_id.in_(survey_ids))
             .group_by(SurveyResponse.survey_id)
         )
@@ -94,9 +95,9 @@ async def org_export(
     for s in surveys:
         responses = (
             await session.scalars(
-                select(SurveyResponse)
-                .where(SurveyResponse.survey_id == s.id)
-                .order_by(SurveyResponse.submitted_at.asc())
+                counted_only(
+                    select(SurveyResponse).where(SurveyResponse.survey_id == s.id)
+                ).order_by(SurveyResponse.submitted_at.asc())
             )
         ).all()
         sheets.append((s.title or s.slug or "Encuesta", export_rows(s, responses)))
@@ -117,7 +118,7 @@ async def admin_overview(
     orgs = (await session.scalars(select(Organization).order_by(Organization.created_at.desc()))).all()
     users_total = await session.scalar(select(func.count(User.id)))
     surveys_total = await session.scalar(select(func.count(Survey.id)))
-    responses_total = await session.scalar(select(func.count(SurveyResponse.id)))
+    responses_total = await session.scalar(counted_only(select(func.count(SurveyResponse.id))))
 
     # Per-org aggregates in one query each (avoids the N+1 loop).
     survey_counts = dict(
@@ -127,7 +128,7 @@ async def admin_overview(
     )
     response_counts = dict(
         (await session.execute(
-            select(Survey.org_id, func.count(SurveyResponse.id))
+            counted_only(select(Survey.org_id, func.count(SurveyResponse.id)))
             .join(SurveyResponse, SurveyResponse.survey_id == Survey.id)
             .group_by(Survey.org_id)
         )).all()

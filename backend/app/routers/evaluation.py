@@ -8,6 +8,7 @@ from sqlmodel import select
 from app.config import get_settings
 from app.db import get_session
 from app.deps import OrgContext, current_context
+from app.hygiene import counted_only
 from app.models import Survey, SurveyResponse, _utcnow
 from app.schemas import GenerateQuestionsRequest, OverrideRequest, ResponseItem
 from app.grading import extract_question_types, grade_response
@@ -124,7 +125,7 @@ async def grade_all(sid: uuid.UUID, only_ungraded: bool = True, ctx: OrgContext 
     s = await _survey_or_404(sid, ctx.org.id, session)
     if not (s.evaluation or {}).get("enabled"):
         raise HTTPException(status_code=400, detail="Survey is not an assessment")
-    stmt = select(SurveyResponse).where(SurveyResponse.survey_id == sid)
+    stmt = counted_only(select(SurveyResponse).where(SurveyResponse.survey_id == sid))
     if only_ungraded:
         stmt = stmt.where(SurveyResponse.graded_at.is_(None))
     responses = (await session.scalars(stmt)).all()
@@ -157,7 +158,7 @@ async def review_queue(sid: uuid.UUID, ctx: OrgContext = Depends(current_context
     await _survey_or_404(sid, ctx.org.id, session)
     responses = (
         await session.scalars(
-            select(SurveyResponse).where(SurveyResponse.survey_id == sid)
+            counted_only(select(SurveyResponse).where(SurveyResponse.survey_id == sid))
             .where(SurveyResponse.needs_review == True)  # noqa: E712
             .order_by(SurveyResponse.submitted_at.desc())
         )
@@ -214,7 +215,7 @@ async def gradebook(sid: uuid.UUID, ctx: OrgContext = Depends(current_context), 
     s = await _survey_or_404(sid, ctx.org.id, session)
     responses = (
         await session.scalars(
-            select(SurveyResponse).where(SurveyResponse.survey_id == sid)
+            counted_only(select(SurveyResponse).where(SurveyResponse.survey_id == sid))
             .order_by(SurveyResponse.submitted_at.desc())
         )
     ).all()
@@ -260,7 +261,7 @@ async def gradebook(sid: uuid.UUID, ctx: OrgContext = Depends(current_context), 
 @router.get("/{sid}/analytics")
 async def analytics(sid: uuid.UUID, ctx: OrgContext = Depends(current_context), session: AsyncSession = Depends(get_session)):
     s = await _survey_or_404(sid, ctx.org.id, session)
-    responses = (await session.scalars(select(SurveyResponse).where(SurveyResponse.survey_id == sid))).all()
+    responses = (await session.scalars(counted_only(select(SurveyResponse).where(SurveyResponse.survey_id == sid)))).all()
     # Solo entran a las estadísticas las respuestas realmente evaluables: una con
     # max_score 0 (p. ej. se respondió antes de que hubiera preguntas puntuadas)
     # no está desaprobada, está sin evaluar, y hundía el promedio y el % de
@@ -325,7 +326,7 @@ async def generate_insights(sid: uuid.UUID, ctx: OrgContext = Depends(current_co
     titles = _open_titles(s.json_schema)
     if not titles:
         raise HTTPException(status_code=400, detail="No open-text questions to summarize")
-    responses = (await session.scalars(select(SurveyResponse).where(SurveyResponse.survey_id == sid))).all()
+    responses = (await session.scalars(counted_only(select(SurveyResponse).where(SurveyResponse.survey_id == sid)))).all()
     out = []
     provider = await resolve_provider(session, ctx.org.id)
     async with track_ai_call(session, provider, ctx.org.id, "insights", sid, ctx.user.id) as acc:

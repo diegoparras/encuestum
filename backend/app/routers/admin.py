@@ -17,6 +17,7 @@ from app.db import get_session
 from app.deps import OrgContext, current_context
 from app.email import build_url, send_email
 from app.exporting import CSV_MEDIA, XLSX_MEDIA, export_rows, rows_to_csv, sheets_to_xlsx
+from app.hygiene import counted_only
 from app.models import Survey, SurveyInvitee, SurveyResponse, _utcnow
 from app.schemas import (
     VALID_STATUSES, ResponseItem, SurveyCreateRequest, SurveyDetail,
@@ -89,7 +90,7 @@ async def list_surveys(
     if ids:
         rows = (
             await session.execute(
-                select(SurveyResponse.survey_id, func.count(SurveyResponse.id))
+                counted_only(select(SurveyResponse.survey_id, func.count(SurveyResponse.id)))
                 .where(SurveyResponse.survey_id.in_(ids))
                 .group_by(SurveyResponse.survey_id)
             )
@@ -263,7 +264,7 @@ async def list_trash(
     if ids:
         rows = (
             await session.execute(
-                select(SurveyResponse.survey_id, func.count(SurveyResponse.id))
+                counted_only(select(SurveyResponse.survey_id, func.count(SurveyResponse.id)))
                 .where(SurveyResponse.survey_id.in_(ids))
                 .group_by(SurveyResponse.survey_id)
             )
@@ -409,7 +410,7 @@ async def _funnel_data(sid: uuid.UUID, s, session: AsyncSession) -> dict:
 
     responses = int(
         await session.scalar(
-            select(func.count(SurveyResponse.id)).where(SurveyResponse.survey_id == sid)
+            counted_only(select(func.count(SurveyResponse.id)).where(SurveyResponse.survey_id == sid))
         )
         or 0
     )
@@ -460,7 +461,7 @@ async def response_summary(
             raise HTTPException(status_code=422, detail="filtros inválidos")
     responses = (
         await session.scalars(
-            select(SurveyResponse).where(SurveyResponse.survey_id == sid)
+            counted_only(select(SurveyResponse).where(SurveyResponse.survey_id == sid))
         )
     ).all()
     return build_summary(
@@ -493,7 +494,7 @@ async def generate_report(
     s = await _survey_or_404(sid, ctx.org.id, session)
     responses = (
         await session.scalars(
-            select(SurveyResponse).where(SurveyResponse.survey_id == sid)
+            counted_only(select(SurveyResponse).where(SurveyResponse.survey_id == sid))
         )
     ).all()
     if not responses:
@@ -512,6 +513,24 @@ async def generate_report(
     return {"report": report}
 
 
+async def _registrar_borrado(session: AsyncSession, ctx: OrgContext, s, r) -> None:
+    """Deja rastro de un borrado antes de ejecutarlo (es irreversible)."""
+    from app.identity import respondent_identity
+    from app.models import ResponseDeletion
+
+    quien, mail = respondent_identity(s.json_schema or {}, r.answers)
+    session.add(
+        ResponseDeletion(
+            survey_id=s.id,
+            response_id=r.id,
+            deleted_by=ctx.user.id,
+            deleted_by_email=ctx.user.email,
+            respondent=r.respondent_email or quien or mail,
+            submitted_at=r.submitted_at,
+        )
+    )
+
+
 @router.delete("/{sid}/responses/{rid}", status_code=204)
 async def delete_response(
     sid: uuid.UUID,
@@ -519,19 +538,105 @@ async def delete_response(
     ctx: OrgContext = Depends(current_context),
     session: AsyncSession = Depends(get_session),
 ):
-    """Delete a single response (e.g. a respondent's data-removal request)."""
+    """Borra una respuesta (p. ej. un pedido de baja de datos). Irreversible y
+    solo para admins; queda registrada en `response_deletions`."""
     _require_admin(ctx)
-    await _survey_or_404(sid, ctx.org.id, session)
+    s = await _survey_or_404(sid, ctx.org.id, session)
     r = await session.get(SurveyResponse, rid)
     if r and r.survey_id == sid:
+        await _registrar_borrado(session, ctx, s, r)
         await session.delete(r)
         await session.commit()
+
+
+class BulkResponsesRequest(BaseModel):
+    ids: List[uuid.UUID]
+    # exclude/include sacan o devuelven la respuesta a los resultados (reversible).
+    # test/untest la marcan como prueba. delete la destruye (solo admin).
+    action: str = Field(pattern="^(exclude|include|test|untest|delete)$")
+
+
+@router.post("/{sid}/responses/bulk")
+async def bulk_responses(
+    sid: uuid.UUID,
+    payload: BulkResponsesRequest,
+    ctx: OrgContext = Depends(current_context),
+    session: AsyncSession = Depends(get_session),
+):
+    """Acciones sobre varias respuestas a la vez.
+
+    Excluir/marcar es reversible y lo puede hacer cualquier miembro; borrar es
+    irreversible y queda restringido a admins (y registrado)."""
+    s = await _survey_or_404(sid, ctx.org.id, session)
+    if payload.action == "delete":
+        _require_admin(ctx)
+    if not payload.ids:
+        return {"affected": 0}
+
+    rows = (
+        await session.scalars(
+            select(SurveyResponse).where(
+                SurveyResponse.survey_id == sid, SurveyResponse.id.in_(payload.ids)
+            )
+        )
+    ).all()
+
+    for r in rows:
+        if payload.action == "delete":
+            await _registrar_borrado(session, ctx, s, r)
+            await session.delete(r)
+            continue
+        if payload.action == "exclude":
+            r.excluded = True
+        elif payload.action == "include":
+            r.excluded = False
+        elif payload.action == "test":
+            r.is_test = True
+        elif payload.action == "untest":
+            r.is_test = False
+        session.add(r)
+
+    await session.commit()
+    return {"affected": len(rows)}
+
+
+@router.get("/{sid}/deletions")
+async def list_deletions(
+    sid: uuid.UUID,
+    ctx: OrgContext = Depends(current_context),
+    session: AsyncSession = Depends(get_session),
+):
+    """Registro de borrados de esta encuesta (quién, qué y cuándo)."""
+    _require_admin(ctx)
+    from app.models import ResponseDeletion
+
+    await _survey_or_404(sid, ctx.org.id, session)
+    rows = (
+        await session.scalars(
+            select(ResponseDeletion)
+            .where(ResponseDeletion.survey_id == sid)
+            .order_by(ResponseDeletion.deleted_at.desc())
+            .limit(200)
+        )
+    ).all()
+    return [
+        {
+            "id": str(d.id),
+            "response_id": str(d.response_id),
+            "deleted_by_email": d.deleted_by_email,
+            "respondent": d.respondent,
+            "submitted_at": d.submitted_at.isoformat() if d.submitted_at else None,
+            "deleted_at": d.deleted_at.isoformat(),
+        }
+        for d in rows
+    ]
 
 
 @router.get("/{sid}/export")
 async def export_responses(
     sid: uuid.UUID,
     format: str = Query("csv", pattern="^(csv|xlsx)$"),
+    include_excluded: bool = Query(False, description="Incluir excluidas y de prueba"),
     ctx: OrgContext = Depends(current_context),
     session: AsyncSession = Depends(get_session),
 ):
@@ -539,9 +644,11 @@ async def export_responses(
     s = await _survey_or_404(sid, ctx.org.id, session)
     responses = (
         await session.scalars(
-            select(SurveyResponse)
-            .where(SurveyResponse.survey_id == sid)
-            .order_by(SurveyResponse.submitted_at.asc())
+            counted_only(
+                select(SurveyResponse).where(SurveyResponse.survey_id == sid),
+                include_excluded=include_excluded,
+                include_test=include_excluded,
+            ).order_by(SurveyResponse.submitted_at.asc())
         )
     ).all()
     rows = export_rows(s, responses)

@@ -171,6 +171,9 @@ class ResponseItem(BaseModel):
     needs_review: bool = False
     grade: Optional[dict[str, Any]] = None
     graded_at: Optional[datetime] = None
+    # Fuera de los resultados sin estar borrada (ver app/hygiene.py).
+    excluded: bool = False
+    is_test: bool = False
 
     @classmethod
     def from_model(cls, r) -> "ResponseItem":
@@ -178,6 +181,8 @@ class ResponseItem(BaseModel):
             id=r.id, answers=r.answers or {}, completed=r.completed, meta=r.meta,
             submitted_at=r.submitted_at, score=r.score, max_score=r.max_score,
             needs_review=r.needs_review, grade=r.grade, graded_at=r.graded_at,
+            excluded=bool(getattr(r, "excluded", False)),
+            is_test=bool(getattr(r, "is_test", False)),
         )
 
 
