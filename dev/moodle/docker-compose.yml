@@ -100,6 +100,14 @@ services:
       # del plan de la Fase 2. Si el repo del plugin no está clonado al lado de
       # este, Docker crea un directorio vacío y Moodle lo ignora sin quejarse.
       - ../../../moodle-local_encuestum:/bitnami/moodle/local/encuestum
+      # El módulo de actividad nativo de la Fase A. La carpeta se tiene que
+      # llamar `encuestum` a secas: Moodle deriva el componente de la ruta
+      # (`mod/encuestum` → `mod_encuestum`) y si no coincide con el
+      # `$plugin->component` de su `version.php`, el plugin no aparece por
+      # ningún lado y sin ningún mensaje de error. Mismo detalle que el
+      # `local/` de arriba: si el repo del plugin no está clonado al lado de
+      # este, Docker crea un directorio vacío y Moodle lo ignora sin quejarse.
+      - ../../../moodle-mod_encuestum:/bitnami/moodle/mod/encuestum
     # Por qué este entrypoint/command en vez de dejar los de la imagen: el
     # cliente PHP de Moodle (curl) valida TLS contra el almacén de
     # certificados del sistema, y ese almacén NO conoce la CA que Caddy
