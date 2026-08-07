@@ -245,6 +245,9 @@ services:
       # exige igual que la plataforma esté en HTTPS, con o sin esta variable.
       ENCUESTUM_ALLOW_PRIVATE_OUTBOUND: "true"
       LTI_ENABLED: "true"
+      # `mod_encuestum`, la actividad nativa. Convive con LTI: son dos puertas
+      # distintas y prender una no apaga la otra.
+      MOD_ENABLED: "true"
       # Ojo con el dominio: `.localhost` es un TLD de uso especial y el
       # validador de emails de Encuestum (email-validator, vía pydantic) lo
       # rechaza, así que una cuenta admin@encuestum.lvh.me NO se puede dar

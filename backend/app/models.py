@@ -526,6 +526,50 @@ class LtiUser(SQLModel, table=True):
     )
 
 
+class MoodleSite(SQLModel, table=True):
+    """Un Moodle conectado por el módulo nativo (`mod_encuestum`), no por LTI.
+
+    `secret_hash`: nunca se guarda el secreto en claro. Se genera una vez, se
+    devuelve una vez, y de ahí en más sólo se compara el hash -- mismo criterio
+    (y mismo bcrypt) que las contraseñas. Con LTI un atacante necesita la clave
+    privada de la plataforma; acá el secreto compartido es la única barrera, así
+    que un volcado de esta tabla no tiene que alcanzar para lanzar como nadie.
+
+    La unicidad es por `wwwroot` SOLO, no por `(org_id, wwwroot)` como decía el
+    plan: un Moodle guarda un único secreto a nivel sitio, así que pertenece a
+    exactamente una organización de Encuestum. Con la unicidad compuesta, dos
+    organizaciones podían tener su propia fila para el mismo `wwwroot` y el
+    chequeo de dueño del registro quedaba siendo puramente de aplicación --
+    dos registros concurrentes desde organizaciones distintas se colaban por la
+    ventana entre el SELECT y el INSERT. Así, el motor lo garantiza."""
+
+    __tablename__ = "mod_sites"
+    __table_args__ = (UniqueConstraint("wwwroot", name="uq_mod_site"),)
+
+    id: uuid.UUID = Field(primary_key=True, default_factory=uuid.uuid4)
+    org_id: uuid.UUID = Field(
+        sa_column=Column(
+            ForeignKey("organizations.id", ondelete="CASCADE"), index=True, nullable=False
+        )
+    )
+    # Forma canónica (ver `_normalizar_wwwroot` en `routers/modapi.py`): sin
+    # barra final, host en minúsculas y sin query ni fragmento. Si cada variante
+    # de escritura fuera una fila distinta, la unicidad de arriba se esquivaría
+    # con una barra.
+    wwwroot: str = Field(sa_column=Column(String, nullable=False))
+    name: Optional[str] = Field(sa_column=Column(String), default=None)
+    secret_hash: str = Field(sa_column=Column(String, nullable=False))
+    # Token de servicio web de Moodle, para empujarle la nota (Tarea 3). Es un
+    # secreto de ELLOS que guardamos nosotros, y a diferencia del de arriba hay
+    # que poder recuperarlo para usarlo, así que un hash no sirve. Queda en
+    # claro, igual que `ai_providers.api_key`: este repo todavía no tiene
+    # cifrado en reposo (el plan decía que sí). Ninguna respuesta lo devuelve.
+    ws_token: Optional[str] = Field(sa_column=Column(String), default=None)
+    created_at: datetime = Field(
+        sa_column=Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    )
+
+
 class LtiKey(SQLModel, table=True):
     """Par de claves RSA del tool, generado al arrancar si no vino por entorno."""
 

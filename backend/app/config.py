@@ -94,6 +94,16 @@ class Settings:
         # kid publicado en el JWKS. Cambiarlo obliga a las plataformas a releer.
         self.lti_key_id = (os.getenv("LTI_KEY_ID") or "encuestum-lti-1").strip()
 
+        # ── mod_encuestum (actividad nativa de Moodle, sin LTI) ───────────────
+        # Mismo criterio que LTI_ENABLED y el mismo `_bool()`: apagado, la
+        # superficie /mod/* no existe (404, no 403) y nada del comportamiento
+        # actual cambia. A diferencia de LTI, nginx no necesita conocer esta
+        # bandera -- el `location /mod/` de `nginx.conf` es estático y no
+        # depende de ella, así que no hay forma de que back y proxy queden en
+        # desacuerdo por diferencias de parseo (ver el comentario de `start.sh`
+        # sobre `tr -d '[:space:]'` vs `xargs`).
+        self.mod_enabled = _bool("MOD_ENABLED", False)
+
         # Deliver responses to configured webhooks (Zapier/Sheets/…).
         self.webhooks_enabled = _bool("ENCUESTUM_WEBHOOKS_ENABLED", True)
 

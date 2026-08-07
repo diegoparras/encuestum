@@ -218,3 +218,18 @@ def lti_on(monkeypatch):
     yield
     monkeypatch.delenv("LTI_ENABLED", raising=False)
     get_settings.cache_clear()
+
+
+@pytest.fixture
+def mod_on(monkeypatch):
+    """Enciende el módulo nativo de Moodle (`mod_encuestum`) para un test.
+
+    Gemela de `lti_on`: `get_settings` está cacheado con `lru_cache`, así que
+    hay que limpiarlo antes y después."""
+    from app.config import get_settings
+
+    monkeypatch.setenv("MOD_ENABLED", "true")
+    get_settings.cache_clear()
+    yield
+    monkeypatch.delenv("MOD_ENABLED", raising=False)
+    get_settings.cache_clear()
