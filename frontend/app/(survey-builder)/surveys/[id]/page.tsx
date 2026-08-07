@@ -547,6 +547,7 @@ export default function SurveyDetailPage() {
                   responses={responses}
                   schema={survey.json_schema}
                   accent={themeToAccent(survey.theme)}
+                  surveyId={id}
                 />
               )
             ) : evalTab === "summary" ? (
@@ -627,6 +628,7 @@ export default function SurveyDetailPage() {
                 responses={responses}
                 schema={survey.json_schema}
                 accent={themeToAccent(survey.theme)}
+                surveyId={id}
               />
             )}
           </>
