@@ -60,13 +60,22 @@ def _valid_access(s: Survey, token: str | None) -> bool:
 
 
 def _lti_context(request: Request, s: Survey) -> dict | None:
-    """Identidad que trajo un lanzamiento LTI para *esta* encuesta, si la hay.
+    """Identidad que trajo un lanzamiento del LMS para *esta* encuesta, si la hay.
 
     Cuando existe, la encuesta ya no pide PIN ni figurar en la lista: quien
-    autenticó al alumno fue el LMS."""
+    autenticó al alumno fue el LMS.
+
+    La misma cookie la siembran los dos caminos a Moodle: `/lti/launch` y el
+    `/mod/launch` del módulo nativo (`routers/modapi.py`), que la reusa a
+    propósito para no obligar a esta función a leer dos. Por eso alcanza con
+    que **cualquiera** de las dos integraciones esté prendida: una instalación
+    que sólo tiene el módulo nativo (`MOD_ENABLED=1`, `LTI_ENABLED=0`) es un
+    caso normal, y con el `lti_enabled` solo la cookie se ignoraba y el alumno
+    caía en la pantalla del PIN."""
     from app.lti.state import LTI_COOKIE, LTI_PURPOSE
 
-    if not get_settings().lti_enabled:
+    settings = get_settings()
+    if not (settings.lti_enabled or settings.mod_enabled):
         return None
     data = read_purpose_token(LTI_PURPOSE, request.cookies.get(LTI_COOKIE) or "")
     if not data or data.get("slug") != s.slug:
@@ -307,14 +316,25 @@ async def submit(
     # (no publicar nota, en `_deliver` de `app/lti/ags.py`, que también lee
     # `link.anonymous` de la base) -- sin depender de que el token esté al
     # día.
+    #
+    # Un lanzamiento de `mod_encuestum` (`/mod/launch`) siembra esta misma
+    # cookie pero **sin** `link_id`: no hay `LtiResourceLink` que apuntar,
+    # porque la actividad vive del lado de Moodle y Encuestum no la persiste.
+    # Ahí el anonimato sale del propio token, que es la única copia de ese dato
+    # que llega hasta acá. Leer `lti["link_id"]` a secas -- como hacía este
+    # bloque antes de la Tarea 2 del módulo -- reventaba con un KeyError (500)
+    # en el primer envío de un alumno lanzado desde el módulo nativo.
     anonimo = False
-    if lti:
-        link = await session.get(LtiResourceLink, uuid.UUID(lti["link_id"]))
+    link_id = lti.get("link_id") if lti else None
+    if link_id:
+        link = await session.get(LtiResourceLink, uuid.UUID(link_id))
         anonimo = bool(link and link.anonymous)
+    elif lti:
+        anonimo = bool(lti.get("anonymous"))
     r = SurveyResponse(
         survey_id=s.id, answers=payload.answers or {}, completed=payload.completed, meta=payload.meta,
         respondent_email=None if anonimo else resp_email, respondent_code=resp_code,
-        lti_link_id=uuid.UUID(lti["link_id"]) if lti else None,
+        lti_link_id=uuid.UUID(link_id) if link_id else None,
         lti_sub=None if anonimo else (lti.get("sub") if lti else None),
     )
     session.add(r)

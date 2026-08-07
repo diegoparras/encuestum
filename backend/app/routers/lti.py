@@ -26,6 +26,7 @@ from app.lti.state import (
     LTI_STATE_COOKIE,
     LTI_STATE_PURPOSE,
     STATE_TTL_S,
+    lti_cookie_kwargs,
     new_state,
 )
 from app.lti.validate import (
@@ -77,22 +78,6 @@ async def jwks(session: AsyncSession = Depends(get_session)) -> dict:
     """Claves públicas del tool, para que la plataforma verifique lo que firmamos."""
     key = await get_tool_key(session)
     return {"keys": [public_jwk(key)]}
-
-
-def _lti_cookie_kwargs() -> dict:
-    """Las cookies del flujo LTI viajan dentro de un iframe de otro dominio:
-    sin SameSite=None; Secure el navegador las descarta directamente. A
-    diferencia de las cookies de sesión (SameSite=Lax, que sí funcionan sobre
-    HTTP plano), acá `Secure` es parte del invariante mismo — no sigue la
-    config `cookie_secure` ni se puede apagar. Si esto rompe algo bajo
-    TestClient, el fix es que el test hable HTTPS (`base_url="https://..."`),
-    no aflojar esta cookie."""
-    return {
-        "httponly": True,
-        "secure": True,
-        "samesite": "none",
-        "path": "/",
-    }
 
 
 async def _platform_for(session: AsyncSession, issuer: str, client_id: str | None) -> LtiPlatform:
@@ -182,7 +167,7 @@ async def login(request: Request, session: AsyncSession = Depends(get_session)):
             ttl_minutes=STATE_TTL_S / 60,
         ),
         max_age=STATE_TTL_S,
-        **_lti_cookie_kwargs(),
+        **lti_cookie_kwargs(),
     )
     return resp
 
@@ -587,7 +572,7 @@ async def _resource_link_redirect(claims, platform, user, session):
         # Secure): esta respuesta también cierra un form-POST cross-site, y sin
         # ellos el navegador descarta el Set-Cookie de borrado (mismo motivo
         # que en las otras dos salidas de `launch`).
-        resp.delete_cookie(LTI_STATE_COOKIE, **_lti_cookie_kwargs())
+        resp.delete_cookie(LTI_STATE_COOKIE, **lti_cookie_kwargs())
         return resp
 
     # Guardamos los endpoints de notas que vengan en este lanzamiento: pueden
@@ -639,13 +624,13 @@ async def _resource_link_redirect(claims, platform, user, session):
         ttl_minutes=ACCESS_TTL_S / 60,
     )
     resp = RedirectResponse(f"/s/{survey.slug}", status_code=302)
-    resp.set_cookie(LTI_COOKIE, token, max_age=ACCESS_TTL_S, **_lti_cookie_kwargs())
+    resp.set_cookie(LTI_COOKIE, token, max_age=ACCESS_TTL_S, **lti_cookie_kwargs())
     # El borrado tiene que llevar los mismos atributos con los que se escribió
     # la cookie (SameSite=None; Secure): esta respuesta es un form-POST
     # cross-site, y si el Set-Cookie de borrado no matchea esos atributos el
     # navegador lo descarta — la cookie de state sobreviviría y el par
     # (state, nonce) quedaría reutilizable durante STATE_TTL_S.
-    resp.delete_cookie(LTI_STATE_COOKIE, **_lti_cookie_kwargs())
+    resp.delete_cookie(LTI_STATE_COOKIE, **lti_cookie_kwargs())
     return resp
 
 
@@ -675,7 +660,7 @@ async def _deep_linking_redirect(claims, platform, session):
     # borrado es la única defensa contra reusar el mismo (state, nonce) para
     # volver a pedir un content item durante STATE_TTL_S (ver el comentario
     # análogo en _resource_link_redirect).
-    resp.delete_cookie(LTI_STATE_COOKIE, **_lti_cookie_kwargs())
+    resp.delete_cookie(LTI_STATE_COOKIE, **lti_cookie_kwargs())
     return resp
 
 

@@ -5,8 +5,9 @@ privada RSA** y Encuestum lo verifica con la pública que quedó registrada acá
 Todo el router vive detrás de `MOD_ENABLED`.
 
 El diseño está en `docs/superpowers/specs/2026-08-06-mod-encuestum-design.md`.
-Esta parte es sólo el registro del sitio; el lanzamiento y la nota son otras
-tareas.
+Acá viven el registro del sitio y el lanzamiento; la nota de vuelta es otra
+tarea. La verificación del token en sí está en `app/mod/launch.py`, aparte de
+FastAPI y de la base.
 
 La firma es asimétrica y no un secreto compartido por una razón concreta:
 verificar un HMAC exige tener la misma clave que lo firmó, así que con secreto
@@ -20,20 +21,24 @@ incompatible con la Tarea 2) está en `.superpowers/sdd/task-mod-1b-report.md`.
 
 import logging
 import uuid
-from urllib.parse import urlencode, urlsplit, urlunsplit
+from urllib.parse import urlencode
 
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from pydantic import BaseModel
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
+from starlette.responses import RedirectResponse
 
 from app.config import get_settings
 from app.db import get_session
 from app.deps import OrgContext, current_context
-from app.models import ROLE_ADMIN, ROLE_RANK, MoodleSite, Organization
+from app.lti.state import ACCESS_TTL_S, LTI_COOKIE, LTI_PURPOSE, lti_cookie_kwargs
+from app.mod.launch import LanzamientoInvalido, site_id_declarado, verificar_lanzamiento
+from app.mod.wwwroot import normalizar_wwwroot
+from app.models import ROLE_ADMIN, ROLE_RANK, MoodleSite, Organization, Survey
 from app.net_guard import UnsafeUrlError, assert_public_url
 from app.security import create_purpose_token, read_purpose_token
 
@@ -61,8 +66,6 @@ _BITS_MINIMOS = 2048
 # propio) los procese.
 _PEM_MAX_BYTES = 8192
 
-_PUERTO_POR_DEFECTO = {"http": 80, "https": 443}
-
 # Sin prefijo de versión, igual que `/lti/`: son URLs que el plugin de Moodle
 # guarda en sus ajustes y tienen que quedar estables.
 router = APIRouter(prefix="/mod", tags=["mod"])
@@ -80,47 +83,6 @@ def require_mod() -> None:
 def _exigir_admin(ctx: OrgContext) -> None:
     if ROLE_RANK.get(ctx.role, 0) < ROLE_RANK[ROLE_ADMIN]:
         raise HTTPException(status_code=403, detail="Necesitás ser admin de la organización.")
-
-
-def _normalizar_wwwroot(crudo: str) -> str:
-    """Forma canónica del `wwwroot`, para que la unicidad no se pueda esquivar.
-
-    `https://moodle.x/`, `https://MOODLE.X` y `https://moodle.x?a=1` son el
-    mismo sitio. Si cada variante de escritura fuera una fila distinta, el
-    chequeo de dueño del registro (el 409 de más abajo) se saltearía agregando
-    una barra final -- y quedarían dos filas para el mismo Moodle, cada una con
-    su secreto, sin que nada avise.
-
-    También descarta el userinfo (`https://user:pass@moodle.x`): son
-    credenciales que no tienen por qué quedar persistidas, y dos escrituras del
-    mismo host con userinfo distinto son el mismo sitio.
-
-    Una URL que no se pueda partir vuelve tal cual, recortada: no es trabajo de
-    esta función rechazarla -- eso lo hace `assert_public_url`, que es la única
-    validación de URL de este repositorio."""
-    crudo = (crudo or "").strip()
-    partes = urlsplit(crudo)
-    if not partes.scheme or not partes.netloc:
-        return crudo
-    esquema = partes.scheme.lower()
-    host = (partes.hostname or "").lower()
-    if not host:
-        return crudo
-    if ":" in host:
-        # IPv6 literal: `hostname` devuelve la dirección sin corchetes y sin
-        # ellos la URL reconstruida no sería parseable.
-        host = f"[{host}]"
-    autoridad = host
-    try:
-        puerto = partes.port
-    except ValueError:
-        # Puerto no numérico: la URL está rota, que la rechace el guard.
-        return crudo
-    # El puerto por defecto del esquema no aporta nada y separaría dos
-    # escrituras del mismo sitio (`https://x` y `https://x:443`).
-    if puerto is not None and puerto != _PUERTO_POR_DEFECTO.get(esquema):
-        autoridad = f"{host}:{puerto}"
-    return urlunsplit((esquema, autoridad, partes.path.rstrip("/"), "", ""))
 
 
 def _validar_clave_publica(pem: str) -> str:
@@ -297,7 +259,7 @@ async def register_site(
         # que expira todo el identity map de la sesión.
         raise HTTPException(status_code=404, detail="La organización ya no existe.")
 
-    wwwroot = _normalizar_wwwroot(payload.wwwroot)
+    wwwroot = normalizar_wwwroot(payload.wwwroot)
     try:
         assert_public_url(wwwroot, require_https=True)
     except UnsafeUrlError as exc:
@@ -374,3 +336,126 @@ async def _sitio_por_wwwroot(session: AsyncSession, wwwroot: str) -> MoodleSite 
     return (
         await session.scalars(select(MoodleSite).where(MoodleSite.wwwroot == wwwroot))
     ).first()
+
+
+# ── GET /mod/launch ──────────────────────────────────────────────────────────
+
+
+def _rechazar(motivo: str, token: str) -> HTTPException:
+    """Un solo 401 para todos los motivos por los que un token no vale.
+
+    El motivo se registra pero **no** se devuelve: distinguir "firma inválida"
+    de "sitio desconocido" o de "jti repetido" le dice a quien está probando
+    exactamente qué le falta ajustar. El texto que ve el alumno tiene que
+    servirle al alumno, que lo único que puede hacer es volver a entrar a la
+    actividad -- Moodle firma un token nuevo en cada carga."""
+    LOGGER.warning("lanzamiento de mod_encuestum rechazado: %s (token=%.12s…)", motivo, token)
+    return HTTPException(
+        status_code=401,
+        detail="Este lanzamiento no es válido o ya venció. Volvé a entrar a la actividad desde Moodle.",
+    )
+
+
+@router.get("/launch", name="mod_launch", dependencies=[Depends(require_mod)])
+async def launch(
+    t: str = Query(default="", description="Token de lanzamiento firmado por Moodle (RS256)."),
+    session: AsyncSession = Depends(get_session),
+):
+    """Canjea el token firmado por Moodle por la cookie de sesión de Encuestum.
+
+    Se carga **dentro del iframe de Moodle**, así que el `/mod/` de `nginx.conf`
+    lleva la misma relajación de framing que `/lti/` (y `start.sh` genera el
+    bloque enmarcable de `/s/` también con `MOD_ENABLED`, no sólo con
+    `LTI_ENABLED`): sin eso, el error que se devuelva acá se renderiza con
+    `X-Frame-Options: SAMEORIGIN` y el alumno ve un iframe en blanco en vez del
+    motivo.
+
+    **La cookie es la de LTI, a propósito** (`LTI_COOKIE`, `LTI_PURPOSE`,
+    `lti_cookie_kwargs()`). El lado público (`_lti_context` en
+    `routers/public.py`) ya sabe leerla y saltear el PIN con ella; una cookie
+    propia obligaría a enseñarle a leer dos y a que `submit` decidiera de cuál
+    sacar el anonimato -- dos fuentes de verdad para la misma pregunta.
+
+    Los cinco chequeos (firma, ventana, `jti`, `alg` y organización de la
+    encuesta) están repartidos entre `app/mod/launch.py` (los cuatro primeros,
+    que no necesitan la base) y esta función (el último, que sí). Cada uno tiene
+    su test en `tests/test_mod_launch.py`, verificado rompiendo la validación.
+    """
+    site_id = site_id_declarado(t)
+    if site_id is None:
+        # Ni siquiera se puede leer a qué sitio dice pertenecer: no hay clave
+        # con la que verificarlo.
+        raise _rechazar("el token no declara un site_id usable", t)
+
+    sitio = await session.get(MoodleSite, site_id)
+    if sitio is None:
+        # 401 y no 404: qué organización tiene qué Moodle conectado no es
+        # información que corresponda filtrar, y para quien lanza el remedio es
+        # el mismo (reconectar el plugin).
+        raise _rechazar(f"site_id desconocido: {site_id}", t)
+
+    try:
+        claims = verificar_lanzamiento(t, sitio.public_key, sitio.wwwroot)
+    except LanzamientoInvalido as exc:
+        raise _rechazar(str(exc), t) from exc
+
+    try:
+        survey_id = uuid.UUID(str(claims.get("survey_id")))
+    except (TypeError, ValueError) as exc:
+        # 400 y no 401: el token era auténtico, lo que está mal es lo que trae.
+        # Es un error del plugin, no de quien lanza, y confundirlo con "token
+        # inválido" mandaría a reconectar el sitio para nada.
+        raise HTTPException(
+            status_code=400, detail="El lanzamiento no trae una encuesta válida."
+        ) from exc
+
+    encuesta = await session.get(Survey, survey_id)
+    # El mismo 404 para "no existe", "está en la papelera" y "es de otra
+    # organización": son el mismo mensaje para el docente que configuró la
+    # actividad, y distinguirlos convertiría este endpoint en un oráculo de qué
+    # ids de encuesta existen en el resto de la instalación.
+    if encuesta is None or encuesta.deleted_at is not None or encuesta.org_id != sitio.org_id:
+        LOGGER.warning(
+            "lanzamiento de mod_encuestum a una encuesta que no corresponde: %s (sitio %s)",
+            survey_id, sitio.id,
+        )
+        raise HTTPException(
+            status_code=404, detail="Esta actividad no apunta a una encuesta de esta organización."
+        )
+
+    # `anonymous` congela acá lo que dice Moodle porque Encuestum **no tiene
+    # fila** para esta actividad -- a diferencia de LTI, donde `submit` relee
+    # `link.anonymous` de la base en cada envío. La fuente de verdad vive del
+    # lado de Moodle y sólo llega con el lanzamiento. La ventana de desfasaje
+    # es la de la cookie (ACCESS_TTL_S): si el docente marca la actividad como
+    # anónima mientras un alumno ya está adentro, ese alumno sigue con la
+    # cookie vieja hasta que recargue desde Moodle.
+    anonimo = bool(claims.get("anonymous"))
+    datos = {
+        "slug": encuesta.slug,
+        # Sin `link_id`: no hay `LtiResourceLink` que apuntar, y `submit` lo
+        # trata como opcional justamente para distinguir los dos orígenes.
+        "anonymous": anonimo,
+        # Lo que la Tarea 3 necesita para empujar la nota al servicio web de
+        # Moodle: de qué sitio y de qué actividad vino. No hay otro lado de
+        # donde sacarlo -- Encuestum no persiste la actividad.
+        "mod_site_id": str(sitio.id),
+        "cmid": claims.get("cmid"),
+    }
+    if not anonimo:
+        # Con la actividad anónima, Moodle ya no manda nombre ni email; el
+        # `sub` sí lo manda igual. Se filtran los tres acá de todas formas: que
+        # el anonimato dependa de que el otro lado se acuerde de omitirlos es
+        # exactamente la clase de acuerdo que se rompe en la próxima versión
+        # del plugin.
+        datos["sub"] = claims.get("sub")
+        datos["email"] = claims.get("email")
+        datos["name"] = claims.get("name")
+
+    token = create_purpose_token(LTI_PURPOSE, datos, ttl_minutes=ACCESS_TTL_S / 60)
+    # `/s/{slug}` relativo, no `public_base_url`: detrás del nginx de este
+    # proyecto el esquema del request sale `http://`, y un redirect absoluto mal
+    # armado sacaría al alumno del iframe (o lo mandaría al host interno).
+    resp = RedirectResponse(f"/s/{encuesta.slug}", status_code=302)
+    resp.set_cookie(LTI_COOKIE, token, max_age=ACCESS_TTL_S, **lti_cookie_kwargs())
+    return resp

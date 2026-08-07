@@ -7,8 +7,9 @@ set -uo pipefail
 DATA_DIR="${ENCUESTUM_DATA_DIR:-/app_data}"
 mkdir -p "$DATA_DIR"
 
-# LTI 1.3: decide en runtime (no en `next build`, que ya pasó y quedó
-# congelado en el frontend) si /lti-select y /s/ se sirven enmarcables.
+# Integraciones con Moodle (LTI 1.3 y el módulo nativo `mod_encuestum`): decide
+# en runtime (no en `next build`, que ya pasó y quedó congelado en el frontend)
+# si /lti-select y /s/ se sirven enmarcables.
 # `frontend/next.config.js` siempre manda X-Frame-Options: SAMEORIGIN en esas
 # rutas — correcto para el resto de la app, pero Moodle las carga dentro de un
 # <iframe> de su propio origen y SAMEORIGIN no se lo permite. X-Frame-Options
@@ -18,7 +19,8 @@ mkdir -p "$DATA_DIR"
 # alcanza con agregar la CSP: hay que sacar el X-Frame-Options que ya viene de
 # Next.js (proxy_hide_header) antes de poner la propia. Mismas grafías de
 # "prendido" que `_bool()` en backend/app/config.py (ver el trim más abajo),
-# para que back y front nunca queden en desacuerdo sobre si LTI está o no.
+# para que back y front nunca queden en desacuerdo sobre si una integración
+# está o no.
 #
 # `/lti/` NO entra acá — es un bloque estático en nginx.conf, con la
 # relajación de framing incondicional (no atada a este flag). Ver el comentario
@@ -40,10 +42,15 @@ LTI_SNIPPET=/etc/nginx/conf.d/lti-frame.conf
 # el sentido inseguro: framing relajado en nginx con el backend todavía
 # devolviendo 404 en /lti/*. `tr -d '[:space:]'` sólo saca espacios, igual que
 # `.strip()` de Python, sin tocar comillas ni backslashes.
-LTI_RAW="$(printf '%s' "${LTI_ENABLED:-}" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')"
-# Quién puede embeber las encuestas mientras LTI está activo. Sin definir (o
-# vacía) queda `*`, que es lo que se venía haciendo y lo que hace falta para
-# que un LMS cualquiera las muestre. Un despliegue que conoce sus LMS puede
+prendido() {
+  case "$(printf '%s' "${1:-}" | tr '[:upper:]' '[:lower:]' | tr -d '[:space:]')" in
+    1|true|yes|on) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+# Quién puede embeber las encuestas mientras alguna de las dos integraciones
+# con Moodle está activa. Sin definir (o vacía) queda `*`, que es lo que se
+# venía haciendo y lo que hace falta para que un LMS cualquiera las muestre. Un despliegue que conoce sus LMS puede
 # cerrar el cerco:
 #
 #   LTI_FRAME_ANCESTORS="https://moodle.escuela.edu https://aula.otro.org"
@@ -57,13 +64,27 @@ LTI_RAW="$(printf '%s' "${LTI_ENABLED:-}" | tr '[:upper:]' '[:lower:]' | tr -d '
 # quedaría `frame-ancestors ` a secas, que es una CSP inválida y bloquearía el
 # framing por completo — el LMS dejaría de mostrar las encuestas y el síntoma
 # aparecería lejísimos de la causa.
+#
+# La variable se sigue llamando LTI_FRAME_ANCESTORS aunque ahora también rija
+# para el módulo nativo: es la misma pregunta ("quién puede embeber /s/") y una
+# segunda variable con el mismo valor sería una más para olvidarse de sincronizar.
 ANCESTROS="${LTI_FRAME_ANCESTORS:-*}"
-case "$LTI_RAW" in
-  1|true|yes|on)
+
+# `/s/` (la encuesta que ve el alumno) hace falta enmarcable con CUALQUIERA de
+# las dos integraciones: tanto `/lti/launch` como el `/mod/launch` del módulo
+# nativo terminan redirigiendo ahí adentro del iframe de Moodle. Con
+# MOD_ENABLED=1 y LTI_ENABLED=0 —una instalación que sólo usa el módulo, que es
+# el caso que la Fase A viene a habilitar— este snippet quedaba vacío y el
+# alumno veía un iframe en blanco: el 302 de /mod/launch llegaba bien y era
+# /s/{slug} el que salía con `X-Frame-Options: SAMEORIGIN` por `location /`.
+# `/lti-select`, en cambio, es la pantalla del deep linking de LTI y el módulo
+# no la usa, así que sigue atada sólo a LTI_ENABLED.
+: > "$LTI_SNIPPET"
+if prendido "${LTI_ENABLED:-}"; then
     # Heredoc entrecomillado para que `$http_upgrade` y compañía lleguen a
     # nginx literales, sin que la shell los expanda. El único valor que sí hay
     # que interpolar entra después, por su marcador.
-    cat > "$LTI_SNIPPET" <<'EOF'
+    cat >> "$LTI_SNIPPET" <<'EOF'
 location = /lti-select {
   proxy_pass http://127.0.0.1:3000;
   proxy_http_version 1.1;
@@ -78,7 +99,11 @@ location = /lti-select {
   proxy_hide_header X-Frame-Options;
   add_header Content-Security-Policy "frame-ancestors __ANCESTROS__" always;
 }
+EOF
+fi
 
+if prendido "${LTI_ENABLED:-}" || prendido "${MOD_ENABLED:-}"; then
+    cat >> "$LTI_SNIPPET" <<'EOF'
 location ^~ /s/ {
   proxy_pass http://127.0.0.1:3000;
   proxy_http_version 1.1;
@@ -94,19 +119,16 @@ location ^~ /s/ {
   add_header Content-Security-Policy "frame-ancestors __ANCESTROS__" always;
 }
 EOF
-    # `|` como delimitador porque el valor son URLs y trae `/`. El contenido
-    # lo pone quien despliega, mismo nivel de confianza que el resto de este
-    # script.
-    sed -i "s|__ANCESTROS__|${ANCESTROS}|g" "$LTI_SNIPPET"
-    ;;
-  *)
-    # LTI apagado: /lti-select y /s/ quedan sin declarar acá — `location /`
-    # sigue sirviéndolas tal como hoy (X-Frame-Options: SAMEORIGIN, sin CSP de
-    # framing). Archivo vacío: no hay nada más que este snippet tenga que
-    # aportar (/lti/ es estático en nginx.conf y no depende de este flag).
-    : > "$LTI_SNIPPET"
-    ;;
-esac
+fi
+
+# Con las dos apagadas el archivo queda vacío (se truncó arriba) y `location /`
+# sigue sirviendo /lti-select y /s/ tal como hoy: X-Frame-Options: SAMEORIGIN,
+# sin CSP de framing. `/lti/` y `/mod/` son estáticos en nginx.conf y no
+# dependen de esta escritura.
+#
+# `|` como delimitador porque el valor son URLs y trae `/`. El contenido lo
+# pone quien despliega, mismo nivel de confianza que el resto de este script.
+sed -i "s|__ANCESTROS__|${ANCESTROS}|g" "$LTI_SNIPPET"
 
 # Backend (FastAPI) on :8000
 ( cd /app/backend && exec uvicorn app.main:app --host 127.0.0.1 --port 8000 ) &
