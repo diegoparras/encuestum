@@ -296,11 +296,13 @@ no un `grade_update` a ciegas.
 
 ### Task 7: De punta a punta contra el Docker
 
-- [ ] Montar `mod/encuestum` en `dev/moodle/docker-compose.yml` junto al `local/`.
-- [ ] Conectar, crear una actividad, elegir encuesta, responder como alumno y confirmar la
+- [x] Montar `mod/encuestum` en `dev/moodle/docker-compose.yml` junto al `local/`.
+- [x] Conectar, crear una actividad, elegir encuesta, responder como alumno y confirmar la
       nota en el libro de calificaciones.
-- [ ] Repetir con la actividad marcada anónima: sin atribución y **sin** nota.
-- [ ] Documentar en `docs/MOODLE.md` cuándo conviene cada plugin.
+- [x] Repetir con la actividad marcada anónima: sin atribución y **sin** nota.
+- [x] Documentar en `docs/MOODLE.md` cuándo conviene cada plugin.
+
+Reporte: `.superpowers/sdd/task-mod-7-report.md`.
 
 ---
 
@@ -309,3 +311,6 @@ no un `grade_update` a ciegas.
 - [ ] `cd backend && python -m pytest -q` en verde.
 - [ ] Los dos plugins instalados a la vez no duplican "Encuestum" en el selector de
       actividades (decidir quién cede y documentarlo).
+      **Confirmado que SÍ duplican** (Tarea 7, Moodle 5.0.2): el selector devuelve
+      `lti_type_3` y `encuestum`, los dos titulados "Encuestum". Queda documentado en
+      `docs/MOODLE.md` y sin arreglar: falta decidir quién cede el nombre.
