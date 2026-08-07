@@ -263,6 +263,15 @@ exactamente qué se manda.
    `HMAC(secreto, user_id)` — el `sub` es opaco a propósito.
 3. `grade_update('mod/encuestum', $courseid, 'mod', 'encuestum', $instance, 0, $grades)`.
 
+**REQUISITO BLOQUEANTE, no un adorno: comparar el `max` que llega contra el
+`grademax` de hoy.** Encuestum manda la escala que Moodle le dio *en el
+lanzamiento*, y esa escala se persiste en la fila de la respuesta, no en la
+cookie: una respuesta de marzo recorregida en septiembre se publica con el
+`grademax` de marzo. La decisión de mandarlo en el token (en vez de preguntarlo)
+se tomó a sabiendas, y **esta comparación es la única mitigación que existe**.
+Si el `max` que llega no coincide con el `grademax` actual del `grade_item`, hay
+que reescalar acá o rechazar — nunca ignorarlo y publicar el número crudo.
+
 **Un alumno no inscripto no recibe nota**: si el `sub` no matchea a nadie del curso, error,
 no un `grade_update` a ciegas.
 
