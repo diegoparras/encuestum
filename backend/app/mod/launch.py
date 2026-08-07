@@ -1,11 +1,23 @@
-"""Verificación del token de lanzamiento de `mod_encuestum`.
+"""Verificación de los tokens que firma `mod_encuestum` del lado de Moodle.
 
-Moodle firma un token corto con **su clave privada RSA** (RS256) y redirige al
-alumno a `GET /mod/launch?t=<JWT>`; Encuestum lo canjea por la cookie de sesión
-que ya usa LTI. Este módulo no toca la base ni FastAPI: recibe el token y la
-clave pública que quedó registrada en la Tarea 1, y dice si el lanzamiento vale.
-El endpoint (`app/routers/modapi.py`) se encarga del resto -- buscar el sitio,
-la encuesta y sembrar la cookie.
+Moodle firma un token corto con **su clave privada RSA** (RS256) y Encuestum lo
+verifica con la pública que quedó registrada en la Tarea 1. Este módulo no toca
+la base ni FastAPI: recibe el token y la clave, y dice si vale. Los endpoints
+(`app/routers/modapi.py`) se encargan del resto.
+
+Hay **dos** tokens distintos, y la diferencia no es formal:
+
+- El de **lanzamiento** (`GET /mod/launch?t=`) mete a un alumno adentro de una
+  encuesta: se canjea por la cookie de sesión que ya usa LTI.
+- El de **listado** (`GET /mod/surveys?t=`) le contesta al selector del
+  `mod_form.php` del docente qué encuestas publicadas tiene la organización.
+
+El `purpose` está en los claims requeridos y se compara contra el que espera
+cada endpoint, así que **ninguno de los dos sirve en lugar del otro**. Sin esa
+separación, un token de listado -- que sale del navegador de un docente, viaja
+en la URL de un request server-to-server y no lleva ninguna promesa de secreto--
+alcanzaría para entrar como el alumno cuyo `sub` se le pegue. Es la misma
+discusión que ya se dio en el panel LTI y la misma conclusión.
 
 Las tres cosas que se implementan mal en un verificador de JWT, y que acá están
 resueltas a propósito:
@@ -61,11 +73,25 @@ LEEWAY_S = 60
 # algoritmo; la otra mitad es no tener nunca una clave simétrica a mano.
 ALGORITMOS = ["RS256"]
 
+# Los dos propósitos, que son los dos valores posibles del claim `purpose`.
+# Viajan en inglés porque los escribe el plugin de Moodle, que es el que firma.
+PROPOSITO_LANZAMIENTO = "launch"
+PROPOSITO_LISTADO = "list"
+
 # Claims sin los cuales el token no significa nada. `exp`/`iat` porque son la
 # ventana, `jti` porque es el consumo de un solo uso, `iss` porque es lo que
-# ata el token al sitio, y los dos ids porque son el lanzamiento en sí. PyJWT
-# trata un claim presente en `null` como ausente, que es lo que queremos.
-CLAIMS_REQUERIDOS = ["iss", "iat", "exp", "jti", "site_id", "survey_id"]
+# ata el token al sitio, `site_id` porque es con lo que se busca la clave, y
+# `purpose` porque sin él los dos tokens serían el mismo token. PyJWT trata un
+# claim presente en `null` como ausente, que es lo que queremos.
+CLAIMS_COMUNES = ["iss", "iat", "exp", "jti", "site_id", "purpose"]
+
+# El `survey_id` sólo lo exige el lanzamiento: es el lanzamiento en sí. Pedirlo
+# también en el listado obligaría al selector a inventar un id antes de haber
+# elegido ninguno.
+CLAIMS_POR_PROPOSITO = {
+    PROPOSITO_LANZAMIENTO: [*CLAIMS_COMUNES, "survey_id"],
+    PROPOSITO_LISTADO: CLAIMS_COMUNES,
+}
 
 
 class LanzamientoInvalido(Exception):
@@ -91,25 +117,33 @@ def site_id_declarado(token: str) -> uuid.UUID | None:
         return None
 
 
-def verificar_lanzamiento(token: str, public_key: str, wwwroot: str) -> dict:
-    """Los claims del token si es auténtico, fresco y de un solo uso.
+def verificar_token_moodle(token: str, public_key: str, wwwroot: str, proposito: str) -> dict:
+    """Los claims del token si es auténtico, fresco, del propósito pedido y de
+    un solo uso.
 
     `public_key` y `wwwroot` son los de la fila de `mod_sites` que corresponde
     al `site_id` declarado; `wwwroot` ya viene en forma canónica (así lo guarda
     el registro), y el `iss` del token se normaliza con la MISMA función antes
     de compararlos.
 
+    `proposito` no tiene default a propósito: es un argumento obligatorio para
+    que ningún endpoint nuevo pueda "olvidarse" de decir para qué está
+    verificando y aceptar, sin quererlo, el token del otro camino.
+
     El `jti` se consume al final, después de que todo lo demás pasó: si se
     consumiera antes de verificar la firma, cualquiera podría anular el
     lanzamiento legítimo de un alumno mandando primero un token falso con el
-    mismo `jti` -- y de paso llenar el caché sin autenticarse.
+    mismo `jti` -- y de paso llenar el caché sin autenticarse. Por lo mismo el
+    propósito se compara **antes** que el `jti`: un token de listado presentado
+    en `/mod/launch` no debe quemar nada.
     """
+    requeridos = CLAIMS_POR_PROPOSITO[proposito]
     try:
         claims = jwt.decode(
             token,
             public_key,
             algorithms=ALGORITMOS,
-            options={"require": CLAIMS_REQUERIDOS},
+            options={"require": requeridos},
             leeway=LEEWAY_S,
         )
     except jwt.PyJWTError as exc:
@@ -141,7 +175,19 @@ def verificar_lanzamiento(token: str, public_key: str, wwwroot: str) -> dict:
         # `iss`.
         raise LanzamientoInvalido("el iss no es el wwwroot del sitio")
 
-    # `CLAIMS_REQUERIDOS` ya lo exigió; el guard igual está porque un `jti`
+    if str(claims.get("purpose") or "") != proposito:
+        # LO QUE SEPARA LOS DOS TOKENS. Sin esta comparación, el token que el
+        # `mod_form.php` del docente usa para listar encuestas -- que Moodle
+        # firma con la misma clave y para el mismo sitio -- entraría por
+        # `/mod/launch` y sembraría la cookie de sesión de quien lo presente.
+        # La dirección contraria es menos grave pero igual de indeseable: un
+        # token de lanzamiento interceptado no tiene por qué servir además para
+        # enumerar las encuestas de la organización.
+        raise LanzamientoInvalido(
+            f"el token es para '{claims.get('purpose')}' y no para '{proposito}'"
+        )
+
+    # `CLAIMS_POR_PROPOSITO` ya lo exigió; el guard igual está porque un `jti`
     # vacío que llegara acá se consumiría como cualquier otro y el segundo
     # lanzamiento sin `jti` sería el que quedaría bloqueado -- un fallo mudo y
     # al revés. Un `KeyError` suelto acá sería un 500.

@@ -235,6 +235,20 @@ exactamente qué se manda.
 
 **Files:** `settings.php`, `classes/connect.php`, `launch.php`, `view.php`
 
+> **Dos correcciones hechas al implementarla** (ver
+> `.superpowers/sdd/task-mod-5-report.md`):
+>
+> 1. **Faltaba el endpoint del selector.** "Consulta a Encuestum" contra algo
+>    que no existía: `modapi.py` sólo tenía `connect-url`, `register` y
+>    `launch`. Se agregó `GET /mod/surveys?t=<JWT>`, con la misma firma RS256
+>    del lanzamiento pero con `purpose: "list"` en vez de `"launch"` — y el
+>    `purpose` pasó a ser un claim requerido y comparado en los dos endpoints,
+>    así que ninguno de los dos tokens vale en lugar del otro. El listado filtra
+>    por `Survey.org_id == sitio.org_id`, igual que `/lti/select/surveys`.
+> 2. **La trampa del botón se eliminó en vez de documentarse.** El campo de la
+>    URL vive en `connect.php`, la página que hace la conexión, así que lo que
+>    se usa es lo que se escribió y no hay ningún "guardá primero".
+
 - Ajustes: campo "URL de conexión" (la que genera Encuestum) + botón *Conectar*.
   Al conectar: **genera el par de claves RSA de 2048 bits**, guarda la privada en la
   configuración del plugin, crea un token de servicio web para el usuario de servicio y
@@ -245,8 +259,9 @@ exactamente qué se manda.
 - El docente ve además un selector de encuesta en `mod_form.php`, que consulta a Encuestum
   autenticándose con la misma firma.
 
-> El botón lee la URL **guardada**, no la que está en pantalla. Mismo tropiezo que
-> documenta `docs/INSTALAR-PLUGIN-VPS.md` para `local_encuestum`: hay que guardar antes.
+> ~~El botón lee la URL **guardada**, no la que está en pantalla. Mismo tropiezo
+> que documenta `docs/INSTALAR-PLUGIN-VPS.md` para `local_encuestum`: hay que
+> guardar antes.~~ Resuelto: ver la corrección 2 de arriba.
 
 - [ ] Commit.
 

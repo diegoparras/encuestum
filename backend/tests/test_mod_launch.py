@@ -129,6 +129,9 @@ def _claims(sitio: dict, **over) -> dict:
         "email": "ana@escuela.test",
         "roles": ["student"],
         "anonymous": False,
+        # Lo que separa este token del que el selector del docente usa para
+        # listar encuestas. Ver `test_mod_surveys.py`.
+        "purpose": "launch",
     }
     claims.update(over)
     return {k: v for k, v in claims.items() if v is not _SIN}
@@ -373,7 +376,7 @@ async def test_un_iat_en_el_futuro_da_401_aunque_pyjwt_no_lo_chequee(
     nuestra y no la de la dependencia.
 
     Verificado que discrimina: sacando `if iat > time.time() + LEEWAY_S` de
-    `verificar_lanzamiento`, este test devuelve 302 -- y el token dura 86400 s
+    `verificar_token_moodle`, este test devuelve 302 -- y el token dura 86400 s
     reales."""
     _pyjwt_sin_chequeo_de_iat(monkeypatch)
     ahora = int(time.time())

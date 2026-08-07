@@ -38,11 +38,18 @@ from app.config import get_settings
 from app.db import get_session
 from app.deps import OrgContext, current_context
 from app.lti.state import ACCESS_TTL_S, LTI_COOKIE, LTI_PURPOSE, lti_cookie_kwargs
-from app.mod.launch import LanzamientoInvalido, site_id_declarado, verificar_lanzamiento
+from app.mod.launch import (
+    PROPOSITO_LANZAMIENTO,
+    PROPOSITO_LISTADO,
+    LanzamientoInvalido,
+    site_id_declarado,
+    verificar_token_moodle,
+)
 from app.mod.wwwroot import normalizar_wwwroot
 from app.models import ROLE_ADMIN, ROLE_RANK, MoodleSite, Organization, Survey
 from app.net_guard import UnsafeUrlError, assert_public_url
 from app.security import create_purpose_token, read_purpose_token
+from app.summarizing import count_questions
 
 LOGGER = logging.getLogger(__name__)
 
@@ -358,6 +365,34 @@ def _rechazar(motivo: str, token: str) -> HTTPException:
     )
 
 
+async def _sitio_del_token(session: AsyncSession, t: str, proposito: str) -> tuple[MoodleSite, dict]:
+    """El sitio que firmó el token y sus claims ya verificados.
+
+    Es el tramo idéntico de los dos endpoints que Moodle llama firmando
+    (`/mod/launch` y `/mod/surveys`), y está compartido para que no haya dos
+    copias de la resolución del sitio que puedan divergir. Lo que **no** se
+    comparte es el `proposito`: cada endpoint pasa el suyo y por eso el token de
+    uno no vale en el otro."""
+    site_id = site_id_declarado(t)
+    if site_id is None:
+        # Ni siquiera se puede leer a qué sitio dice pertenecer: no hay clave
+        # con la que verificarlo.
+        raise _rechazar("el token no declara un site_id usable", t)
+
+    sitio = await session.get(MoodleSite, site_id)
+    if sitio is None:
+        # 401 y no 404: qué organización tiene qué Moodle conectado no es
+        # información que corresponda filtrar, y para quien lanza el remedio es
+        # el mismo (reconectar el plugin).
+        raise _rechazar(f"site_id desconocido: {site_id}", t)
+
+    try:
+        claims = verificar_token_moodle(t, sitio.public_key, sitio.wwwroot, proposito)
+    except LanzamientoInvalido as exc:
+        raise _rechazar(str(exc), t) from exc
+    return sitio, claims
+
+
 @router.get("/launch", name="mod_launch", dependencies=[Depends(require_mod)])
 async def launch(
     t: str = Query(default="", description="Token de lanzamiento firmado por Moodle (RS256)."),
@@ -382,24 +417,11 @@ async def launch(
     encuesta) están repartidos entre `app/mod/launch.py` (los cuatro primeros,
     que no necesitan la base) y esta función (el último, que sí). Cada uno tiene
     su test en `tests/test_mod_launch.py`, verificado rompiendo la validación.
+
+    El sexto es el `purpose`: este endpoint sólo acepta tokens de lanzamiento, y
+    el del selector (`/mod/surveys`) sólo los suyos. Ver `app/mod/launch.py`.
     """
-    site_id = site_id_declarado(t)
-    if site_id is None:
-        # Ni siquiera se puede leer a qué sitio dice pertenecer: no hay clave
-        # con la que verificarlo.
-        raise _rechazar("el token no declara un site_id usable", t)
-
-    sitio = await session.get(MoodleSite, site_id)
-    if sitio is None:
-        # 401 y no 404: qué organización tiene qué Moodle conectado no es
-        # información que corresponda filtrar, y para quien lanza el remedio es
-        # el mismo (reconectar el plugin).
-        raise _rechazar(f"site_id desconocido: {site_id}", t)
-
-    try:
-        claims = verificar_lanzamiento(t, sitio.public_key, sitio.wwwroot)
-    except LanzamientoInvalido as exc:
-        raise _rechazar(str(exc), t) from exc
+    sitio, claims = await _sitio_del_token(session, t, PROPOSITO_LANZAMIENTO)
 
     try:
         survey_id = uuid.UUID(str(claims.get("survey_id")))
@@ -468,3 +490,57 @@ async def launch(
     resp = RedirectResponse(f"/s/{encuesta.slug}", status_code=302)
     resp.set_cookie(LTI_COOKIE, token, max_age=ACCESS_TTL_S, **lti_cookie_kwargs())
     return resp
+
+
+# ── GET /mod/surveys ─────────────────────────────────────────────────────────
+
+
+@router.get("/surveys", name="mod_surveys", dependencies=[Depends(require_mod)])
+async def listar_encuestas(
+    t: str = Query(default="", description="Token de listado firmado por Moodle (RS256)."),
+    session: AsyncSession = Depends(get_session),
+) -> dict:
+    """Las encuestas publicadas de la organización del sitio que firmó.
+
+    Es lo que alimenta el selector de encuesta del `mod_form.php`: lo llama el
+    **servidor** de Moodle, no el navegador del docente, así que no hay sesión de
+    Encuestum de la que colgarse y la autenticación es la misma firma RS256 del
+    lanzamiento -- con `PROPOSITO_LISTADO`, que es lo que impide que este token
+    sirva para entrar como alumno (ver `app/mod/launch.py`).
+
+    **El filtro por `org_id` no es una comodidad de presentación.** Es el mismo
+    que hace `/lti/select/surveys` y por el mismo motivo: sin él, cualquier
+    Moodle conectado -- o sea cualquier escuela -- ve los títulos de las
+    encuestas de todas las demás. Sale de `sitio.org_id`, que viene de la fila
+    de `mod_sites`, no de nada que traiga el token.
+
+    La forma de la respuesta es la de `/lti/select/surveys` a propósito: es el
+    mismo selector con otra puerta de entrada, y `questions` se cuenta con la
+    misma función que el resto del producto para que no diga un número distinto
+    del que el docente ve en Encuestum."""
+    sitio, _ = await _sitio_del_token(session, t, PROPOSITO_LISTADO)
+
+    filas = (
+        await session.scalars(
+            select(Survey)
+            .where(
+                Survey.org_id == sitio.org_id,
+                Survey.deleted_at.is_(None),
+                Survey.status == "published",
+            )
+            .order_by(Survey.updated_at.desc())
+        )
+    ).all()
+    return {
+        "surveys": [
+            {
+                "id": str(s.id),
+                "title": s.title or "Sin título",
+                "slug": s.slug,
+                "is_exam": bool((s.evaluation or {}).get("enabled")),
+                "questions": count_questions(s.json_schema or {}),
+                "updated_at": s.updated_at.isoformat(),
+            }
+            for s in filas
+        ]
+    }

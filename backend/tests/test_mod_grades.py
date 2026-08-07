@@ -536,6 +536,9 @@ def _lanzar(client, sitio: dict, **over):
         "email": "ana@escuela.test",
         "name": "Ana Alumna",
         "anonymous": False,
+        # Lo que separa este token del que el selector del docente usa para
+        # listar encuestas: ver `test_mod_surveys.py`.
+        "purpose": "launch",
     }
     claims.update(over)
     token = jwt.encode(claims, _PRIV, algorithm="RS256")
