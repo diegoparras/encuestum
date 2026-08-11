@@ -33,10 +33,15 @@ import {
   Paperclip,
   Plus,
   Rows3,
+  ChevronDown,
+  ChevronRight,
+  Search,
+  X,
 } from "lucide-react";
 import { BuilderQuestion, QUESTION_TYPES, QuestionType } from "./model";
 import { SortableQuestion } from "./SortableQuestion";
 import { useI18n } from "@/lib/i18n";
+import { useCollapsed } from "@/lib/useCollapsed";
 
 const PALETTE_ICON: Record<QuestionType, React.ComponentType<{ className?: string }>> = {
   text: Type,
@@ -78,10 +83,25 @@ export function QuestionListPanel({
   onDelete,
 }: Props) {
   const { t } = useI18n();
+  const [paletteClosed, togglePalette] = useCollapsed("builder.palette");
+  const [q, setQ] = React.useState("");
   const sensors = useSensors(
     useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
   );
+
+  // Buscar por nombre o descripción del tipo, sin acentos: con 15 tipos,
+  // escribir "matriz" es más rápido que barrer la grilla con la vista.
+  const sinAcentos = (s: string) =>
+    s.normalize("NFD").replace(/[̀-ͯ]/g, "").toLowerCase();
+  const filtro = sinAcentos(q.trim());
+  const tipos = filtro
+    ? QUESTION_TYPES.filter((qt) =>
+        sinAcentos(
+          `${t(`builder.qtype.${qt.type}`)} ${t(`builder.qhint.${qt.type}`)}`
+        ).includes(filtro)
+      )
+    : QUESTION_TYPES;
 
   function handleDragEnd(event: DragEndEvent) {
     const { active, over } = event;
@@ -94,13 +114,60 @@ export function QuestionListPanel({
 
   return (
     <div className="flex h-full flex-col">
-      {/* Palette */}
+      {/* Paleta: plegable, porque 15 tipos se comen el panel y dejan la lista
+          de preguntas apretada abajo. La elección se recuerda. */}
       <div className="px-4 pt-4 pb-3 border-b border-neutral-200 dark:border-neutral-800">
-        <div className="text-[11px] font-semibold uppercase tracking-wide text-neutral-400 dark:text-neutral-500 mb-2">
+        <button
+          type="button"
+          onClick={togglePalette}
+          aria-expanded={!paletteClosed}
+          className="flex w-full items-center gap-1.5 mb-2 text-[11px] font-semibold uppercase tracking-wide text-neutral-400 dark:text-neutral-500 hover:text-neutral-600 dark:hover:text-neutral-300"
+        >
+          {paletteClosed ? (
+            <ChevronRight className="h-3.5 w-3.5" />
+          ) : (
+            <ChevronDown className="h-3.5 w-3.5" />
+          )}
           {t("builder.list.addQuestion")}
-        </div>
-        <div className="grid grid-cols-2 gap-1.5">
-          {QUESTION_TYPES.map((qt) => {
+          {paletteClosed && (
+            <span className="ml-auto font-normal normal-case tracking-normal text-neutral-400">
+              {QUESTION_TYPES.length}
+            </span>
+          )}
+        </button>
+
+        {!paletteClosed && (
+          <>
+            <div className="relative mb-2">
+              <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-neutral-400" />
+              <input
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+                placeholder={t("builder.list.searchType")}
+                aria-label={t("builder.list.searchType")}
+                className="w-full rounded-md border border-neutral-200 bg-white py-1.5 pl-7 pr-6 text-xs outline-none placeholder:text-neutral-400 focus:border-neutral-400 dark:border-neutral-800 dark:bg-neutral-900 dark:focus:border-neutral-600"
+              />
+              {q && (
+                <button
+                  type="button"
+                  onClick={() => setQ("")}
+                  aria-label={t("builder.list.clearSearch")}
+                  className="absolute right-1.5 top-1/2 -translate-y-1/2 text-neutral-400 hover:text-neutral-700 dark:hover:text-neutral-200"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </div>
+            {tipos.length === 0 && (
+              <p className="py-3 text-center text-xs text-neutral-400">
+                {t("builder.list.noTypeMatch")}
+              </p>
+            )}
+          </>
+        )}
+
+        <div className={`grid grid-cols-2 gap-1.5 ${paletteClosed ? "hidden" : ""}`}>
+          {tipos.map((qt) => {
             const Icon = PALETTE_ICON[qt.type];
             return (
               <button

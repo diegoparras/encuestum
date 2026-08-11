@@ -16,12 +16,13 @@ import {
   VisibilityRule,
 } from "./model";
 import { useI18n } from "@/lib/i18n";
+import { useCollapsed } from "@/lib/useCollapsed";
 import { ChoicesEditor } from "./ChoicesEditor";
 import { ImageChoicesEditor } from "./ImageChoicesEditor";
 import { GradingSection } from "./GradingSection";
 import { AssetPicker } from "./AssetPicker";
 import { utcToLocalInput, localInputToUtc, tzLabel } from "@/utils/tz";
-import { ArrowLeft, Film, GitBranch, Plus, Sparkles, Trash2 } from "lucide-react";
+import { ArrowLeft, ChevronDown, ChevronRight, Film, GitBranch, Plus, Sparkles, Trash2 } from "lucide-react";
 
 interface Props {
   question: BuilderQuestion | null;
@@ -121,7 +122,7 @@ export function PropertiesPanel({
         )}
 
         <div className="mt-5 border-t border-neutral-100 dark:border-neutral-800 pt-4">
-          <SectionTitle>{t("builder.props.schedule")}</SectionTitle>
+          <Section id="schedule" title={t("builder.props.schedule")}>
           <Field label={`${t("builder.props.openOnDate")} (${tzLabel(timezone)})`}>
             <input
               type="datetime-local"
@@ -178,10 +179,11 @@ export function PropertiesPanel({
           <p className="text-xs text-neutral-400 dark:text-neutral-500">
             {t("builder.props.scheduleHint")}
           </p>
+          </Section>
         </div>
 
         <div className="mt-5 border-t border-neutral-100 dark:border-neutral-800 pt-4">
-          <SectionTitle>{t("builder.props.onFinish")}</SectionTitle>
+          <Section id="onFinish" title={t("builder.props.onFinish")}>
           <Field label={t("builder.props.thankYouMessage")}>
             <textarea
               value={thankyouMessage}
@@ -218,6 +220,7 @@ export function PropertiesPanel({
           <p className="-mt-2 text-xs text-neutral-400 dark:text-neutral-500">
             {t("builder.props.redirectHint")}
           </p>
+          </Section>
         </div>
 
         <ExamSettings
@@ -1206,6 +1209,43 @@ function SectionTitle({ children }: { children: React.ReactNode }) {
     <div className="text-[11px] font-semibold uppercase tracking-wide text-neutral-400 dark:text-neutral-500 mb-4">
       {children}
     </div>
+  );
+}
+
+/**
+ * Sección plegable de ajustes. El panel apila varios bloques y casi nunca se
+ * tocan todos a la vez; poder cerrar los que no se usan deja la pantalla
+ * respirable. La elección se recuerda por `id`.
+ */
+function Section({
+  id,
+  title,
+  defaultCollapsed = false,
+  children,
+}: {
+  id: string;
+  title: string;
+  defaultCollapsed?: boolean;
+  children: React.ReactNode;
+}) {
+  const [collapsed, toggle] = useCollapsed(`builder.props.${id}`, defaultCollapsed);
+  return (
+    <>
+      <button
+        type="button"
+        onClick={toggle}
+        aria-expanded={!collapsed}
+        className="flex w-full items-center gap-1.5 mb-4 text-[11px] font-semibold uppercase tracking-wide text-neutral-400 dark:text-neutral-500 hover:text-neutral-600 dark:hover:text-neutral-300"
+      >
+        {collapsed ? (
+          <ChevronRight className="h-3.5 w-3.5" />
+        ) : (
+          <ChevronDown className="h-3.5 w-3.5" />
+        )}
+        {title}
+      </button>
+      {!collapsed && children}
+    </>
   );
 }
 
