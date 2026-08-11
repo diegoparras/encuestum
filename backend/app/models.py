@@ -168,6 +168,44 @@ class Asset(SQLModel, table=True):
     )
 
 
+class SurveyFolder(SQLModel, table=True):
+    """Carpeta para agrupar encuestas. Puede colgar de otra (subcarpetas).
+
+    Es de la ORGANIZACIÓN, no de cada persona: si cada uno tuviera su propio
+    árbol, dos compañeros verían la misma encuesta en lugares distintos y la
+    carpeta dejaría de servir para ponerse de acuerdo sobre dónde está algo.
+
+    Borrar una carpeta NUNCA borra encuestas: sus encuestas y subcarpetas suben
+    un nivel (ver el endpoint). Perder trabajo por vaciar una carpeta sería un
+    precio altísimo por ordenar.
+    """
+
+    __tablename__ = "survey_folders"
+
+    id: uuid.UUID = Field(primary_key=True, default_factory=uuid.uuid4)
+    org_id: uuid.UUID = Field(
+        sa_column=Column(
+            ForeignKey("organizations.id", ondelete="CASCADE"), index=True, nullable=False
+        )
+    )
+    # Carpeta madre. NULL = está en la raíz.
+    parent_id: Optional[uuid.UUID] = Field(
+        sa_column=Column(
+            ForeignKey("survey_folders.id", ondelete="CASCADE"), index=True
+        ),
+        default=None,
+    )
+    name: str = Field(sa_column=Column(String, nullable=False))
+    # Color libre en #rrggbb (el usuario elige el que quiera, no una paleta fija).
+    color: Optional[str] = Field(sa_column=Column(String), default=None)
+    position: int = Field(
+        sa_column=Column(Integer, nullable=False, server_default="0"), default=0
+    )
+    created_at: datetime = Field(
+        sa_column=Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    )
+
+
 class Survey(SQLModel, table=True):
     __tablename__ = "surveys"
 
@@ -176,6 +214,14 @@ class Survey(SQLModel, table=True):
         sa_column=Column(
             ForeignKey("organizations.id", ondelete="CASCADE"), index=True, nullable=False
         )
+    )
+    # Carpeta que la contiene. NULL = "Sin clasificar" (la raíz). SET NULL para
+    # que borrar una carpeta no arrastre nunca a las encuestas.
+    folder_id: Optional[uuid.UUID] = Field(
+        sa_column=Column(
+            ForeignKey("survey_folders.id", ondelete="SET NULL"), index=True
+        ),
+        default=None,
     )
     created_by: Optional[uuid.UUID] = Field(
         sa_column=Column(ForeignKey("users.id", ondelete="SET NULL")), default=None

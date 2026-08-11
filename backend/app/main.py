@@ -13,8 +13,8 @@ from app.config import get_settings
 from app.db import engine
 from app.logging_conf import configure_logging
 from app.routers import (
-    admin, ai, assets, auth, evaluation, files, lti, modapi, orgs, panel, public,
-    uploads, webhooks_api,
+    admin, ai, assets, auth, evaluation, files, folders, lti, modapi, orgs, panel,
+    public, uploads, webhooks_api,
 )
 
 LOGGER = logging.getLogger("encuestum")
@@ -141,6 +141,7 @@ SURVEY = "/api/v1/survey"
 app.include_router(public.router, prefix=SURVEY)
 app.include_router(admin.router, prefix=SURVEY)
 app.include_router(evaluation.router, prefix=SURVEY)
+app.include_router(folders.router, prefix=SURVEY)
 
 
 @app.get("/api/health", tags=["ops"])
