@@ -34,6 +34,8 @@ export interface SurveyDetail {
   opens_at: string | null;
   closes_at: string | null;
   max_responses: number | null;
+  /** Intentos por persona (distinto del cupo total). null = sin límite. */
+  max_attempts: number | null;
   // Zona horaria del servidor (config global) para interpretar opens_at/closes_at.
   timezone: string;
   // Control de acceso y visibilidad de resultados
@@ -322,6 +324,7 @@ export const surveyApi = {
         | "evaluation"
         | "closes_at"
         | "max_responses"
+        | "max_attempts"
         | "access_mode"
         | "access_pin"
         | "results_mode"

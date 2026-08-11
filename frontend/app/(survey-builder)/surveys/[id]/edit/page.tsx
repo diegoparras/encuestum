@@ -118,6 +118,7 @@ export default function SurveyEditorPage() {
     built.opensAt = s.opens_at ?? null;
     built.closesAt = s.closes_at;
     built.maxResponses = s.max_responses;
+    built.maxAttempts = s.max_attempts ?? null;
     built.thankyouMessage = s.thankyou_message ?? "";
     built.gradingMessage = s.grading_message ?? "";
     built.redirectUrl = s.redirect_url ?? "";
@@ -285,6 +286,7 @@ export default function SurveyEditorPage() {
         opens_at: state.opensAt,
         closes_at: state.closesAt,
         max_responses: state.maxResponses,
+        max_attempts: state.maxAttempts,
         thankyou_message: state.thankyouMessage,
         grading_message: state.gradingMessage,
         redirect_url: state.redirectUrl,
@@ -588,6 +590,7 @@ export default function SurveyEditorPage() {
             opensAt={state.opensAt}
             closesAt={state.closesAt}
             maxResponses={state.maxResponses}
+            maxAttempts={state.maxAttempts}
             thankyouMessage={state.thankyouMessage}
             gradingMessage={state.gradingMessage}
             redirectUrl={state.redirectUrl}

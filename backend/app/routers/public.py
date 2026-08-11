@@ -34,6 +34,13 @@ _ACCESS_PURPOSE = "survey_access"
 
 
 
+def _identidad_respondida(s: Survey, answers: dict) -> tuple[str | None, str | None]:
+    """(nombre, mail) que la persona escribió en la propia encuesta."""
+    from app.identity import respondent_identity
+
+    return respondent_identity(s.json_schema or {}, answers)
+
+
 async def _find_invitee(session: AsyncSession, survey_id, email: str, code: str) -> SurveyInvitee | None:
     email = (email or "").strip().lower()
     code = (code or "").strip().upper()
@@ -375,6 +382,32 @@ async def submit(
             raise HTTPException(status_code=403, detail="Necesitás acceso para responder esta encuesta.")
         data = read_purpose_token(_ACCESS_PURPOSE, payload.access_token or "") or {}
         resp_email, resp_code = data.get("email"), data.get("code")
+
+    # Tope de intentos POR PERSONA (distinto del cupo total de la encuesta).
+    # Se comprueba acá, sobre la base, y no sólo del lado del cliente: es el
+    # único punto que no se puede saltear. Cómo se reconoce a la persona y por
+    # qué esto es "mejor esfuerzo" fuera del modo lista está en app/attempts.py.
+    from app import attempts
+
+    tope = attempts.limite(s)
+    if tope is not None:
+        _, mail_respondido = _identidad_respondida(s, payload.answers or {})
+        ya = await attempts.usados(
+            s,
+            session,
+            code=resp_code,
+            visitor_id=(payload.meta or {}).get("visitor_id"),
+            email=resp_email or mail_respondido,
+        )
+        if ya >= tope:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Ya respondiste esta encuesta."
+                    if tope == 1
+                    else f"Ya usaste tus {tope} intentos para esta encuesta."
+                ),
+            )
 
     # Un vínculo anónimo no guarda identidad: ni el sub de Moodle ni el email.
     # Se conserva `lti_link_id` para saber de qué actividad vino (hace falta

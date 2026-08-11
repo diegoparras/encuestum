@@ -196,6 +196,12 @@ class Survey(SQLModel, table=True):
         sa_column=Column(DateTime(timezone=True)), default=None
     )
     max_responses: Optional[int] = Field(sa_column=Column(Integer), default=None)
+    # Cuántas veces puede responder UNA MISMA persona. None o 0 = sin límite.
+    # Distinto de `max_responses`, que es el cupo total de la encuesta.
+    # Cómo se reconoce a "la misma persona" depende del modo de acceso: por el
+    # código del invitado (infalible) o, en público/PIN, por una marca del
+    # navegador y el correo que haya respondido (ver `app/attempts.py`).
+    max_attempts: Optional[int] = Field(sa_column=Column(Integer), default=None)
     # Access control: how respondents get in.
     #   public → anyone with the link; pin → shared password; list → email allowlist.
     access_mode: str = Field(

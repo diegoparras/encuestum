@@ -41,6 +41,8 @@ class SurveyUpdateRequest(BaseModel):
     opens_at: Optional[datetime] = None
     closes_at: Optional[datetime] = None
     max_responses: Optional[int] = None
+    # Intentos por persona (distinto del cupo total). None/0 = sin límite.
+    max_attempts: Optional[int] = None
     access_mode: Optional[str] = None  # public | pin | list
     access_pin: Optional[str] = None
     results_mode: Optional[str] = None  # immediate | on_release | never
@@ -77,6 +79,8 @@ class SurveyDetail(BaseModel):
     opens_at: Optional[datetime] = None
     closes_at: Optional[datetime] = None
     max_responses: Optional[int] = None
+    # Intentos por persona (distinto del cupo total). None/0 = sin límite.
+    max_attempts: Optional[int] = None
     # Zona horaria del servidor (config global) para que el panel interprete/muestre
     # opens_at/closes_at. No se guarda por encuesta; es un espejo de la config.
     timezone: str = "UTC"
@@ -99,6 +103,7 @@ class SurveyDetail(BaseModel):
             json_schema=s.json_schema or {}, theme=s.theme, evaluation=s.evaluation,
             opens_at=getattr(s, "opens_at", None),
             closes_at=s.closes_at, max_responses=s.max_responses,
+            max_attempts=s.max_attempts,
             timezone=_get_settings().timezone,
             access_mode=getattr(s, "access_mode", "public"),
             access_pin=getattr(s, "access_pin", None),

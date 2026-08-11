@@ -36,6 +36,7 @@ interface Props {
   opensAt: string | null;
   closesAt: string | null;
   maxResponses: number | null;
+  maxAttempts: number | null;
   thankyouMessage: string;
   gradingMessage: string;
   redirectUrl: string;
@@ -51,6 +52,7 @@ interface Props {
     opensAt?: string | null;
     closesAt?: string | null;
     maxResponses?: number | null;
+    maxAttempts?: number | null;
     thankyouMessage?: string;
     gradingMessage?: string;
     redirectUrl?: string;
@@ -71,6 +73,7 @@ export function PropertiesPanel({
   opensAt,
   closesAt,
   maxResponses,
+  maxAttempts,
   thankyouMessage,
   gradingMessage,
   redirectUrl,
@@ -153,6 +156,25 @@ export function PropertiesPanel({
               className="w-full rounded-md border border-neutral-200 px-2.5 py-2 text-sm outline-none focus:border-neutral-400 dark:bg-neutral-800 dark:border-neutral-700 dark:text-neutral-100 dark:placeholder:text-neutral-500"
             />
           </Field>
+          <Field label={t("builder.props.maxAttempts")}>
+            <input
+              type="number"
+              min={1}
+              value={maxAttempts ?? ""}
+              placeholder={t("builder.props.noLimit")}
+              onChange={(e) =>
+                onSurveyChange({
+                  maxAttempts: e.target.value ? Math.max(1, parseInt(e.target.value, 10) || 1) : null,
+                })
+              }
+              className="w-full rounded-md border border-neutral-200 px-2.5 py-2 text-sm outline-none focus:border-neutral-400 dark:bg-neutral-800 dark:border-neutral-700 dark:text-neutral-100 dark:placeholder:text-neutral-500"
+            />
+          </Field>
+          {/* Honestidad sobre el alcance: fuera del modo lista el límite no es
+              un candado, y conviene que quien lo configura lo sepa. */}
+          <p className="text-xs text-neutral-400 dark:text-neutral-500">
+            {t("builder.props.maxAttemptsHint")}
+          </p>
           <p className="text-xs text-neutral-400 dark:text-neutral-500">
             {t("builder.props.scheduleHint")}
           </p>
@@ -944,15 +966,6 @@ function ExamSettings({
             max={100}
             value={evaluation.passingScore}
             onChange={(e) => set({ passingScore: Number(e.target.value) })}
-            className="w-full rounded-md border border-neutral-200 px-2.5 py-1.5 text-sm outline-none focus:border-neutral-400 dark:bg-neutral-800 dark:border-neutral-700 dark:text-neutral-100 dark:placeholder:text-neutral-500"
-          />
-        </Field>
-        <Field label={t("builder.exam.maxAttempts")}>
-          <input
-            type="number"
-            min={1}
-            value={evaluation.integrity.maxAttempts}
-            onChange={(e) => setIntegrity({ maxAttempts: Number(e.target.value) })}
             className="w-full rounded-md border border-neutral-200 px-2.5 py-1.5 text-sm outline-none focus:border-neutral-400 dark:bg-neutral-800 dark:border-neutral-700 dark:text-neutral-100 dark:placeholder:text-neutral-500"
           />
         </Field>
