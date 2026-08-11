@@ -101,7 +101,7 @@ async def list_surveys(
             id=s.id, title=s.title, slug=s.slug, status=s.status, language=s.language,
             response_count=counts.get(s.id, 0),
             is_evaluation=bool(s.evaluation and s.evaluation.get("enabled")),
-            created_at=s.created_at, updated_at=s.updated_at,
+            created_at=s.created_at, updated_at=s.updated_at, folder_id=s.folder_id,
         )
         for s in surveys
     ]
@@ -275,7 +275,7 @@ async def list_trash(
             id=s.id, title=s.title, slug=s.slug, status=s.status, language=s.language,
             response_count=counts.get(s.id, 0),
             is_evaluation=bool(s.evaluation and s.evaluation.get("enabled")),
-            created_at=s.created_at, updated_at=s.updated_at, deleted_at=s.deleted_at,
+            created_at=s.created_at, updated_at=s.updated_at, folder_id=s.folder_id, deleted_at=s.deleted_at,
         )
         for s in surveys
     ]

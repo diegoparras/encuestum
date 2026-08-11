@@ -15,6 +15,8 @@ export interface SurveySummary {
   is_evaluation: boolean;
   created_at: string;
   updated_at: string;
+  /** Carpeta que la contiene. null = sin clasificar. */
+  folder_id?: string | null;
   /** Solo viene con valor en el listado de la papelera. */
   deleted_at?: string | null;
 }
@@ -122,6 +124,16 @@ export interface SummaryReport {
   segment: SummarySegment | null;
   filterable: FilterableQuestion[];
   questions: SummaryQuestion[];
+}
+
+/** Carpeta de encuestas. `parent_id` null = está en la raíz. */
+export interface Folder {
+  id: string;
+  parent_id: string | null;
+  name: string;
+  color: string | null;
+  position: number;
+  survey_count: number;
 }
 
 /** Una entrada del registro de borrados (irreversibles, solo admin). */
@@ -364,6 +376,29 @@ export const surveyApi = {
     request<{ affected: number }>(`/api/v1/survey/surveys/${id}/responses/bulk`, {
       method: "POST",
       body: JSON.stringify({ ids, action }),
+    }),
+  // ── Carpetas ───────────────────────────────────────────────────────────────
+  listFolders: () => request<Folder[]>("/api/v1/survey/folders"),
+  createFolder: (body: { name: string; parent_id?: string | null; color?: string }) =>
+    request<Folder>("/api/v1/survey/folders", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  updateFolder: (
+    id: string,
+    body: { name?: string; color?: string; parent_id?: string | null; move_to_root?: boolean }
+  ) =>
+    request<Folder>(`/api/v1/survey/folders/${id}`, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    }),
+  deleteFolder: (id: string) =>
+    request<void>(`/api/v1/survey/folders/${id}`, { method: "DELETE" }),
+  /** Mueve encuestas a una carpeta; `folderId` null las deja sin clasificar. */
+  moveSurveys: (surveyIds: string[], folderId: string | null) =>
+    request<{ moved: number }>("/api/v1/survey/folders/move-surveys", {
+      method: "POST",
+      body: JSON.stringify({ survey_ids: surveyIds, folder_id: folderId }),
     }),
   getDeletions: (id: string) =>
     request<ResponseDeletion[]>(`/api/v1/survey/surveys/${id}/deletions`),

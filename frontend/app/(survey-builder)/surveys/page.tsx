@@ -27,6 +27,7 @@ import {
   templatePayload,
 } from "../builder/templates";
 import { useAsyncData } from "@/lib/useAsyncData";
+import { FolderTree, SIN_CLASIFICAR, TODAS } from "../FolderTree";
 import { LoadError } from "@/components/LoadError";
 import { useI18n } from "@/lib/i18n";
 
@@ -51,6 +52,21 @@ export default function SurveysListPage() {
   const [duplicatingId, setDuplicatingId] = useState<string | null>(null);
   const [trashOpen, setTrashOpen] = useState(false);
   const [trashingId, setTrashingId] = useState<string | null>(null);
+  // Carpetas: se cargan aparte del listado para poder recargar una sin la otra.
+  const { data: folders, reload: reloadFolders } = useAsyncData(
+    () => surveyApi.listFolders(),
+    []
+  );
+  const [carpeta, setCarpeta] = useState<string | null>(null);
+
+  // Lista filtrada por la carpeta elegida. `null`/TODAS muestran todo; los
+  // conteos se calculan sobre el total para que no bailen al filtrar.
+  const visibles = (surveys ?? []).filter((s) => {
+    if (!carpeta || carpeta === TODAS) return true;
+    if (carpeta === SIN_CLASIFICAR) return !s.folder_id;
+    return s.folder_id === carpeta;
+  });
+  const sinCarpeta = (surveys ?? []).filter((s) => !s.folder_id).length;
 
   // Borrar manda a la papelera (nada se destruye). Ofrecemos deshacer en el
   // toast, que es el momento en que el usuario se da cuenta del error.
@@ -122,7 +138,7 @@ export default function SurveysListPage() {
   }
 
   return (
-    <div className="max-w-4xl mx-auto px-6 py-10">
+    <div className="max-w-6xl mx-auto px-6 py-10">
       <div className="flex items-center justify-between mb-8">
         <div>
           <h1 className="text-2xl font-semibold">{t("surveys.title")}</h1>
@@ -186,10 +202,33 @@ export default function SurveysListPage() {
       )}
 
       {surveys && surveys.length > 0 && (
-        <div className="divide-y divide-neutral-200 dark:divide-neutral-800 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900">
-          {surveys.map((s) => (
+        <div className="flex flex-col gap-6 sm:flex-row">
+          <FolderTree
+            folders={folders ?? []}
+            selected={carpeta}
+            onSelect={setCarpeta}
+            onChanged={() => {
+              reloadFolders();
+              reload();
+            }}
+            looseCount={sinCarpeta}
+            totalCount={surveys.length}
+          />
+          <div className="min-w-0 flex-1 divide-y divide-neutral-200 dark:divide-neutral-800 rounded-xl border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900">
+          {visibles.length === 0 && (
+            <p className="px-5 py-10 text-center text-sm text-neutral-400">
+              No hay encuestas en esta carpeta. Arrastrá alguna hasta acá.
+            </p>
+          )}
+          {visibles.map((s) => (
             <div
               key={s.id}
+              // Arrastrar la fila hasta una carpeta la mueve (ver FolderTree).
+              draggable
+              onDragStart={(e) => {
+                e.dataTransfer.setData("text/survey-id", s.id);
+                e.dataTransfer.effectAllowed = "move";
+              }}
               className="flex items-center justify-between px-5 py-4 hover:bg-neutral-50 dark:hover:bg-neutral-800"
             >
               <div className="min-w-0">
@@ -254,6 +293,7 @@ export default function SurveysListPage() {
               </div>
             </div>
           ))}
+          </div>
         </div>
       )}
 
