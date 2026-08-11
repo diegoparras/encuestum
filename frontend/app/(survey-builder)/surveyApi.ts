@@ -122,6 +122,16 @@ export interface SummaryReport {
   questions: SummaryQuestion[];
 }
 
+/** Una entrada del registro de borrados (irreversibles, solo admin). */
+export interface ResponseDeletion {
+  id: string;
+  response_id: string;
+  deleted_by_email: string | null;
+  respondent: string | null;
+  submitted_at: string | null;
+  deleted_at: string;
+}
+
 /** Informe ejecutivo por IA (narrativa sobre los agregados ya calculados). */
 export interface ExecutiveReport {
   headline: string;
@@ -175,6 +185,10 @@ export interface ResponseItem {
   needs_review: boolean;
   grade: Record<string, any> | null;
   graded_at: string | null;
+  /** Fuera de los resultados sin estar borrada: excluida a mano o marcada como
+   * prueba. No entra en resumen, estadísticas, informe, exportación ni cupo. */
+  excluded?: boolean;
+  is_test?: boolean;
 }
 
 export interface Analytics {
@@ -338,6 +352,18 @@ export const surveyApi = {
     request<void>(`/api/v1/survey/surveys/${id}/purge`, { method: "DELETE" }),
   responses: (id: string) =>
     request<ResponseItem[]>(`/api/v1/survey/surveys/${id}/responses`),
+  /** Acciones sobre varias respuestas. `delete` requiere rol admin. */
+  bulkResponses: (
+    id: string,
+    ids: string[],
+    action: "exclude" | "include" | "test" | "untest" | "delete"
+  ) =>
+    request<{ affected: number }>(`/api/v1/survey/surveys/${id}/responses/bulk`, {
+      method: "POST",
+      body: JSON.stringify({ ids, action }),
+    }),
+  getDeletions: (id: string) =>
+    request<ResponseDeletion[]>(`/api/v1/survey/surveys/${id}/deletions`),
   getReport: (id: string) =>
     request<{ report: ExecutiveReport | null }>(`/api/v1/survey/surveys/${id}/report`),
   generateReport: (id: string) =>

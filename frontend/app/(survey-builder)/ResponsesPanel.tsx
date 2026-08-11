@@ -14,8 +14,15 @@ import {
   Columns3,
   Pin,
   AlertTriangle,
+  EyeOff,
+  Eye,
+  FlaskConical,
+  Trash2,
+  History,
+  Loader2,
 } from "lucide-react";
-import { SURVEY_ACCENT, type ResponseItem } from "./surveyApi";
+import { toast } from "sonner";
+import { surveyApi, SURVEY_ACCENT, type ResponseItem, type ResponseDeletion } from "./surveyApi";
 
 /**
  * Tabla de respuestas: una fila por persona, una columna por pregunta.
@@ -143,16 +150,33 @@ function usePrefs(surveyKey: string) {
   return { hidden, setHidden, pinned, setPinned };
 }
 
+/** Ancho de la columna de selección: entra en el cálculo de las fijadas. */
+const SELECT_W = 42;
+
+type Vista = "counted" | "all" | "excluded" | "test";
+
+const VISTAS: { key: Vista; label: string }[] = [
+  { key: "counted", label: "En resultados" },
+  { key: "excluded", label: "Excluidas" },
+  { key: "test", label: "De prueba" },
+  { key: "all", label: "Todas" },
+];
+
 export function ResponsesPanel({
   responses,
   schema,
   accent = SURVEY_ACCENT,
   surveyId = "",
+  canDelete = false,
+  onReload,
 }: {
   responses: ResponseItem[];
   schema: any;
   accent?: string;
   surveyId?: string;
+  /** Borrar es irreversible: solo admins. */
+  canDelete?: boolean;
+  onReload?: () => void;
 }) {
   const [query, setQuery] = useState("");
   const [fullscreen, setFullscreen] = useState(false);
@@ -160,6 +184,10 @@ export function ResponsesPanel({
   const [showSlicers, setShowSlicers] = useState(false);
   const [showCols, setShowCols] = useState(false);
   const [slice, setSlice] = useState<Record<string, string[]>>({});
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [vista, setVista] = useState<Vista>("counted");
+  const [working, setWorking] = useState(false);
+  const [showLog, setShowLog] = useState(false);
   const { hidden, setHidden, pinned, setPinned } = usePrefs(surveyId);
 
   const allColumns = useMemo(() => buildColumns(schema, responses), [schema, responses]);
@@ -235,9 +263,24 @@ export function ResponsesPanel({
     [slice]
   );
 
+  // Conteos por vista (sobre el total, para que no bailen al cambiar de filtro).
+  const conteos = useMemo(() => {
+    const c = { all: responses.length, counted: 0, excluded: 0, test: 0 };
+    for (const r of responses) {
+      if (r.excluded) c.excluded++;
+      if (r.is_test) c.test++;
+      if (!r.excluded && !r.is_test) c.counted++;
+    }
+    return c;
+  }, [responses]);
+
   const rows = useMemo(() => {
     const q = query.trim().toLowerCase();
     return responses.filter((r) => {
+      // Vista: qué subconjunto se está mirando.
+      if (vista === "counted" && (r.excluded || r.is_test)) return false;
+      if (vista === "excluded" && !r.excluded) return false;
+      if (vista === "test" && !r.is_test) return false;
       // Varios valores en el mismo slicer suman (OR); entre slicers se cruzan (AND).
       for (const [name, vs] of activeSlices) {
         if (!vs.includes(cellText(r.answers?.[name]))) return false;
@@ -249,7 +292,58 @@ export function ResponsesPanel({
         cellText(v).toLowerCase().includes(q)
       );
     });
-  }, [responses, query, activeSlices, identityOf]);
+  }, [responses, query, activeSlices, identityOf, vista]);
+
+  // La selección no debe arrastrar filas que dejaron de estar a la vista.
+  const visibleIds = useMemo(() => new Set(rows.map((r) => r.id)), [rows]);
+  const selectedVisible = useMemo(
+    () => [...selected].filter((id) => visibleIds.has(id)),
+    [selected, visibleIds]
+  );
+  const allChecked = rows.length > 0 && selectedVisible.length === rows.length;
+
+  function toggleRow(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+  function toggleAll() {
+    setSelected(allChecked ? new Set() : new Set(rows.map((r) => r.id)));
+  }
+
+  async function aplicar(action: "exclude" | "include" | "test" | "untest" | "delete") {
+    if (working || selectedVisible.length === 0) return;
+    const n = selectedVisible.length;
+    if (action === "delete") {
+      // Doble confirmación: es irreversible y no hay papelera de respuestas.
+      const msg =
+        `Vas a BORRAR ${n} ${n === 1 ? "respuesta" : "respuestas"} para siempre.\n\n` +
+        `Esto no se puede deshacer. Si solo querés sacarlas de los resultados, ` +
+        `usá "Excluir": se ocultan pero no se pierden.\n\n¿Borrar igual?`;
+      if (!window.confirm(msg)) return;
+    }
+    setWorking(true);
+    try {
+      const res = await surveyApi.bulkResponses(surveyId, selectedVisible, action);
+      const etiquetas: Record<string, string> = {
+        exclude: "excluidas de los resultados",
+        include: "devueltas a los resultados",
+        test: "marcadas como prueba",
+        untest: "desmarcadas",
+        delete: "borradas",
+      };
+      toast.success(`${res.affected} ${res.affected === 1 ? "respuesta" : "respuestas"} ${etiquetas[action]}.`);
+      setSelected(new Set());
+      onReload?.();
+    } catch (e: any) {
+      toast.error(e?.message || "No se pudo completar la acción.");
+    } finally {
+      setWorking(false);
+    }
+  }
 
   // Visibles, con las fijadas adelante en el orden en que se fijaron.
   const visible = useMemo(() => columns.filter((c) => !hidden.includes(c.name)), [columns, hidden]);
@@ -260,10 +354,11 @@ export function ResponsesPanel({
     return [...pins, ...visible.filter((c) => !pinned.includes(c.name))];
   }, [visible, pinned]);
 
-  // Posición izquierda acumulada de cada columna fija.
+  // Posición izquierda acumulada de cada columna fija. Arranca después de la
+  // columna de selección, que también viaja pegada a la izquierda.
   const { offsets, pinnedWidth, lastPin } = useMemo(() => {
     const o: Record<string, number> = {};
-    let x = 0;
+    let x = SELECT_W;
     let last = "";
     for (const c of ordered) {
       if (pinned.includes(c.name)) {
@@ -272,7 +367,7 @@ export function ResponsesPanel({
         last = c.name;
       }
     }
-    return { offsets: o, pinnedWidth: x, lastPin: last };
+    return { offsets: o, pinnedWidth: x - SELECT_W, lastPin: last };
   }, [ordered, pinned]);
 
   const totalWidth = useMemo(() => visible.reduce((a, c) => a + c.width, 0), [visible]);
@@ -349,10 +444,22 @@ export function ResponsesPanel({
     <div className="h-full overflow-auto rounded-lg border border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-900">
       <table
         className="text-sm"
-        style={{ tableLayout: "fixed", borderCollapse: "separate", borderSpacing: 0, width: totalWidth }}
+        style={{ tableLayout: "fixed", borderCollapse: "separate", borderSpacing: 0, width: totalWidth + SELECT_W }}
       >
         <thead>
           <tr>
+            <th
+              className="border-b border-neutral-200 bg-neutral-50 px-3 py-2 dark:border-neutral-800 dark:bg-neutral-950"
+              style={{ width: SELECT_W, position: "sticky", top: 0, left: 0, zIndex: 35 }}
+            >
+              <input
+                type="checkbox"
+                checked={allChecked}
+                onChange={toggleAll}
+                aria-label="Seleccionar todas las visibles"
+                className="h-3.5 w-3.5 align-middle"
+              />
+            </th>
             {ordered.map((c) => (
               <th
                 key={c.name}
@@ -375,32 +482,74 @@ export function ResponsesPanel({
           </tr>
         </thead>
         <tbody>
-          {rows.map((r, i) => (
-            <tr
-              key={r.id}
-              onClick={() => setOpenIdx(i)}
-              title="Ver la ficha de esta persona"
-              // Bandas de dos colores + realce al pasar por encima. Los colores
-              // deben ser OPACOS: las celdas fijas heredan este fondo y, con
-              // transparencia, el contenido que se desplaza se ve por debajo.
-              className={`cursor-pointer ${
-                i % 2
-                  ? "bg-neutral-50 dark:bg-[#1b1b1b]"
-                  : "bg-white dark:bg-neutral-900"
-              } hover:bg-neutral-100 dark:hover:bg-neutral-800`}
-            >
-              {ordered.map((c) => (
+          {rows.map((r, i) => {
+            const fuera = r.excluded || r.is_test;
+            const marcada = selected.has(r.id);
+            return (
+              <tr
+                key={r.id}
+                onClick={() => setOpenIdx(i)}
+                title="Ver la ficha de esta persona"
+                // Bandas de dos colores + realce al pasar por encima. Los colores
+                // deben ser OPACOS: las celdas fijas heredan este fondo y, con
+                // transparencia, el contenido que se desplaza se ve por debajo.
+                className={`cursor-pointer ${
+                  marcada
+                    ? "bg-neutral-200 dark:bg-neutral-700"
+                    : i % 2
+                      ? "bg-neutral-50 dark:bg-[#1b1b1b]"
+                      : "bg-white dark:bg-neutral-900"
+                } hover:bg-neutral-100 dark:hover:bg-neutral-800`}
+              >
                 <td
-                  key={c.name}
-                  title={valueOf(r, c)}
-                  className="truncate border-b border-neutral-100 px-3 py-2 text-neutral-700 dark:border-neutral-800/70 dark:text-neutral-300"
-                  style={{ width: c.width, ...stickyStyle(c, false) }}
+                  className="border-b border-neutral-100 px-3 py-2 dark:border-neutral-800/70"
+                  style={{
+                    width: SELECT_W,
+                    position: "sticky",
+                    left: 0,
+                    zIndex: 25,
+                    backgroundColor: "inherit",
+                  }}
+                  onClick={(e) => e.stopPropagation()}
                 >
-                  {valueOf(r, c)}
+                  <input
+                    type="checkbox"
+                    checked={marcada}
+                    onChange={() => toggleRow(r.id)}
+                    aria-label="Seleccionar esta respuesta"
+                    className="h-3.5 w-3.5 align-middle"
+                  />
                 </td>
-              ))}
-            </tr>
-          ))}
+                {ordered.map((c, ci) => (
+                  <td
+                    key={c.name}
+                    title={valueOf(r, c)}
+                    className={`truncate border-b border-neutral-100 px-3 py-2 dark:border-neutral-800/70 ${
+                      fuera
+                        ? "text-neutral-400 line-through decoration-neutral-300 dark:text-neutral-500"
+                        : "text-neutral-700 dark:text-neutral-300"
+                    }`}
+                    style={{ width: c.width, ...stickyStyle(c, false) }}
+                  >
+                    {/* La marca va en la primera celda, para que se lea al vuelo. */}
+                    {ci === 0 && fuera && (
+                      <span
+                        className="mr-1.5 inline-flex items-center gap-0.5 rounded px-1 py-0.5 align-middle text-[10px] font-medium no-underline"
+                        style={{
+                          backgroundColor: r.is_test ? "#e0e7ff" : "#fee2e2",
+                          color: r.is_test ? "#3730a3" : "#991b1b",
+                        }}
+                      >
+                        {r.is_test ? <FlaskConical className="h-2.5 w-2.5" /> : <EyeOff className="h-2.5 w-2.5" />}
+                        {r.is_test ? "prueba" : "excluida"}
+                      </span>
+                    )}
+                    {valueOf(r, c)}
+                  </td>
+                ))}
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>
@@ -508,9 +657,41 @@ export function ResponsesPanel({
           )}
         </div>
 
+        {/* Vistas: qué subconjunto se está mirando */}
+        <div className="inline-flex flex-wrap rounded-lg border border-neutral-200 bg-neutral-50 p-0.5 dark:border-neutral-800 dark:bg-neutral-950">
+          {VISTAS.filter((v) => v.key === "counted" || v.key === "all" || conteos[v.key] > 0).map((v) => {
+            const active = vista === v.key;
+            return (
+              <button
+                key={v.key}
+                onClick={() => setVista(v.key)}
+                className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors ${
+                  active
+                    ? "bg-white text-neutral-900 shadow-sm dark:bg-neutral-900 dark:text-neutral-100"
+                    : "text-neutral-500 hover:text-neutral-800 dark:text-neutral-400 dark:hover:text-neutral-200"
+                }`}
+                style={active ? { color: accent } : undefined}
+              >
+                {v.label}
+                <span className="ml-1 tabular-nums text-neutral-400">{conteos[v.key]}</span>
+              </button>
+            );
+          })}
+        </div>
+
         <span className="text-xs text-neutral-400">
           {rows.length} de {responses.length}
         </span>
+
+        {canDelete && (
+          <button
+            onClick={() => setShowLog(true)}
+            title="Ver el registro de borrados"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-neutral-200 px-2.5 py-1.5 text-xs font-medium text-neutral-600 hover:bg-neutral-50 dark:border-neutral-800 dark:text-neutral-300 dark:hover:bg-neutral-800"
+          >
+            <History className="h-4 w-4" /> Borrados
+          </button>
+        )}
 
         {(activeSlices.length > 0 || query) && (
           <button
@@ -573,6 +754,63 @@ export function ResponsesPanel({
         </div>
       )}
 
+      {/* Barra de acciones: aparece al seleccionar filas */}
+      {selectedVisible.length > 0 && (
+        <div
+          className="flex flex-wrap items-center gap-2 rounded-lg border p-2"
+          style={{ borderColor: accent, backgroundColor: `${accent}0f` }}
+        >
+          <span className="px-1 text-xs font-medium" style={{ color: accent }}>
+            {selectedVisible.length} {selectedVisible.length === 1 ? "seleccionada" : "seleccionadas"}
+          </span>
+          <button
+            onClick={() => aplicar("exclude")}
+            disabled={working}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-neutral-300 bg-white px-2.5 py-1 text-xs font-medium text-neutral-700 hover:bg-neutral-50 disabled:opacity-50 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-200"
+          >
+            <EyeOff className="h-3.5 w-3.5" /> Excluir
+          </button>
+          <button
+            onClick={() => aplicar("include")}
+            disabled={working}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-neutral-300 bg-white px-2.5 py-1 text-xs font-medium text-neutral-700 hover:bg-neutral-50 disabled:opacity-50 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-200"
+          >
+            <Eye className="h-3.5 w-3.5" /> Incluir
+          </button>
+          <button
+            onClick={() => aplicar("test")}
+            disabled={working}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-neutral-300 bg-white px-2.5 py-1 text-xs font-medium text-neutral-700 hover:bg-neutral-50 disabled:opacity-50 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-200"
+          >
+            <FlaskConical className="h-3.5 w-3.5" /> Marcar prueba
+          </button>
+          <button
+            onClick={() => aplicar("untest")}
+            disabled={working}
+            className="rounded-lg border border-neutral-300 bg-white px-2.5 py-1 text-xs font-medium text-neutral-700 hover:bg-neutral-50 disabled:opacity-50 dark:border-neutral-700 dark:bg-neutral-900 dark:text-neutral-200"
+          >
+            Desmarcar
+          </button>
+
+          {canDelete && (
+            <button
+              onClick={() => aplicar("delete")}
+              disabled={working}
+              className="ml-auto inline-flex items-center gap-1.5 rounded-lg border border-red-300 bg-white px-2.5 py-1 text-xs font-medium text-red-700 hover:bg-red-50 disabled:opacity-50 dark:border-red-900 dark:bg-neutral-900 dark:text-red-400"
+            >
+              {working ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
+              Borrar
+            </button>
+          )}
+          <button
+            onClick={() => setSelected(new Set())}
+            className={`text-xs font-medium text-neutral-500 underline hover:text-neutral-800 dark:text-neutral-400 ${canDelete ? "" : "ml-auto"}`}
+          >
+            Limpiar selección
+          </button>
+        </div>
+      )}
+
       {tooMuchPinned && (
         <div className="flex items-center gap-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:bg-amber-950/40 dark:text-amber-300">
           <AlertTriangle className="h-4 w-4 shrink-0" />
@@ -597,6 +835,10 @@ export function ResponsesPanel({
       />
     ) : null;
 
+  const log = showLog ? (
+    <DeletionsLog surveyId={surveyId} accent={accent} onClose={() => setShowLog(false)} />
+  ) : null;
+
   if (fullscreen) {
     return (
       <>
@@ -605,6 +847,7 @@ export function ResponsesPanel({
           <div className="min-h-0 flex-1 overflow-hidden">{table}</div>
         </div>
         {ficha}
+        {log}
       </>
     );
   }
@@ -614,6 +857,96 @@ export function ResponsesPanel({
       {toolbar}
       <div className="max-h-[70vh]">{table}</div>
       {ficha}
+      {log}
+    </div>
+  );
+}
+
+/** Registro de borrados: quién sacó qué respuesta y cuándo. Solo admins. */
+function DeletionsLog({
+  surveyId,
+  accent,
+  onClose,
+}: {
+  surveyId: string;
+  accent: string;
+  onClose: () => void;
+}) {
+  const [rows, setRows] = useState<ResponseDeletion[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancel = false;
+    surveyApi
+      .getDeletions(surveyId)
+      .then((d) => !cancel && setRows(d))
+      .catch((e) => !cancel && setError(e?.message || "No se pudo cargar el registro."));
+    return () => {
+      cancel = true;
+    };
+  }, [surveyId]);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 grid place-items-center bg-neutral-950/50 p-4 backdrop-blur-sm"
+      role="dialog"
+      aria-modal="true"
+      onClick={onClose}
+    >
+      <div
+        className="flex max-h-[80vh] w-full max-w-xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl dark:bg-neutral-900"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <header className="flex items-center gap-3 border-b border-neutral-100 px-5 py-4 dark:border-neutral-800">
+          <div
+            className="grid h-9 w-9 shrink-0 place-items-center rounded-full"
+            style={{ backgroundColor: `${accent}1a`, color: accent }}
+          >
+            <History className="h-4 w-4" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <h2 className="font-semibold text-neutral-900 dark:text-neutral-100">Registro de borrados</h2>
+            <p className="text-xs text-neutral-400">Borrar es irreversible: queda constancia de quién lo hizo.</p>
+          </div>
+          <button
+            onClick={onClose}
+            aria-label="Cerrar"
+            className="rounded-md p-1 text-neutral-400 hover:bg-neutral-100 hover:text-neutral-700 dark:hover:bg-neutral-800"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </header>
+        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
+          {error ? (
+            <p className="text-sm text-red-600">{error}</p>
+          ) : rows === null ? (
+            <p className="flex items-center gap-2 text-sm text-neutral-400">
+              <Loader2 className="h-4 w-4 animate-spin" /> Cargando…
+            </p>
+          ) : rows.length === 0 ? (
+            <p className="py-8 text-center text-sm text-neutral-400">
+              Todavía no se borró ninguna respuesta de esta encuesta.
+            </p>
+          ) : (
+            <ul className="divide-y divide-neutral-100 dark:divide-neutral-800">
+              {rows.map((d) => (
+                <li key={d.id} className="py-2.5">
+                  <p className="text-sm text-neutral-800 dark:text-neutral-200">
+                    {d.respondent || "Anónimo"}
+                  </p>
+                  <p className="text-xs text-neutral-400">
+                    Borrada por {d.deleted_by_email || "—"} ·{" "}
+                    {new Date(d.deleted_at).toLocaleString()}
+                    {d.submitted_at
+                      ? ` · respondida el ${new Date(d.submitted_at).toLocaleDateString()}`
+                      : ""}
+                  </p>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      </div>
     </div>
   );
 }

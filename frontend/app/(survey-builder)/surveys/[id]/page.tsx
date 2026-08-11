@@ -164,6 +164,9 @@ export default function SurveyDetailPage() {
     : "";
 
   const activeOrg = me?.orgs.find((o) => o.id === me.active_org_id) ?? me?.orgs[0];
+  // Borrar respuestas es irreversible: la UI solo lo ofrece a admin/owner (el
+  // backend lo exige igual).
+  const puedeBorrar = ["admin", "owner"].includes(activeOrg?.role ?? "");
   const brandedUrl =
     survey && activeOrg?.subdomain && me?.base_domain
       ? `https://${activeOrg.subdomain}.${me.base_domain}/s/${survey.slug}`
@@ -548,6 +551,8 @@ export default function SurveyDetailPage() {
                   schema={survey.json_schema}
                   accent={themeToAccent(survey.theme)}
                   surveyId={id}
+                  canDelete={puedeBorrar}
+                  onReload={loadResponses}
                 />
               )
             ) : evalTab === "summary" ? (
@@ -629,6 +634,8 @@ export default function SurveyDetailPage() {
                 schema={survey.json_schema}
                 accent={themeToAccent(survey.theme)}
                 surveyId={id}
+                canDelete={puedeBorrar}
+                onReload={loadResponses}
               />
             )}
           </>
