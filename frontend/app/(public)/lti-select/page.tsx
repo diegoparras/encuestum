@@ -254,9 +254,12 @@ export default function LtiSelect() {
                   {t("public.lti.anonymous")}
                 </span>
               </label>
-              {/* Las dos consecuencias juntas y siempre visibles: activar el
+              {/* Las tres consecuencias juntas y siempre visibles: activar el
                   anonimato y seguir esperando las notas en el LMS termina en un
-                  silencio que el docente no puede diagnosticar. */}
+                  silencio que el docente no puede diagnosticar. La tercera es
+                  que el tope de intentos deja de aplicarse: sin identidad no
+                  hay a quién contarle intentos, y el porqué está en
+                  `backend/app/attempts.py`. */}
               <p
                 id="ayuda-anonimo"
                 className="mt-2 text-xs text-neutral-500 dark:text-neutral-400"

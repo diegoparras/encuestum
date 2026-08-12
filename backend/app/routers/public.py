@@ -383,32 +383,6 @@ async def submit(
         data = read_purpose_token(_ACCESS_PURPOSE, payload.access_token or "") or {}
         resp_email, resp_code = data.get("email"), data.get("code")
 
-    # Tope de intentos POR PERSONA (distinto del cupo total de la encuesta).
-    # Se comprueba acá, sobre la base, y no sólo del lado del cliente: es el
-    # único punto que no se puede saltear. Cómo se reconoce a la persona y por
-    # qué esto es "mejor esfuerzo" fuera del modo lista está en app/attempts.py.
-    from app import attempts
-
-    tope = attempts.limite(s)
-    if tope is not None:
-        _, mail_respondido = _identidad_respondida(s, payload.answers or {})
-        ya = await attempts.usados(
-            s,
-            session,
-            code=resp_code,
-            visitor_id=(payload.meta or {}).get("visitor_id"),
-            email=resp_email or mail_respondido,
-        )
-        if ya >= tope:
-            raise HTTPException(
-                status_code=409,
-                detail=(
-                    "Ya respondiste esta encuesta."
-                    if tope == 1
-                    else f"Ya usaste tus {tope} intentos para esta encuesta."
-                ),
-            )
-
     # Un vínculo anónimo no guarda identidad: ni el sub de Moodle ni el email.
     # Se conserva `lti_link_id` para saber de qué actividad vino (hace falta
     # para el panel), pero eso no identifica a nadie.
@@ -430,7 +404,14 @@ async def submit(
     # que llega hasta acá. Leer `lti["link_id"]` a secas -- como hacía este
     # bloque antes de la Tarea 2 del módulo -- reventaba con un KeyError (500)
     # en el primer envío de un alumno lanzado desde el módulo nativo.
+    #
+    # Este bloque va ANTES del tope de intentos (y no después, donde estaba)
+    # porque el tope necesita las dos cosas que resuelve: si la actividad es
+    # anónima -- y entonces no hay a quién contarle intentos -- y de qué
+    # plataforma vino el `sub`, que sin eso no distingue a dos alumnos de dos
+    # Moodles distintos.
     anonimo = False
+    link = None
     link_id = lti.get("link_id") if lti else None
     if link_id:
         link = await session.get(LtiResourceLink, uuid.UUID(link_id))
@@ -453,6 +434,44 @@ async def submit(
         if mod_site_id is not None:
             mod_cmid = _entero(lti.get("cmid"))
             mod_grademax = _flotante(lti.get("grademax"))
+
+    # Tope de intentos POR PERSONA (distinto del cupo total de la encuesta).
+    # Se comprueba acá, sobre la base, y no sólo del lado del cliente: es el
+    # único punto que no se puede saltear. Cómo se reconoce a la persona y por
+    # qué esto es "mejor esfuerzo" fuera del modo lista está en app/attempts.py.
+    from app import attempts
+
+    tope = attempts.limite(s)
+    if tope is not None:
+        _, mail_respondido = _identidad_respondida(s, payload.answers or {})
+        # Quién es la persona según el LMS, con el origen que le da alcance al
+        # `sub`. `None` si la respuesta no vino de un LMS: es lo que decide si
+        # la marca del navegador cuenta o no. En una actividad anónima el `sub`
+        # va en `None` -- igual que en la fila -- y el tope no aplica.
+        lms = None
+        if lti:
+            lms = {
+                "sub": None if anonimo else lti.get("sub"),
+                "platform_id": link.platform_id if link else None,
+                "site_id": mod_site_id,
+            }
+        ya = await attempts.usados(
+            s,
+            session,
+            code=resp_code,
+            visitor_id=(payload.meta or {}).get("visitor_id"),
+            email=resp_email or mail_respondido,
+            lms=lms,
+        )
+        if ya >= tope:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    "Ya respondiste esta encuesta."
+                    if tope == 1
+                    else f"Ya usaste tus {tope} intentos para esta encuesta."
+                ),
+            )
 
     r = SurveyResponse(
         survey_id=s.id, answers=payload.answers or {}, completed=payload.completed, meta=payload.meta,

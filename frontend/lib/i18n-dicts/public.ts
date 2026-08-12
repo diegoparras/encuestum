@@ -27,7 +27,7 @@ export const dict: Record<Lang, Record<string, string>> = {
     "public.lti.exam": "exam · graded",
     "public.lti.anonymous": "Anonymous responses",
     "public.lti.anonymousHelp":
-      "Nobody is identified and no grade is sent to the LMS.",
+      "Nobody is identified, no grade is sent to the LMS and the attempt limit does not apply.",
     "public.lti.confirm": "Use this survey",
     "public.lti.confirming": "Linking…",
     "public.lti.error.list": "We couldn't list the surveys.",
@@ -163,7 +163,7 @@ export const dict: Record<Lang, Record<string, string>> = {
     "public.lti.exam": "examen · lleva nota",
     "public.lti.anonymous": "Respuestas anónimas",
     "public.lti.anonymousHelp":
-      "No se guarda quién respondió y no se envía nota al LMS.",
+      "No se guarda quién respondió, no se envía nota al LMS y el tope de intentos no se aplica.",
     "public.lti.confirm": "Usar esta encuesta",
     "public.lti.confirming": "Vinculando…",
     "public.lti.error.list": "No se pudieron listar las encuestas.",
@@ -295,7 +295,7 @@ export const dict: Record<Lang, Record<string, string>> = {
     "public.lti.exam": "examen · noté",
     "public.lti.anonymous": "Réponses anonymes",
     "public.lti.anonymousHelp":
-      "Personne n'est identifié et aucune note n'est envoyée au LMS.",
+      "Personne n'est identifié, aucune note n'est envoyée au LMS et la limite de tentatives ne s'applique pas.",
     "public.lti.confirm": "Utiliser cette enquête",
     "public.lti.confirming": "Association en cours…",
     "public.lti.error.list": "Impossible de lister les enquêtes.",
@@ -431,7 +431,7 @@ export const dict: Record<Lang, Record<string, string>> = {
     "public.lti.exam": "prova · vale nota",
     "public.lti.anonymous": "Respostas anônimas",
     "public.lti.anonymousHelp":
-      "Ninguém é identificado e nenhuma nota é enviada ao LMS.",
+      "Ninguém é identificado, nenhuma nota é enviada ao LMS e o limite de tentativas não se aplica.",
     "public.lti.confirm": "Usar esta pesquisa",
     "public.lti.confirming": "Vinculando…",
     "public.lti.error.list": "Não foi possível listar as pesquisas.",
@@ -564,7 +564,7 @@ export const dict: Record<Lang, Record<string, string>> = {
     "public.lti.exam": "esame · fa media",
     "public.lti.anonymous": "Risposte anonime",
     "public.lti.anonymousHelp":
-      "Nessuno viene identificato e nessun voto viene inviato all'LMS.",
+      "Nessuno viene identificato, nessun voto viene inviato all'LMS e il limite di tentativi non si applica.",
     "public.lti.confirm": "Usa questo sondaggio",
     "public.lti.confirming": "Collegamento in corso…",
     "public.lti.error.list": "Impossibile elencare i sondaggi.",
@@ -699,7 +699,7 @@ export const dict: Record<Lang, Record<string, string>> = {
     "public.lti.updated": "更新于 {date}",
     "public.lti.exam": "测评 · 计入成绩",
     "public.lti.anonymous": "匿名作答",
-    "public.lti.anonymousHelp": "不记录作答人，也不会向 LMS 回传成绩。",
+    "public.lti.anonymousHelp": "不记录作答人，不会向 LMS 回传成绩，作答次数上限也不生效。",
     "public.lti.confirm": "使用这份问卷",
     "public.lti.confirming": "正在关联…",
     "public.lti.error.list": "无法列出问卷。",
@@ -819,7 +819,7 @@ export const dict: Record<Lang, Record<string, string>> = {
     "public.lti.exam": "試験 · 成績に反映",
     "public.lti.anonymous": "匿名回答",
     "public.lti.anonymousHelp":
-      "回答者は記録されず、LMS へ成績も送信されません。",
+      "回答者は記録されず、LMS へ成績も送信されず、回答回数の上限も適用されません。",
     "public.lti.confirm": "このアンケートを使う",
     "public.lti.confirming": "リンク中…",
     "public.lti.error.list": "アンケートを取得できませんでした。",
