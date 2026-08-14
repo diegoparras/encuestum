@@ -23,6 +23,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { surveyApi, SURVEY_ACCENT, type ResponseItem, type ResponseDeletion } from "./surveyApi";
+import { ConfirmarBorrado } from "./ConfirmarBorrado";
 
 /**
  * Tabla de respuestas: una fila por persona, una columna por pregunta.
@@ -152,6 +153,9 @@ function usePrefs(surveyKey: string) {
 
 /** Ancho de la columna de selección: entra en el cálculo de las fijadas. */
 const SELECT_W = 42;
+// La columna de acciones reserva su ancho SIEMPRE, aunque los botones estén
+// invisibles: si apareciera al pasar el mouse, la tabla saltaría sola.
+const ACTIONS_W = 108;
 
 type Vista = "counted" | "all" | "excluded" | "test";
 
@@ -185,6 +189,8 @@ export function ResponsesPanel({
   const [showCols, setShowCols] = useState(false);
   const [slice, setSlice] = useState<Record<string, string[]>>({});
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  // Filas esperando confirmación de borrado (null = no hay modal abierto).
+  const [porBorrar, setPorBorrar] = useState<string[] | null>(null);
   const [vista, setVista] = useState<Vista>("counted");
   const [working, setWorking] = useState(false);
   const [showLog, setShowLog] = useState(false);
@@ -314,29 +320,39 @@ export function ResponsesPanel({
     setSelected(allChecked ? new Set() : new Set(rows.map((r) => r.id)));
   }
 
-  async function aplicar(action: "exclude" | "include" | "test" | "untest" | "delete") {
-    if (working || selectedVisible.length === 0) return;
-    const n = selectedVisible.length;
+  type Accion = "exclude" | "include" | "test" | "untest" | "delete";
+
+  /** Punto de entrada de las acciones. Sin `ids` opera sobre la selección (la
+   *  barra de arriba); con `ids` sobre una fila suelta (los botones que
+   *  aparecen al pasar por encima). Borrar no se ejecuta acá: abre la
+   *  confirmación, que es lo único irreversible del panel. */
+  function aplicar(action: Accion, ids: string[] = selectedVisible) {
+    if (working || ids.length === 0) return;
     if (action === "delete") {
-      // Doble confirmación: es irreversible y no hay papelera de respuestas.
-      const msg =
-        `Vas a BORRAR ${n} ${n === 1 ? "respuesta" : "respuestas"} para siempre.\n\n` +
-        `Esto no se puede deshacer. Si solo querés sacarlas de los resultados, ` +
-        `usá "Excluir": se ocultan pero no se pierden.\n\n¿Borrar igual?`;
-      if (!window.confirm(msg)) return;
+      setPorBorrar(ids);
+      return;
     }
+    ejecutar(action, ids);
+  }
+
+  async function ejecutar(action: Accion, ids: string[]) {
+    if (working || ids.length === 0) return;
     setWorking(true);
     try {
-      const res = await surveyApi.bulkResponses(surveyId, selectedVisible, action);
+      const res = await surveyApi.bulkResponses(surveyId, ids, action);
+      // En singular y en plural: con acciones de a una fila el aviso quedaba
+      // diciendo "1 respuesta excluidas".
+      const una = res.affected === 1;
       const etiquetas: Record<string, string> = {
-        exclude: "excluidas de los resultados",
-        include: "devueltas a los resultados",
-        test: "marcadas como prueba",
-        untest: "desmarcadas",
-        delete: "borradas",
+        exclude: una ? "excluida de los resultados" : "excluidas de los resultados",
+        include: una ? "devuelta a los resultados" : "devueltas a los resultados",
+        test: una ? "marcada como prueba" : "marcadas como prueba",
+        untest: una ? "desmarcada" : "desmarcadas",
+        delete: una ? "borrada" : "borradas",
       };
-      toast.success(`${res.affected} ${res.affected === 1 ? "respuesta" : "respuestas"} ${etiquetas[action]}.`);
+      toast.success(`${res.affected} ${una ? "respuesta" : "respuestas"} ${etiquetas[action]}.`);
       setSelected(new Set());
+      setPorBorrar(null);
       onReload?.();
     } catch (e: any) {
       toast.error(e?.message || "No se pudo completar la acción.");
@@ -444,7 +460,7 @@ export function ResponsesPanel({
     <div className="h-full overflow-auto rounded-lg border border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-900">
       <table
         className="text-sm"
-        style={{ tableLayout: "fixed", borderCollapse: "separate", borderSpacing: 0, width: totalWidth + SELECT_W }}
+        style={{ tableLayout: "fixed", borderCollapse: "separate", borderSpacing: 0, width: totalWidth + SELECT_W + ACTIONS_W }}
       >
         <thead>
           <tr>
@@ -479,6 +495,12 @@ export function ResponsesPanel({
                 {c.title}
               </th>
             ))}
+            <th
+              className="border-b border-l border-neutral-200 bg-neutral-50 px-3 py-2 text-right font-medium text-neutral-500 dark:border-neutral-800 dark:bg-neutral-950 dark:text-neutral-400"
+              style={{ width: ACTIONS_W, position: "sticky", top: 0, right: 0, zIndex: 35 }}
+            >
+              Acciones
+            </th>
           </tr>
         </thead>
         <tbody>
@@ -493,7 +515,7 @@ export function ResponsesPanel({
                 // Bandas de dos colores + realce al pasar por encima. Los colores
                 // deben ser OPACOS: las celdas fijas heredan este fondo y, con
                 // transparencia, el contenido que se desplaza se ve por debajo.
-                className={`cursor-pointer ${
+                className={`group cursor-pointer ${
                   marcada
                     ? "bg-neutral-200 dark:bg-neutral-700"
                     : i % 2
@@ -547,6 +569,48 @@ export function ResponsesPanel({
                     {valueOf(r, c)}
                   </td>
                 ))}
+                <td
+                  className="border-b border-l border-neutral-100 px-2 py-2 dark:border-neutral-800/70"
+                  style={{
+                    width: ACTIONS_W,
+                    position: "sticky",
+                    right: 0,
+                    zIndex: 25,
+                    backgroundColor: "inherit",
+                  }}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  {/* Ocultos hasta el hover, pero SIEMPRE visibles con foco de
+                      teclado y en pantallas sin puntero: si no, esa fila se
+                      queda sin acciones. */}
+                  <div className="flex items-center justify-end gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-within:opacity-100 [@media(hover:none)]:opacity-100">
+                    <AccionFila
+                      titulo={r.excluded ? "Volver a incluirla" : "Excluir de los resultados"}
+                      onClick={() => aplicar(r.excluded ? "include" : "exclude", [r.id])}
+                      disabled={working}
+                    >
+                      {r.excluded ? <Eye className="h-4 w-4" /> : <EyeOff className="h-4 w-4" />}
+                    </AccionFila>
+                    <AccionFila
+                      titulo={r.is_test ? "Desmarcar como prueba" : "Marcar como prueba"}
+                      onClick={() => aplicar(r.is_test ? "untest" : "test", [r.id])}
+                      disabled={working}
+                      activo={r.is_test}
+                    >
+                      <FlaskConical className="h-4 w-4" />
+                    </AccionFila>
+                    {canDelete && (
+                      <AccionFila
+                        titulo="Borrar para siempre"
+                        onClick={() => aplicar("delete", [r.id])}
+                        disabled={working}
+                        peligro
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </AccionFila>
+                    )}
+                  </div>
+                </td>
               </tr>
             );
           })}
@@ -839,6 +903,16 @@ export function ResponsesPanel({
     <DeletionsLog surveyId={surveyId} accent={accent} onClose={() => setShowLog(false)} />
   ) : null;
 
+  const confirmacion = porBorrar ? (
+    <ConfirmarBorrado
+      cantidad={porBorrar.length}
+      trabajando={working}
+      onCancelar={() => setPorBorrar(null)}
+      onExcluir={() => ejecutar("exclude", porBorrar)}
+      onBorrar={() => ejecutar("delete", porBorrar)}
+    />
+  ) : null;
+
   if (fullscreen) {
     return (
       <>
@@ -848,6 +922,7 @@ export function ResponsesPanel({
         </div>
         {ficha}
         {log}
+        {confirmacion}
       </>
     );
   }
@@ -858,7 +933,44 @@ export function ResponsesPanel({
       <div className="max-h-[70vh]">{table}</div>
       {ficha}
       {log}
+      {confirmacion}
     </div>
+  );
+}
+
+/** Un botón de la columna de acciones. Icono solo: la fila ya es angosta y el
+ *  `title` alcanza para saber qué hace sin ocupar ancho. */
+function AccionFila({
+  titulo,
+  onClick,
+  disabled,
+  activo,
+  peligro,
+  children,
+}: {
+  titulo: string;
+  onClick: () => void;
+  disabled?: boolean;
+  activo?: boolean;
+  peligro?: boolean;
+  children: React.ReactNode;
+}) {
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      title={titulo}
+      aria-label={titulo}
+      className={`rounded-md p-1.5 transition-colors disabled:opacity-40 ${
+        peligro
+          ? "text-neutral-400 hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-950/40 dark:hover:text-red-400"
+          : activo
+            ? "text-indigo-600 hover:bg-neutral-200 dark:text-indigo-400 dark:hover:bg-neutral-700"
+            : "text-neutral-400 hover:bg-neutral-200 hover:text-neutral-700 dark:hover:bg-neutral-700 dark:hover:text-neutral-200"
+      }`}
+    >
+      {children}
+    </button>
   );
 }
 
