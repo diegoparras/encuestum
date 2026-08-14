@@ -622,6 +622,17 @@ export const QUESTION_TYPE_LABEL: Record<QuestionType, string> = Object.fromEntr
   QUESTION_TYPES.map((q) => [q.type, q.label])
 ) as Record<QuestionType, string>;
 
+/** El tipo de pregunta en castellano, para mostrarle a una persona.
+ *  `radiogroup` no le dice nada a quien corrige; "Opción única", sí.
+ *
+ *  Si el tipo no está en el catálogo -- una encuesta importada puede traer
+ *  tipos de SurveyJS que el editor no ofrece -- devuelve el tipo crudo: es feo,
+ *  pero menos inútil que una celda vacía. */
+export function questionTypeLabel(type?: string | null): string {
+  if (!type) return "";
+  return QUESTION_TYPE_LABEL[type as QuestionType] ?? type;
+}
+
 export function typeHasChoices(type: QuestionType): boolean {
   return QUESTION_TYPES.find((q) => q.type === type)?.hasChoices ?? false;
 }

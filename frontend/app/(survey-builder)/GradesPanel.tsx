@@ -19,6 +19,7 @@ import {
   ResponseItem,
   SURVEY_ACCENT,
 } from "./surveyApi";
+import { questionTypeLabel } from "./builder/model";
 
 interface Props {
   surveyId: string;
@@ -184,7 +185,7 @@ export function GradesPanel({ surveyId, accent = SURVEY_ACCENT }: Props) {
             <thead className="bg-neutral-50 text-neutral-500 dark:bg-neutral-950 dark:text-neutral-400">
               <tr>
                 <th className="text-left font-medium px-3 py-2">Pregunta</th>
-                <th className="text-left font-medium px-3 py-2">Campo</th>
+                <th className="text-left font-medium px-3 py-2">Tipo</th>
                 <th className="text-left font-medium px-3 py-2">Respuestas</th>
                 <th className="text-left font-medium px-3 py-2">% acierto</th>
                 <th className="text-left font-medium px-3 py-2">Puntaje medio</th>
@@ -201,8 +202,15 @@ export function GradesPanel({ surveyId, accent = SURVEY_ACCENT }: Props) {
                   >
                     {q.title || q.name}
                   </td>
-                  <td className="px-3 py-2 font-mono text-xs text-neutral-400 dark:text-neutral-500">
-                    {q.name}
+                  {/* El tipo, legible. Debajo el nombre interno, que sigue
+                      haciendo falta: es con lo que matchean las columnas del CSV. */}
+                  <td className="px-3 py-2">
+                    <div className="text-neutral-600 dark:text-neutral-300">
+                      {questionTypeLabel(q.type)}
+                    </div>
+                    <div className="font-mono text-[11px] text-neutral-400 dark:text-neutral-500">
+                      {q.name}
+                    </div>
                   </td>
                   <td className="px-3 py-2">{q.responses}</td>
                   <td className="px-3 py-2">{q.correct_rate}%</td>
