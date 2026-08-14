@@ -326,19 +326,33 @@ async def analytics(sid: uuid.UUID, ctx: OrgContext = Depends(current_context), 
     # (`radiogroup_4`), que no le dice nada a quien corrige: para saber de qué
     # pregunta hablaba había que ir a buscarla al editor.
     ficha = {}
+    nro = 0
     for page in (s.json_schema or {}).get("pages", []) or []:
         for el in page.get("elements", []) or []:
-            if isinstance(el, dict) and el.get("name"):
-                ficha[el["name"]] = (el.get("title") or el["name"], el.get("type") or "")
+            nombre = el.get("name") if isinstance(el, dict) else None
+            # Las piezas de media acompañan a una pregunta, no son una pregunta:
+            # numerarlas correría todo respecto de lo que ve quien responde.
+            if not nombre or nombre.endswith("__img") or nombre.endswith("__vid"):
+                continue
+            nro += 1
+            ficha[nombre] = (nro, el.get("title") or nombre, el.get("type") or "")
+    # El número es la posición en la ENCUESTA, no un contador de esta tabla: acá
+    # sólo aparecen las preguntas puntuadas, así que un 1,2,3 propio no
+    # coincidiría con el editor ni con el orden que ve quien responde.
+    vacio = (None, "", "")
     per_question = [
         {"name": a["name"],
-         "title": ficha.get(a["name"], (a["name"], ""))[0],
-         "type": ficha.get(a["name"], ("", ""))[1],
+         "number": ficha.get(a["name"], vacio)[0],
+         "title": ficha.get(a["name"], (None, a["name"], ""))[1],
+         "type": ficha.get(a["name"], vacio)[2],
          "responses": a["n"],
          "avg_score_pct": round(a["sum_awarded"] / a["sum_points"] * 100, 1) if a["sum_points"] > 0 else None,
          "correct_rate": round(a["correct"] / a["n"] * 100, 1) if a["n"] else 0}
         for a in q_agg.values()
     ]
+    # En el orden de la encuesta: el agregado viene en el orden de la corrección,
+    # que no tiene por qué ser el mismo.
+    per_question.sort(key=lambda q: (q["number"] is None, q["number"] or 0))
     return {
         "is_evaluation": bool((s.evaluation or {}).get("enabled")),
         "responses": len(responses), "graded": len(graded),

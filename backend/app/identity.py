@@ -70,15 +70,24 @@ def identity_fields(schema: dict) -> tuple[Optional[str], Optional[str]]:
     for el in _questions(schema):
         if el.get("type") not in _TEXTISH:
             continue
-        title = _strip_accents(str(el.get("title") or el.get("name") or ""))
-        # El correo: primero por tipo declarado, después por título.
+        # Se mira el título Y el nombre del campo. El campo suele decir en
+        # una palabra lo que el título dice en una frase: "¿Cómo te llamás?"
+        # vive en un campo llamado `nombre`. Mirar sólo el título dejaba
+        # afuera justo el dato más explícito que trae el JSON.
+        # El guion bajo pasa a espacio: para el regex `_` es un caracter de
+        # palabra, así que sin esto `email_3` o `nombre_completo` no cortaban
+        # en el borde y no matcheaban nada.
+        texto = _strip_accents(
+            str(el.get("title") or "") + " " + str(el.get("name") or "")
+        ).replace("_", " ")
+        # El correo: primero por tipo declarado, después por el texto.
         if email_q is None and el.get("type") == "email":
             email_q = el["name"]
-        elif email_q is None and _EMAIL_HINT.search(title):
+        elif email_q is None and _EMAIL_HINT.search(texto):
             email_q = el["name"]
-        # El nombre: solo por título, para no confundirlo con una pregunta
-        # abierta cualquiera.
-        elif _NAME_HINT.search(title):
+        # El nombre: nunca por la forma del valor, para no confundirlo con una
+        # pregunta abierta cualquiera.
+        elif _NAME_HINT.search(texto):
             nombres.append((0 if el.get("type") == "text" else 1, el["name"]))
 
     name_q = min(nombres)[1] if nombres else None

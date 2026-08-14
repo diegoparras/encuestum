@@ -215,6 +215,8 @@ export interface Analytics {
   score_distribution: number[];
   per_question: {
     name: string;
+    // Posición en la encuesta (no en esta tabla: acá sólo entran las puntuadas).
+    number?: number | null;
     // Título real de la pregunta; `name` es el nombre interno (radiogroup_4).
     title?: string;
     type?: string;

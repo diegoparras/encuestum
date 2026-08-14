@@ -184,6 +184,7 @@ export function GradesPanel({ surveyId, accent = SURVEY_ACCENT }: Props) {
           <table className="min-w-full text-sm">
             <thead className="bg-neutral-50 text-neutral-500 dark:bg-neutral-950 dark:text-neutral-400">
               <tr>
+                <th className="text-right font-medium px-3 py-2 w-12">Nro</th>
                 <th className="text-left font-medium px-3 py-2">Pregunta</th>
                 <th className="text-left font-medium px-3 py-2">Tipo</th>
                 <th className="text-left font-medium px-3 py-2">Respuestas</th>
@@ -194,6 +195,11 @@ export function GradesPanel({ surveyId, accent = SURVEY_ACCENT }: Props) {
             <tbody className="divide-y divide-neutral-100 dark:divide-neutral-800">
               {analytics.per_question.map((q) => (
                 <tr key={q.name}>
+                  {/* El número de la pregunta EN LA ENCUESTA, para poder ir a
+                      buscarla al editor. */}
+                  <td className="px-3 py-2 text-right tabular-nums text-neutral-400 dark:text-neutral-500">
+                    {q.number ?? "—"}
+                  </td>
                   {/* El título completo queda en el tooltip: acá se corta para
                       que la tabla no se vuelva ilegible con preguntas largas. */}
                   <td
@@ -202,15 +208,8 @@ export function GradesPanel({ surveyId, accent = SURVEY_ACCENT }: Props) {
                   >
                     {q.title || q.name}
                   </td>
-                  {/* El tipo, legible. Debajo el nombre interno, que sigue
-                      haciendo falta: es con lo que matchean las columnas del CSV. */}
-                  <td className="px-3 py-2">
-                    <div className="text-neutral-600 dark:text-neutral-300">
-                      {questionTypeLabel(q.type)}
-                    </div>
-                    <div className="font-mono text-[11px] text-neutral-400 dark:text-neutral-500">
-                      {q.name}
-                    </div>
+                  <td className="px-3 py-2 text-neutral-600 dark:text-neutral-300">
+                    {questionTypeLabel(q.type)}
                   </td>
                   <td className="px-3 py-2">{q.responses}</td>
                   <td className="px-3 py-2">{q.correct_rate}%</td>

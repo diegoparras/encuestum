@@ -111,3 +111,37 @@ def test_sin_pistas_sigue_sin_inventar_nada():
         {"type": "comment", "name": "q", "title": "¿Qué te pareció el curso?"}]}]}
     assert identity_fields(schema)[0] is None
     assert respondent_identity(schema, {"q": "Muy bueno"})[0] is None
+
+
+def test_el_nombre_del_campo_tambien_identifica():
+    """El JSON trae `"name": "nombre"`: el campo dice en una palabra lo que el
+    título dice en una frase. Mirando sólo el título se perdía el dato más
+    explícito que hay en el esquema."""
+    schema = {
+        "pages": [
+            # Títulos que ninguna heurística de idioma pescaría.
+            {"elements": [{"type": "text", "name": "nombre", "title": "¿Quién sos?"}]},
+            {"elements": [{"type": "text", "name": "email", "title": "¿Dónde te escribimos?"}]},
+        ]
+    }
+    assert identity_fields(schema) == ("nombre", "email")
+
+
+def test_el_guion_bajo_no_tapa_la_palabra():
+    """Para el regex `_` es caracter de palabra: sin normalizarlo, `email_3` no
+    cortaba en el borde y no matcheaba."""
+    for campo, esperado in [("nombre_completo", "nombre"), ("email_3", "email")]:
+        schema = {"pages": [{"elements": [
+            {"type": "text", "name": campo, "title": "Datos de contacto"}]}]}
+        nombre_q, email_q = identity_fields(schema)
+        assert (nombre_q if esperado == "nombre" else email_q) == campo
+
+
+def test_los_nombres_automaticos_no_identifican_a_nadie():
+    """Los que pone el editor solo (`text_7`, `comment_11`) no deben hacer que
+    una pregunta abierta cualquiera pase por la identidad de alguien."""
+    for campo, tipo in [("text_7", "text"), ("comment_11", "comment"),
+                        ("radiogroup_4", "text")]:
+        schema = {"pages": [{"elements": [
+            {"type": tipo, "name": campo, "title": "¿Qué opinás del curso?"}]}]}
+        assert identity_fields(schema) == (None, None), campo

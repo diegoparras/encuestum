@@ -157,5 +157,31 @@ def test_la_tabla_por_pregunta_dice_de_que_pregunta_habla():
     filas = {q["name"]: q for q in c.get(f"/api/v1/survey/surveys/{sid}/analytics").json()["per_question"]}
     assert filas["cap"]["title"] == "Capital de Francia"
     assert filas["cap"]["type"] == "radiogroup"
-    # El nombre interno sigue estando: es con lo que matchean las columnas del CSV.
-    assert filas["cap"]["name"] == "cap"
+    # El número es la posición en la ENCUESTA, no un contador de la tabla.
+    assert filas["cap"]["number"] == 1
+    assert filas["op"]["number"] == 2
+
+
+def test_el_numero_es_la_posicion_en_la_encuesta_no_en_la_tabla():
+    """Caso real: las dos primeras preguntas no se puntúan, así que la primera
+    de la tabla es la tercera de la encuesta. Numerarla 1 mandaría a buscar la
+    pregunta equivocada en el editor."""
+    c = new_client(); register(c)
+    schema = {"pages": [
+        {"elements": [{"type": "text", "name": "nombre", "title": "¿Cómo te llamás?"}]},
+        {"elements": [{"type": "comment", "name": "libre", "title": "¿Algo más?"}]},
+        {"elements": [{"type": "radiogroup", "name": "cap", "title": "Capital de Francia",
+                       "choices": ["Madrid", "París"]}]},
+    ]}
+    ev = {"enabled": True, "passingScore": 60, "showScoreToRespondent": True,
+          "questions": {"cap": {"gradable": True, "grader": "auto", "points": 1,
+                                "correct": "París"}}}
+    s = c.post("/api/v1/survey/surveys",
+               json={"title": "T", "json_schema": schema, "language": "es", "evaluation": ev}).json()
+    c.post(f"/api/v1/survey/surveys/{s['id']}/publish")
+    c.post(f"/api/v1/survey/public/{s['slug']}/submit",
+           json={"answers": {"nombre": "Clara", "libre": "x", "cap": "Madrid"}})
+
+    fila = c.get(f"/api/v1/survey/surveys/{s['id']}/analytics").json()["per_question"][0]
+    assert fila["number"] == 3
+    assert fila["title"] == "Capital de Francia"
