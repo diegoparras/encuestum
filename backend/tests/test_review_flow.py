@@ -185,3 +185,21 @@ def test_el_numero_es_la_posicion_en_la_encuesta_no_en_la_tabla():
     fila = c.get(f"/api/v1/survey/surveys/{s['id']}/analytics").json()["per_question"][0]
     assert fila["number"] == 3
     assert fila["title"] == "Capital de Francia"
+
+
+def test_el_desglose_dice_que_contestaron_y_cual_era_la_correcta():
+    """La tabla decía "0% de acierto" y ahí se cortaba. Saber qué eligieron
+    obligaba a mirar respuesta por respuesta."""
+    c = new_client(); register(c)
+    sid, slug = _publicada(c, _evaluacion())
+    for eleccion in ["Madrid", "Madrid", "París"]:
+        c.post(f"/api/v1/survey/public/{slug}/submit",
+               json={"answers": {"cap": eleccion, "op": "algo"}})
+
+    filas = {q["name"]: q for q in c.get(f"/api/v1/survey/surveys/{sid}/analytics").json()["per_question"]}
+    desglose = filas["cap"]["breakdown"]
+    # De la más elegida a la menos.
+    assert [(o["value"], o["count"]) for o in desglose] == [("Madrid", 2), ("París", 1)]
+    assert [o["correct"] for o in desglose] == [False, True]
+    # En una abierta no hay nada que contar: cada respuesta es distinta.
+    assert filas["op"]["breakdown"] == []

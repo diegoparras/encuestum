@@ -1,5 +1,5 @@
 import uuid
-from typing import List
+from typing import Dict, List
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field as PydField
@@ -314,7 +314,11 @@ async def analytics(sid: uuid.UUID, ctx: OrgContext = Depends(current_context), 
         if (r.grade or {}).get("passed"):
             passed += 1
     q_agg: dict = {}
+    # Las respuestas dadas a cada pregunta, para el desglose por opción.
+    dadas: Dict[str, list] = {}
     for r in graded:
+        for nombre_q, valor in (r.answers or {}).items():
+            dadas.setdefault(nombre_q, []).append(valor)
         for q in (r.grade or {}).get("questions", []):
             a = q_agg.setdefault(q.get("name"), {"name": q.get("name"), "n": 0, "sum_awarded": 0.0, "sum_points": 0.0, "correct": 0})
             a["n"] += 1
@@ -325,6 +329,7 @@ async def analytics(sid: uuid.UUID, ctx: OrgContext = Depends(current_context), 
     # El título real de cada pregunta. La tabla listaba el nombre interno
     # (`radiogroup_4`), que no le dice nada a quien corrige: para saber de qué
     # pregunta hablaba había que ir a buscarla al editor.
+    q_configs_ev: dict = (s.evaluation or {}).get("questions", {}) or {}
     ficha = {}
     nro = 0
     for page in (s.json_schema or {}).get("pages", []) or []:
@@ -345,6 +350,11 @@ async def analytics(sid: uuid.UUID, ctx: OrgContext = Depends(current_context), 
          "number": ficha.get(a["name"], vacio)[0],
          "title": ficha.get(a["name"], (None, a["name"], ""))[1],
          "type": ficha.get(a["name"], vacio)[2],
+         "breakdown": desglose_por_opcion(
+             q_configs_ev.get(a["name"], {}) or {},
+             ficha.get(a["name"], vacio)[2],
+             dadas.get(a["name"], []),
+         ),
          "responses": a["n"],
          "avg_score_pct": round(a["sum_awarded"] / a["sum_points"] * 100, 1) if a["sum_points"] > 0 else None,
          "correct_rate": round(a["correct"] / a["n"] * 100, 1) if a["n"] else 0}
@@ -362,6 +372,63 @@ async def analytics(sid: uuid.UUID, ctx: OrgContext = Depends(current_context), 
         "pass_rate": round(passed / len(graded) * 100, 1) if graded else None,
         "score_distribution": buckets, "per_question": per_question,
     }
+
+
+# Tipos donde contar respuestas tiene sentido: hay un conjunto cerrado de
+# opciones. En una pregunta abierta cada respuesta es distinta y el conteo no
+# diría nada.
+TIPOS_CON_OPCIONES = {"radiogroup", "checkbox", "dropdown", "boolean", "imagepicker", "rating"}
+
+# Cuántas opciones se devuelven como mucho. Un `rating` de 0 a 10 ya son once;
+# más que eso deja de leerse de un vistazo.
+MAX_OPCIONES = 12
+
+
+def desglose_por_opcion(qcfg: dict, qtype: str, respuestas: list) -> list:
+    """Cuántas veces se eligió cada opción, y cuál era la correcta.
+
+    La tabla por pregunta dice "0% de acierto" y ahí se corta. La pregunta que
+    sigue siempre es la misma -- ¿y qué contestaron entonces? -- y hoy hay que
+    ir a mirar respuesta por respuesta para saberlo.
+
+    Se cuenta sobre las respuestas dadas, no sobre las opciones configuradas:
+    una opción que nadie eligió no aporta nada, y una respuesta que ya no está
+    entre las opciones (la pregunta se editó después) igual hay que mostrarla."""
+    if qtype not in TIPOS_CON_OPCIONES:
+        return []
+
+    correctas = qcfg.get("correct")
+    if correctas is None:
+        correctas = []
+    elif not isinstance(correctas, list):
+        correctas = [correctas]
+    correctas = {_texto_opcion(c) for c in correctas}
+
+    conteo: Dict[str, int] = {}
+    for valor in respuestas:
+        if valor is None or valor == "" or valor == []:
+            continue
+        # En opción múltiple cada marca cuenta por separado.
+        elegidas = valor if isinstance(valor, list) else [valor]
+        for v in elegidas:
+            texto = _texto_opcion(v)
+            if texto:
+                conteo[texto] = conteo.get(texto, 0) + 1
+
+    filas = [
+        {"value": texto, "count": n, "correct": texto in correctas}
+        for texto, n in conteo.items()
+    ]
+    # De la más elegida a la menos; a igual cantidad, alfabético, para que el
+    # orden no baile entre dos cargas de la misma pantalla.
+    filas.sort(key=lambda f: (-f["count"], f["value"]))
+    return filas[:MAX_OPCIONES]
+
+
+def _texto_opcion(v) -> str:
+    if isinstance(v, bool):
+        return "Sí" if v else "No"
+    return str(v).strip()
 
 
 def _open_titles(schema: dict) -> dict:

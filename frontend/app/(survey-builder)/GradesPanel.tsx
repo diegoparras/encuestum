@@ -20,6 +20,7 @@ import {
   SURVEY_ACCENT,
 } from "./surveyApi";
 import { questionTypeLabel } from "./builder/model";
+import { DesglosePregunta } from "./DesglosePregunta";
 
 interface Props {
   surveyId: string;
@@ -38,6 +39,8 @@ export function GradesPanel({ surveyId, accent = SURVEY_ACCENT }: Props) {
   // Si la encuesta retiene el comentario de la IA, el corrector necesita saberlo:
   // sin su visto bueno nadie lo lee.
   const [revisaComentarios, setRevisaComentarios] = useState(false);
+  // Fila de la tabla por pregunta sobre la que está el mouse (o el foco).
+  const [desglose, setDesglose] = useState<{ name: string; rect: DOMRect } | null>(null);
 
   async function load() {
     try {
@@ -193,8 +196,21 @@ export function GradesPanel({ surveyId, accent = SURVEY_ACCENT }: Props) {
               </tr>
             </thead>
             <tbody className="divide-y divide-neutral-100 dark:divide-neutral-800">
-              {analytics.per_question.map((q) => (
-                <tr key={q.name}>
+              {analytics.per_question.map((q) => {
+                const hayDesglose = !!q.breakdown?.length;
+                const mostrar = (e: React.SyntheticEvent<HTMLTableRowElement>) =>
+                  hayDesglose &&
+                  setDesglose({ name: q.name, rect: e.currentTarget.getBoundingClientRect() });
+                return (
+                <tr
+                  key={q.name}
+                  tabIndex={hayDesglose ? 0 : undefined}
+                  onMouseEnter={mostrar}
+                  onFocus={mostrar}
+                  onMouseLeave={() => setDesglose(null)}
+                  onBlur={() => setDesglose(null)}
+                  className={hayDesglose ? "cursor-help outline-none hover:bg-neutral-50 focus:bg-neutral-50 dark:hover:bg-neutral-800/60 dark:focus:bg-neutral-800/60" : undefined}
+                >
                   {/* El número de la pregunta EN LA ENCUESTA, para poder ir a
                       buscarla al editor. */}
                   <td className="px-3 py-2 text-right tabular-nums text-neutral-400 dark:text-neutral-500">
@@ -217,11 +233,23 @@ export function GradesPanel({ surveyId, accent = SURVEY_ACCENT }: Props) {
                     {q.avg_score_pct != null ? `${q.avg_score_pct}%` : "—"}
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>
       )}
+      {desglose &&
+        (() => {
+          const q = analytics.per_question.find((x) => x.name === desglose.name);
+          return q ? (
+            <DesglosePregunta
+              titulo={q.title || q.name}
+              opciones={q.breakdown || []}
+              ancla={desglose.rect}
+            />
+          ) : null;
+        })()}
 
       {/* Responses / scorecard */}
       <div>
@@ -346,7 +374,16 @@ function ResponseRow({
               <div className="min-w-0 flex-1">
                 <div className="text-sm text-neutral-800 dark:text-neutral-200">
                   {titles[q.name] || q.name}{" "}
-                  <span className="text-[11px] text-neutral-400 dark:text-neutral-500">({q.grader})</span>
+                  <span
+                    className="rounded px-1.5 py-0.5 text-[10px] font-medium text-neutral-500 ring-1 ring-inset ring-neutral-200 dark:text-neutral-400 dark:ring-neutral-700"
+                    title={
+                      q.grader === "llm"
+                        ? "La corrigió la IA contra la rúbrica"
+                        : "Comparada con la respuesta correcta"
+                    }
+                  >
+                    {q.grader === "llm" ? "IA" : "Exacta"}
+                  </span>
                 </div>
                 {/* Qué contestó: quien corrige tenía la misma ceguera que el
                     alumno — veía el veredicto pero no la respuesta. */}

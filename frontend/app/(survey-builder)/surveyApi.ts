@@ -220,6 +220,8 @@ export interface Analytics {
     // Título real de la pregunta; `name` es el nombre interno (radiogroup_4).
     title?: string;
     type?: string;
+    // Qué se eligió y cuántas veces. Vacío en las preguntas abiertas.
+    breakdown?: { value: string; count: number; correct: boolean }[];
     responses: number;
     avg_score_pct: number | null;
     correct_rate: number;
