@@ -457,7 +457,14 @@ export function ResponsesPanel({
   };
 
   const table = (
-    <div className="h-full overflow-auto rounded-lg border border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-900">
+    // El tope de altura va acá, en el que scrollea, y no en un div de afuera:
+    // `h-full` contra un padre con sólo `max-height` resuelve a `auto`, así que
+    // el contenedor crecía con la tabla y se desbordaba sobre lo que sigue.
+    <div
+      className={`overflow-auto rounded-lg border border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-900 ${
+        fullscreen ? "h-full" : "max-h-[70vh]"
+      }`}
+    >
       <table
         className="text-sm"
         style={{ tableLayout: "fixed", borderCollapse: "separate", borderSpacing: 0, width: totalWidth + SELECT_W + ACTIONS_W }}
@@ -930,7 +937,7 @@ export function ResponsesPanel({
   return (
     <div className="space-y-3">
       {toolbar}
-      <div className="max-h-[70vh]">{table}</div>
+      {table}
       {ficha}
       {log}
       {confirmacion}
