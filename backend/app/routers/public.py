@@ -219,14 +219,34 @@ def _titles(schema: dict) -> dict:
     return out
 
 
-def _respondent_view(grade: dict, evaluation: dict, schema: dict, answers: dict | None = None) -> dict:
+async def _ya_cerro(s: Survey, session: AsyncSession) -> bool:
+    """Si la encuesta ya no admite respuestas.
+
+    Es la condición del modo "revelar al cerrar": mientras alguien todavía pueda
+    responder, mostrarle la respuesta correcta a quien ya terminó es filtrarla.
+    Deliberadamente NO alcanza con que el dueño haya publicado los resultados:
+    publicar la nota de los que terminaron es una cosa y repartir la clave de
+    corrección con el examen abierto es otra."""
+    disponible, _ = await _availability(s, session)
+    return not disponible
+
+
+def _respondent_view(
+    grade: dict,
+    evaluation: dict,
+    schema: dict,
+    answers: dict | None = None,
+    *,
+    cerrada: bool = False,
+) -> dict:
     """Lo que ve quien respondió. Incluye SU respuesta, y -- si el autor lo
     habilitó -- la correcta y por qué la suya no lo era (ver app/review.py)."""
     from app.review import vista_de_repaso
 
     show = bool(evaluation.get("showScoreToRespondent", True))
     questions = vista_de_repaso(
-        grade, evaluation, schema, answers or {}, titles=_titles(schema)
+        grade, evaluation, schema, answers or {},
+        titles=_titles(schema), cerrada=cerrada,
     )
     view = {"questions": questions, "needs_review": grade.get("needs_review", False)}
     if show:
@@ -546,7 +566,10 @@ async def submit(
     results_mode = getattr(s, "results_mode", "immediate")
     if results_mode == "immediate":
         return {"id": str(r.id), "status": "graded",
-                "result": _respondent_view(grade, evaluation, s.json_schema or {}, r.answers)}
+                "result": _respondent_view(
+                    grade, evaluation, s.json_schema or {}, r.answers,
+                    cerrada=await _ya_cerro(s, session),
+                )}
     if results_mode == "on_release":
         return {"id": str(r.id), "status": "recorded", "results_pending": True,
                 "can_check": getattr(s, "access_mode", "public") == "list"}
@@ -588,7 +611,13 @@ async def lookup_result(
         raise HTTPException(status_code=404, detail="No encontramos tu respuesta")
     if not r.grade:
         return {"status": "pending", "detail": "Tu respuesta todavía no fue corregida."}
-    return {"status": "graded", "result": _respondent_view(r.grade, s.evaluation or {}, s.json_schema or {}, r.answers)}
+    return {
+        "status": "graded",
+        "result": _respondent_view(
+            r.grade, s.evaluation or {}, s.json_schema or {}, r.answers,
+            cerrada=await _ya_cerro(s, session),
+        ),
+    }
 
 
 @router.post("/{slug}/certificate")

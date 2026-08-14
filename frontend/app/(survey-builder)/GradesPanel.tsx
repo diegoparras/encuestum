@@ -10,6 +10,7 @@ import {
   ChevronRight,
   AlertTriangle,
   Check,
+  Eye,
   FileText,
 } from "lucide-react";
 import {
@@ -33,6 +34,9 @@ export function GradesPanel({ surveyId, accent = SURVEY_ACCENT }: Props) {
   // Títulos de las preguntas: sin esto la corrección listaba el nombre interno
   // (`radiogroup_1`) y corregir era adivinar de qué pregunta se hablaba.
   const [titles, setTitles] = useState<Record<string, string>>({});
+  // Si la encuesta retiene el comentario de la IA, el corrector necesita saberlo:
+  // sin su visto bueno nadie lo lee.
+  const [revisaComentarios, setRevisaComentarios] = useState(false);
 
   async function load() {
     try {
@@ -48,6 +52,7 @@ export function GradesPanel({ surveyId, accent = SURVEY_ACCENT }: Props) {
         }
       }
       setTitles(mapa);
+      setRevisaComentarios((sv.evaluation as any)?.feedbackReview === "on");
       setAnalytics(an);
       setResponses(resp);
       setError(null);
@@ -223,6 +228,7 @@ export function GradesPanel({ surveyId, accent = SURVEY_ACCENT }: Props) {
               response={r}
               accent={accent}
               titles={titles}
+              revisaComentarios={revisaComentarios}
               onSaved={load}
             />
           ))}
@@ -242,29 +248,38 @@ function ResponseRow({
   response,
   accent,
   titles,
+  revisaComentarios,
   onSaved,
 }: {
   surveyId: string;
   response: ResponseItem;
   accent: string;
   titles: Record<string, string>;
+  revisaComentarios: boolean;
   onSaved: () => void;
 }) {
   const [open, setOpen] = useState(false);
   const [awards, setAwards] = useState<Record<string, number>>({});
+  const [feedback, setFeedback] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
   const grade = response.grade;
   const pct = grade?.percent ?? null;
   const questions = grade?.questions ?? [];
+  const aprobado = !!grade?.feedback_approved;
+  const hayCambios =
+    Object.keys(awards).length > 0 || Object.keys(feedback).length > 0;
 
-  async function saveOverride() {
+  async function saveOverride(aprobar?: boolean) {
     setSaving(true);
     try {
       await surveyApi.override(surveyId, response.id, {
         awards,
         clear_review: true,
+        ...(Object.keys(feedback).length ? { feedback } : {}),
+        ...(aprobar === undefined ? {} : { approve_feedback: aprobar }),
       });
       setAwards({});
+      setFeedback({});
       onSaved();
     } finally {
       setSaving(false);
@@ -321,8 +336,23 @@ function ResponseRow({
                   <span className="text-neutral-400">Respondió:</span>{" "}
                   {formatearRespuesta(response.answers?.[q.name])}
                 </div>
-                {q.feedback && (
-                  <div className="text-xs text-neutral-500 dark:text-neutral-400">{q.feedback}</div>
+                {/* El comentario es editable: lo que redacta la IA es un
+                    borrador, y quien corrige es el que responde por él. */}
+                {(q.feedback || q.feedback_edited) && (
+                  <textarea
+                    rows={2}
+                    value={feedback[q.name] ?? q.feedback_edited ?? q.feedback ?? ""}
+                    onChange={(e) =>
+                      setFeedback((f) => ({ ...f, [q.name]: e.target.value }))
+                    }
+                    placeholder="Comentario para quien respondió"
+                    className="mt-1 w-full resize-y rounded-md border border-neutral-200 bg-white px-2 py-1 text-xs text-neutral-600 outline-none focus:border-neutral-400 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-300"
+                  />
+                )}
+                {q.feedback_edited && (
+                  <div className="mt-0.5 text-[11px] text-neutral-400 dark:text-neutral-500">
+                    Editado a mano · la IA había escrito: “{q.feedback}”
+                  </div>
                 )}
                 {Array.isArray(q.evidence) && q.evidence.length > 0 && (
                   <div className="text-[11px] text-neutral-400 italic mt-0.5 dark:text-neutral-500">
@@ -355,19 +385,47 @@ function ResponseRow({
               <FileText className="w-3.5 h-3.5" /> Ver reporte
             </Link>
             {questions.length > 0 && (
-              <button
-                onClick={saveOverride}
-                disabled={saving || Object.keys(awards).length === 0}
-                className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
-                style={{ backgroundColor: accent }}
-              >
-                {saving ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
-                ) : (
-                  <Check className="w-4 h-4" />
+              <div className="flex items-center gap-2">
+                {revisaComentarios && (
+                  <button
+                    onClick={() => saveOverride(!aprobado)}
+                    disabled={saving}
+                    title={
+                      aprobado
+                        ? "Quien respondió está viendo estos comentarios"
+                        : "Todavía nadie los ve"
+                    }
+                    className={`inline-flex items-center gap-1.5 rounded-lg border px-3 py-1.5 text-xs font-semibold disabled:opacity-50 ${
+                      aprobado
+                        ? "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-900 dark:bg-emerald-950/40 dark:text-emerald-300"
+                        : "border-neutral-200 text-neutral-600 dark:border-neutral-700 dark:text-neutral-300"
+                    }`}
+                  >
+                    {aprobado ? (
+                      <>
+                        <Check className="w-3.5 h-3.5" /> Publicados
+                      </>
+                    ) : (
+                      <>
+                        <Eye className="w-3.5 h-3.5" /> Publicar comentarios
+                      </>
+                    )}
+                  </button>
                 )}
-                Guardar ajuste
-              </button>
+                <button
+                  onClick={() => saveOverride()}
+                  disabled={saving || !hayCambios}
+                  className="inline-flex items-center gap-1.5 rounded-lg px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-50"
+                  style={{ backgroundColor: accent }}
+                >
+                  {saving ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Check className="w-4 h-4" />
+                  )}
+                  Guardar ajuste
+                </button>
+              </div>
             )}
           </div>
         </div>

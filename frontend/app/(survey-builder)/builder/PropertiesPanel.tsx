@@ -11,6 +11,7 @@ import {
   FeedbackTone,
   LogicOperator,
   RATE_PRESENTATIONS,
+  RevealMode,
   Strictness,
   typeHasChoices,
   VisibilityRule,
@@ -983,12 +984,27 @@ function ExamSettings({
           checked={evaluation.showScoreToRespondent}
           onChange={(v) => set({ showScoreToRespondent: v })}
         />
-        {/* Valor por defecto: cada pregunta puede forzar lo contrario. */}
-        <ToggleRow
+        {/* Valor por defecto: cada pregunta puede elegir otro momento. */}
+        <SelectRow
           label={t("builder.exam.revealCorrect")}
           hint={t("builder.exam.revealCorrectHint")}
-          checked={evaluation.revealCorrect}
-          onChange={(v) => set({ revealCorrect: v })}
+          value={evaluation.revealCorrect}
+          onChange={(v) => set({ revealCorrect: v as RevealMode })}
+          options={[
+            { value: "never", label: t("builder.exam.revealNever") },
+            { value: "always", label: t("builder.exam.revealAlways") },
+            { value: "onClose", label: t("builder.exam.revealOnClose") },
+          ]}
+        />
+        <SelectRow
+          label={t("builder.exam.feedbackReview")}
+          hint={t("builder.exam.feedbackReviewHint")}
+          value={evaluation.feedbackReview}
+          onChange={(v) => set({ feedbackReview: v as "off" | "on" })}
+          options={[
+            { value: "off", label: t("builder.exam.feedbackReviewOff") },
+            { value: "on", label: t("builder.exam.feedbackReviewOn") },
+          ]}
         />
         <ToggleRow
           label={t("builder.exam.doublePass")}
@@ -1267,6 +1283,40 @@ function Field({ label, children }: { label: string; children: React.ReactNode }
       </span>
       {children}
     </label>
+  );
+}
+
+function SelectRow({
+  label,
+  hint,
+  value,
+  onChange,
+  options,
+}: {
+  label: string;
+  hint?: string;
+  value: string;
+  onChange: (v: string) => void;
+  options: { value: string; label: string }[];
+}) {
+  return (
+    <div className="flex items-center justify-between gap-3 py-2 mt-1">
+      <div>
+        <div className="text-sm font-medium text-neutral-700 dark:text-neutral-300">{label}</div>
+        {hint && <div className="text-[11px] text-neutral-400 dark:text-neutral-500">{hint}</div>}
+      </div>
+      <select
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="shrink-0 rounded-md border border-neutral-200 bg-white px-2 py-1 text-xs dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
+      >
+        {options.map((o) => (
+          <option key={o.value} value={o.value}>
+            {o.label}
+          </option>
+        ))}
+      </select>
+    </div>
   );
 }
 

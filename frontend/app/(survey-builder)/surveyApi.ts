@@ -446,7 +446,16 @@ export const surveyApi = {
   override: (
     id: string,
     rid: string,
-    body: { awards?: Record<string, number>; total?: number; clear_review?: boolean; note?: string }
+    body: {
+      awards?: Record<string, number>;
+      total?: number;
+      clear_review?: boolean;
+      note?: string;
+      // Comentario reescrito por quien corrige, por pregunta.
+      feedback?: Record<string, string>;
+      // Visto bueno: sin él, si la encuesta lo exige, nadie lee el comentario.
+      approve_feedback?: boolean;
+    }
   ) =>
     request<ResponseItem>(
       `/api/v1/survey/surveys/${id}/responses/${rid}/override`,

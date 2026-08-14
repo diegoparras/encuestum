@@ -71,9 +71,9 @@ export interface BuilderQuestion {
   // Lo que escribe el autor le gana al comentario que redacta la IA.
   explanations?: Record<string, string>;
   explanation?: string;
-  // Mostrar la respuesta correcta a quien respondió. `undefined` = heredar el
-  // ajuste de la encuesta; true/false lo fuerzan sólo en esta pregunta.
-  revealCorrect?: boolean;
+  // Cuándo mostrarle la respuesta correcta a quien respondió. `undefined` =
+  // heredar el ajuste de la encuesta; un modo lo fuerza sólo en esta pregunta.
+  revealCorrect?: RevealMode;
 
   // Optional media shown above the question. imageUrl is an asset URL; videoUrl
   // may be a YouTube/Vimeo/mp4 URL or an uploaded video asset.
@@ -163,14 +163,31 @@ export const DEFAULT_AI_CRITERIA: AiCriteria = {
   instructions: "",
 };
 
+/** Cuándo se le muestra la respuesta correcta a quien se equivocó.
+ *  - `always`: apenas ve su corrección.
+ *  - `onClose`: recién cuando la encuesta ya no admite respuestas. Evita que
+ *    quien terminó primero le pase la clave a quien todavía no rindió.
+ *  - `never`: nunca. */
+export type RevealMode = "always" | "onClose" | "never";
+
+/** Antes esto era un booleano. Lo guardado con versiones anteriores lo sigue
+ *  teniendo así y se lee sin migrar nada (el backend hace lo mismo). */
+export function toRevealMode(v: unknown): RevealMode | undefined {
+  if (typeof v === "boolean") return v ? "always" : "never";
+  return v === "always" || v === "onClose" || v === "never" ? v : undefined;
+}
+
 export interface EvaluationSettings {
   enabled: boolean;
   feedbackTiming: "immediate" | "onComplete" | "never";
   passingScore: number;
   showScoreToRespondent: boolean;
-  // Mostrar la respuesta correcta a quien se equivocó. Vale como valor por
-  // defecto: cada pregunta puede forzar lo contrario (ver revealCorrect).
-  revealCorrect: boolean;
+  // Cuándo mostrar la respuesta correcta a quien se equivocó. Vale como valor
+  // por defecto: cada pregunta puede elegir otro (ver revealCorrect).
+  revealCorrect: RevealMode;
+  // "on" retiene el comentario que redacta la IA hasta que un corrector lo
+  // aprueba o lo reescribe. Lo que escribió el autor nunca se retiene.
+  feedbackReview: "off" | "on";
   doublePass: boolean;
   reviewThreshold: number;
   aiCriteria: AiCriteria;
@@ -187,7 +204,8 @@ export const DEFAULT_EVALUATION: EvaluationSettings = {
   feedbackTiming: "onComplete",
   passingScore: 60,
   showScoreToRespondent: true,
-  revealCorrect: false,
+  revealCorrect: "never",
+  feedbackReview: "off",
   doublePass: false,
   reviewThreshold: 0.6,
   aiCriteria: { ...DEFAULT_AI_CRITERIA },
@@ -1322,7 +1340,8 @@ function hydrateEvaluationSettings(
     feedbackTiming: evaluation.feedbackTiming ?? "onComplete",
     passingScore: evaluation.passingScore ?? 60,
     showScoreToRespondent: evaluation.showScoreToRespondent ?? true,
-    revealCorrect: evaluation.revealCorrect ?? false,
+    revealCorrect: toRevealMode(evaluation.revealCorrect) ?? "never",
+    feedbackReview: evaluation.feedbackReview === "on" ? "on" : "off",
     doublePass: !!evaluation.doublePass,
     reviewThreshold: evaluation.reviewThreshold ?? 0.6,
     aiCriteria: {
@@ -1378,7 +1397,7 @@ function hydrateGrading(
     q.modelAnswer = c.modelAnswer ?? "";
     q.explanations = c.explanations && typeof c.explanations === "object" ? c.explanations : {};
     q.explanation = c.explanation ?? "";
-    q.revealCorrect = typeof c.revealCorrect === "boolean" ? c.revealCorrect : undefined;
+    q.revealCorrect = toRevealMode(c.revealCorrect);
     q.keyConcepts = Array.isArray(c.keyConcepts) ? c.keyConcepts : [];
     q.rubric = Array.isArray(c.rubric)
       ? c.rubric.map((r: any) => newRubricItem(r.label ?? "", Number(r.points) || 0))

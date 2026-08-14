@@ -202,6 +202,11 @@ class OverrideRequest(BaseModel):
     total: Optional[float] = None
     clear_review: bool = True
     note: Optional[str] = None
+    # Comentario editado a mano, por nombre de pregunta. Vacío borra la edición.
+    feedback: Optional[dict[str, str]] = None
+    # Visto bueno a los comentarios de esta corrección (ver evaluation
+    # `feedbackReview`): sin él, el texto que redactó la IA no se muestra.
+    approve_feedback: Optional[bool] = None
 
 
 class GenerateQuestionsRequest(BaseModel):

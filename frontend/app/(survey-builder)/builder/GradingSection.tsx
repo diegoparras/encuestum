@@ -2,7 +2,7 @@
 
 import React from "react";
 import { Switch } from "@/components/ui/switch";
-import { BuilderQuestion, Choice } from "./model";
+import { BuilderQuestion, Choice, RevealMode } from "./model";
 import { RubricEditor } from "./RubricEditor";
 import { resolveAssetUrl } from "./design";
 import { useI18n } from "@/lib/i18n";
@@ -285,18 +285,21 @@ function ExplanationsBlock({
               </span>
             </span>
             <select
-              value={q.revealCorrect === undefined ? "inherit" : q.revealCorrect ? "yes" : "no"}
+              value={q.revealCorrect ?? "inherit"}
               onChange={(e) =>
                 onChange({
                   revealCorrect:
-                    e.target.value === "inherit" ? undefined : e.target.value === "yes",
+                    e.target.value === "inherit"
+                      ? undefined
+                      : (e.target.value as RevealMode),
                 })
               }
               className="shrink-0 rounded-md border border-neutral-200 bg-white px-2 py-1 text-xs dark:border-neutral-700 dark:bg-neutral-800"
             >
               <option value="inherit">{t("builder.grade.revealInherit")}</option>
-              <option value="yes">{t("builder.grade.revealYes")}</option>
-              <option value="no">{t("builder.grade.revealNo")}</option>
+              <option value="always">{t("builder.grade.revealYes")}</option>
+              <option value="onClose">{t("builder.grade.revealOnClose")}</option>
+              <option value="never">{t("builder.grade.revealNo")}</option>
             </select>
           </label>
 

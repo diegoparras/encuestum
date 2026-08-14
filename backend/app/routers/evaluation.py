@@ -31,11 +31,35 @@ async def _response_or_404(sid, rid, session):
     return r
 
 
+def _conservar_ediciones(anterior: dict | None, nuevo: dict) -> dict:
+    """Recorregir no puede borrar lo que escribió un humano.
+
+    Volver a corregir reemplaza el `grade` entero. Si un docente editó el
+    comentario de una pregunta, ese texto es trabajo suyo y desaparecería sin
+    dejar rastro. Se conserva por nombre de pregunta.
+
+    La aprobación, en cambio, NO se conserva: la corrección cambió, así que el
+    visto bueno anterior ya no dice nada sobre esta."""
+    ediciones = {
+        q.get("name"): q.get("feedback_edited")
+        for q in (anterior or {}).get("questions", []) or []
+        if str(q.get("feedback_edited") or "").strip()
+    }
+    if not ediciones:
+        return nuevo
+    for q in nuevo.get("questions", []) or []:
+        texto = ediciones.get(q.get("name"))
+        if texto:
+            q["feedback_edited"] = texto
+    return nuevo
+
+
 async def _grade_and_store(s, r, session):
     grade = await grade_response(
         evaluation=s.evaluation or {}, answers=r.answers or {},
         question_types=extract_question_types(s.json_schema), language=s.language or "es",
     )
+    grade = _conservar_ediciones(r.grade, grade)
     r.grade = grade
     r.score = grade.get("total")
     r.max_score = grade.get("max")
@@ -173,6 +197,18 @@ async def override_grade(sid: uuid.UUID, rid: uuid.UUID, payload: OverrideReques
     r = await _response_or_404(sid, rid, session)
     grade = dict(r.grade or {})
     questions = [dict(q) for q in grade.get("questions", [])]
+    if payload.feedback is not None:
+        # Texto vacío = borrar la edición y volver al comentario original. Para
+        # que no se vea nada está el visto bueno, no un comentario en blanco.
+        for q in questions:
+            if q["name"] in payload.feedback:
+                texto = (payload.feedback[q["name"]] or "").strip()
+                if texto:
+                    q["feedback_edited"] = texto
+                else:
+                    q.pop("feedback_edited", None)
+    if payload.approve_feedback is not None:
+        grade["feedback_approved"] = bool(payload.approve_feedback)
     if payload.awards:
         for q in questions:
             if q["name"] in payload.awards:
