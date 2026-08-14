@@ -144,3 +144,18 @@ def test_recorregir_no_pisa_lo_que_escribio_el_corrector():
     grade = c.get(f"/api/v1/survey/surveys/{sid}/responses").json()[0]["grade"]
     op = next(q for q in grade["questions"] if q["name"] == "op")
     assert op["feedback_edited"] == "Ojo con la justificación."
+
+
+def test_la_tabla_por_pregunta_dice_de_que_pregunta_habla():
+    """Listaba el nombre interno (`radiogroup_4`): para saber de qué pregunta
+    hablaba había que ir a buscarla al editor."""
+    c = new_client(); register(c)
+    sid, slug = _publicada(c, _evaluacion())
+    c.post(f"/api/v1/survey/public/{slug}/submit",
+           json={"answers": {"cap": "Madrid", "op": "algo"}})
+
+    filas = {q["name"]: q for q in c.get(f"/api/v1/survey/surveys/{sid}/analytics").json()["per_question"]}
+    assert filas["cap"]["title"] == "Capital de Francia"
+    assert filas["cap"]["type"] == "radiogroup"
+    # El nombre interno sigue estando: es con lo que matchean las columnas del CSV.
+    assert filas["cap"]["name"] == "cap"

@@ -322,8 +322,19 @@ async def analytics(sid: uuid.UUID, ctx: OrgContext = Depends(current_context), 
             a["sum_points"] += float(q.get("points", 0) or 0)
             if q.get("verdict") == "correct":
                 a["correct"] += 1
+    # El título real de cada pregunta. La tabla listaba el nombre interno
+    # (`radiogroup_4`), que no le dice nada a quien corrige: para saber de qué
+    # pregunta hablaba había que ir a buscarla al editor.
+    ficha = {}
+    for page in (s.json_schema or {}).get("pages", []) or []:
+        for el in page.get("elements", []) or []:
+            if isinstance(el, dict) and el.get("name"):
+                ficha[el["name"]] = (el.get("title") or el["name"], el.get("type") or "")
     per_question = [
-        {"name": a["name"], "responses": a["n"],
+        {"name": a["name"],
+         "title": ficha.get(a["name"], (a["name"], ""))[0],
+         "type": ficha.get(a["name"], ("", ""))[1],
+         "responses": a["n"],
          "avg_score_pct": round(a["sum_awarded"] / a["sum_points"] * 100, 1) if a["sum_points"] > 0 else None,
          "correct_rate": round(a["correct"] / a["n"] * 100, 1) if a["n"] else 0}
         for a in q_agg.values()

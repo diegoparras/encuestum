@@ -61,3 +61,53 @@ def test_no_invents_identity():
 def test_ignores_non_text_values():
     # Una lista (opción múltiple) no debe convertirse en nombre.
     assert respondent_identity(SCHEMA, {"q_nombre": ["a", "b"]}) == (None, None)
+
+
+def test_como_te_llamas_tambien_es_preguntar_el_nombre():
+    """El caso que llegó desde una encuesta real: la primera pregunta pedía el
+    nombre y toda la planilla igual decía "Anónimo", porque el título no contenía
+    la palabra "nombre"."""
+    schema = {
+        "pages": [
+            {"elements": [{"type": "text", "name": "nombre", "title": "¿Cómo te llamás?"}]},
+            {"elements": [{"type": "comment", "name": "comentario",
+                           "title": "¿Algo que quieras contarnos?"}]},
+        ]
+    }
+    assert identity_fields(schema)[0] == "nombre"
+    assert respondent_identity(schema, {"nombre": "Clara Gómez"})[0] == "Clara Gómez"
+
+
+def test_otras_formas_de_pedir_el_nombre():
+    for titulo in ["¿Cómo te llamas?", "Come ti chiami?", "Como se chama?",
+                   "Comment vous appelez-vous ?", "Votre prénom", "Cognome"]:
+        schema = {"pages": [{"elements": [
+            {"type": "text", "name": "q", "title": titulo}]}]}
+        assert identity_fields(schema)[0] == "q", titulo
+
+
+def test_prefiere_la_respuesta_corta_sobre_el_parrafo():
+    """Si dos preguntas hablan de nombres, identifica mejor la de texto corto."""
+    schema = {
+        "pages": [
+            {"elements": [
+                {"type": "comment", "name": "largo", "title": "Contanos cómo te llamás y por qué"},
+                {"type": "text", "name": "corto", "title": "Nombre"},
+            ]}
+        ]
+    }
+    assert identity_fields(schema)[0] == "corto"
+
+
+def test_un_parrafo_entero_no_es_un_nombre():
+    schema = {"pages": [{"elements": [
+        {"type": "comment", "name": "q", "title": "¿Cómo te llamás?"}]}]}
+    largo = "Me llamo así porque " + "x" * 200
+    assert respondent_identity(schema, {"q": largo})[0] is None
+
+
+def test_sin_pistas_sigue_sin_inventar_nada():
+    schema = {"pages": [{"elements": [
+        {"type": "comment", "name": "q", "title": "¿Qué te pareció el curso?"}]}]}
+    assert identity_fields(schema)[0] is None
+    assert respondent_identity(schema, {"q": "Muy bueno"})[0] is None

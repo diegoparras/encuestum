@@ -184,6 +184,7 @@ export function GradesPanel({ surveyId, accent = SURVEY_ACCENT }: Props) {
             <thead className="bg-neutral-50 text-neutral-500 dark:bg-neutral-950 dark:text-neutral-400">
               <tr>
                 <th className="text-left font-medium px-3 py-2">Pregunta</th>
+                <th className="text-left font-medium px-3 py-2">Campo</th>
                 <th className="text-left font-medium px-3 py-2">Respuestas</th>
                 <th className="text-left font-medium px-3 py-2">% acierto</th>
                 <th className="text-left font-medium px-3 py-2">Puntaje medio</th>
@@ -192,7 +193,17 @@ export function GradesPanel({ surveyId, accent = SURVEY_ACCENT }: Props) {
             <tbody className="divide-y divide-neutral-100 dark:divide-neutral-800">
               {analytics.per_question.map((q) => (
                 <tr key={q.name}>
-                  <td className="px-3 py-2 font-mono text-xs">{q.name}</td>
+                  {/* El título completo queda en el tooltip: acá se corta para
+                      que la tabla no se vuelva ilegible con preguntas largas. */}
+                  <td
+                    className="px-3 py-2 max-w-[22rem] truncate text-neutral-800 dark:text-neutral-200"
+                    title={q.title || q.name}
+                  >
+                    {q.title || q.name}
+                  </td>
+                  <td className="px-3 py-2 font-mono text-xs text-neutral-400 dark:text-neutral-500">
+                    {q.name}
+                  </td>
                   <td className="px-3 py-2">{q.responses}</td>
                   <td className="px-3 py-2">{q.correct_rate}%</td>
                   <td className="px-3 py-2">

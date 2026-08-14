@@ -215,6 +215,9 @@ export interface Analytics {
   score_distribution: number[];
   per_question: {
     name: string;
+    // Título real de la pregunta; `name` es el nombre interno (radiogroup_4).
+    title?: string;
+    type?: string;
     responses: number;
     avg_score_pct: number | null;
     correct_rate: number;

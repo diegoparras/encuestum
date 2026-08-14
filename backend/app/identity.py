@@ -16,7 +16,19 @@ from typing import Optional
 _EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
 # Sin acentos: los títulos se normalizan antes de comparar.
 _EMAIL_HINT = re.compile(r"\b(mail|e-?mail|correo)\b", re.I)
-_NAME_HINT = re.compile(r"\b(nombre|apellido|name|nome)\b", re.I)
+# Preguntar el nombre casi nunca es decir la palabra "nombre": "¿Cómo te
+# llamás?" es la forma natural en español y no matcheaba nada, así que la
+# tabla decía "Anónimo" con la encuesta preguntando el nombre en la primera
+# pregunta. Se cubren las formas equivalentes en los idiomas de la app.
+_NAME_HINT = re.compile(
+    r"\b(nombre|apellido|name|nome|prenom|cognome)\b"
+    r"|\b(llam|chiam|chama|appel)\w*",
+    re.I,
+)
+
+# Un nombre no ocupa un párrafo. Si el texto es larguísimo, casi seguro
+# matcheamos una pregunta abierta y no la identidad de nadie.
+_MAX_NOMBRE = 80
 
 _TEXTISH = {"text", "comment", "email"}
 
@@ -50,8 +62,10 @@ def identity_fields(schema: dict) -> tuple[Optional[str], Optional[str]]:
     """(name_question, email_question): qué preguntas identifican a quien responde.
 
     Se resuelve una sola vez por encuesta (no por respuesta)."""
-    name_q: Optional[str] = None
     email_q: Optional[str] = None
+    # Candidatas a nombre, para quedarnos con la mejor y no con la primera: una
+    # respuesta corta identifica mejor que un párrafo.
+    nombres: list[tuple[int, str]] = []
 
     for el in _questions(schema):
         if el.get("type") not in _TEXTISH:
@@ -64,9 +78,10 @@ def identity_fields(schema: dict) -> tuple[Optional[str], Optional[str]]:
             email_q = el["name"]
         # El nombre: solo por título, para no confundirlo con una pregunta
         # abierta cualquiera.
-        elif name_q is None and _NAME_HINT.search(title):
-            name_q = el["name"]
+        elif _NAME_HINT.search(title):
+            nombres.append((0 if el.get("type") == "text" else 1, el["name"]))
 
+    name_q = min(nombres)[1] if nombres else None
     return name_q, email_q
 
 
@@ -81,6 +96,8 @@ def respondent_identity(
     name_q, email_q = fields if fields is not None else identity_fields(schema)
 
     name = _text_value(answers, name_q) if name_q else None
+    if name and len(name) > _MAX_NOMBRE:
+        name = None
     email = _text_value(answers, email_q) if email_q else None
 
     # Último recurso para el correo: algún valor con forma de email. Sirve cuando
