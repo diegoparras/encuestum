@@ -236,3 +236,51 @@ async def generate_executive_report(*, language: str, context: dict) -> dict:
         f"{json.dumps(context, ensure_ascii=False, indent=2)}\n"
     )
     return await llm.structured(system=REPORT_SYSTEM, user=user, schema_model=ExecutiveReport)
+
+
+# ---- Explicaciones de por qué una opción es incorrecta ---------------------
+
+class OptionExplanation(BaseModel):
+    option: str
+    why_wrong: str
+
+
+class WrongAnswerExplanations(BaseModel):
+    explanations: List[OptionExplanation] = Field(default_factory=list)
+
+
+EXPLAIN_SYSTEM = """
+Escribís, para una pregunta de opción, por qué cada opción INCORRECTA no lo es.
+
+Reglas innegociables:
+1. Una entrada por cada opción incorrecta que te den, ni una más.
+2. `why_wrong` explica el error de ESA opción en particular. Nada genérico que
+   sirva para cualquiera: si sirve para todas, está mal escrito.
+3. Una o dos frases. Es lo que va a leer quien se equivocó, no un tratado.
+4. Tono directo y respetuoso: se corrige el concepto, no a la persona.
+5. Si ayuda, decí qué es lo correcto, pero sin limitarte a repetir la respuesta
+   correcta: lo valioso es por qué la suya no lo era.
+6. Todo en el idioma de la pregunta.
+"""
+
+
+async def explain_wrong_options(
+    *, language: str, question: str, correct: List[str], wrong: List[str]
+) -> dict:
+    """Una explicación por opción incorrecta.
+
+    Se llama UNA vez por pregunta al construir la encuesta (no una vez por
+    alumno que se equivoca): el texto se guarda, el autor lo revisa y lo lee
+    todo el mundo. Es órdenes de magnitud más barato y además revisable."""
+    partes = [
+        "# Idioma", language, "",
+        "# Pregunta", question, "",
+        "# Opcion(es) correcta(s)",
+    ]
+    partes += [f"- {c}" for c in correct]
+    partes += ["", "# Opciones incorrectas a explicar"]
+    partes += [f"- {w}" for w in wrong]
+    user = "\n".join(partes)
+    return await llm.structured(
+        system=EXPLAIN_SYSTEM, user=user, schema_model=WrongAnswerExplanations
+    )

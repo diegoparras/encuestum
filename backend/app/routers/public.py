@@ -219,17 +219,15 @@ def _titles(schema: dict) -> dict:
     return out
 
 
-def _respondent_view(grade: dict, evaluation: dict, schema: dict) -> dict:
-    titles = _titles(schema)
+def _respondent_view(grade: dict, evaluation: dict, schema: dict, answers: dict | None = None) -> dict:
+    """Lo que ve quien respondió. Incluye SU respuesta, y -- si el autor lo
+    habilitó -- la correcta y por qué la suya no lo era (ver app/review.py)."""
+    from app.review import vista_de_repaso
+
     show = bool(evaluation.get("showScoreToRespondent", True))
-    questions = [
-        {
-            "title": titles.get(q["name"], q["name"]),
-            "verdict": q.get("verdict"), "awarded": q.get("awarded"),
-            "points": q.get("points"), "feedback": q.get("feedback"),
-        }
-        for q in grade.get("questions", [])
-    ]
+    questions = vista_de_repaso(
+        grade, evaluation, schema, answers or {}, titles=_titles(schema)
+    )
     view = {"questions": questions, "needs_review": grade.get("needs_review", False)}
     if show:
         view.update({k: grade.get(k) for k in ("total", "max", "percent", "passed")})
@@ -548,7 +546,7 @@ async def submit(
     results_mode = getattr(s, "results_mode", "immediate")
     if results_mode == "immediate":
         return {"id": str(r.id), "status": "graded",
-                "result": _respondent_view(grade, evaluation, s.json_schema or {})}
+                "result": _respondent_view(grade, evaluation, s.json_schema or {}, r.answers)}
     if results_mode == "on_release":
         return {"id": str(r.id), "status": "recorded", "results_pending": True,
                 "can_check": getattr(s, "access_mode", "public") == "list"}
@@ -590,7 +588,7 @@ async def lookup_result(
         raise HTTPException(status_code=404, detail="No encontramos tu respuesta")
     if not r.grade:
         return {"status": "pending", "detail": "Tu respuesta todavía no fue corregida."}
-    return {"status": "graded", "result": _respondent_view(r.grade, s.evaluation or {}, s.json_schema or {})}
+    return {"status": "graded", "result": _respondent_view(r.grade, s.evaluation or {}, s.json_schema or {}, r.answers)}
 
 
 @router.post("/{slug}/certificate")

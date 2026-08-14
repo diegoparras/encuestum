@@ -2,6 +2,7 @@ import uuid
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException
+from pydantic import BaseModel, Field as PydField
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
@@ -357,3 +358,50 @@ async def generate_questions(sid: uuid.UUID, payload: GenerateQuestionsRequest, 
             language=payload.language, difficulty=payload.difficulty, context=payload.context,
         )
     return {**data, "usage": summary(acc)}
+
+
+class ExplainRequest(BaseModel):
+    """Pregunta a explicar. Se manda desde el editor, con lo que hay en pantalla:
+    todavía puede no estar guardada."""
+
+    title: str
+    correct: List[str] = PydField(default_factory=list)
+    wrong: List[str] = PydField(default_factory=list)
+
+
+@router.post("/{sid}/explain-options")
+async def explain_options(
+    sid: uuid.UUID,
+    payload: ExplainRequest,
+    ctx: OrgContext = Depends(current_context),
+    session: AsyncSession = Depends(get_session),
+):
+    """Redacta, con IA, por qué cada opción incorrecta no lo es.
+
+    Se llama UNA vez por pregunta al construir (no una vez por alumno que se
+    equivoca): el texto queda guardado en la encuesta, el autor lo revisa y lo
+    lee todo el mundo. Un llamado en vez de uno por respuesta."""
+    from app.ai_config import resolve_provider
+    from app.ai_usage import track_ai_call
+    from app.llm_calls import explain_wrong_options
+
+    s = await _survey_or_404(sid, ctx.org.id, session)
+    if not payload.wrong:
+        return {"explanations": {}}
+
+    provider = await resolve_provider(session, ctx.org.id)
+    async with track_ai_call(session, provider, ctx.org.id, "explain", sid, ctx.user.id):
+        out = await explain_wrong_options(
+            language=s.language or "es",
+            question=payload.title,
+            correct=payload.correct,
+            wrong=payload.wrong,
+        )
+    # Se devuelve como mapa opción -> texto, que es como lo guarda el editor.
+    pedidas = {w for w in payload.wrong}
+    mapa = {
+        e["option"]: e["why_wrong"]
+        for e in (out or {}).get("explanations", [])
+        if e.get("option") in pedidas and (e.get("why_wrong") or "").strip()
+    }
+    return {"explanations": mapa}

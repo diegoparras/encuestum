@@ -6,16 +6,20 @@ import { BuilderQuestion, Choice } from "./model";
 import { RubricEditor } from "./RubricEditor";
 import { resolveAssetUrl } from "./design";
 import { useI18n } from "@/lib/i18n";
+import { toast } from "sonner";
+import { surveyApi } from "../surveyApi";
 
 interface Props {
   question: BuilderQuestion;
   accent: string;
   onChange: (patch: Partial<BuilderQuestion>) => void;
+  /** Para pedirle a la IA las explicaciones de esta pregunta. */
+  surveyId?: string;
 }
 
 const OPEN_TYPES = new Set(["text", "email", "comment"]);
 
-export function GradingSection({ question: q, accent, onChange }: Props) {
+export function GradingSection({ question: q, accent, onChange, surveyId }: Props) {
   const { t } = useI18n();
   const isOpen = OPEN_TYPES.has(q.type);
   const grader = q.grader ?? (isOpen ? "llm" : "auto");
@@ -219,7 +223,147 @@ export function GradingSection({ question: q, accent, onChange }: Props) {
               </Field>
             </>
           )}
+
+          <ExplanationsBlock q={q} accent={accent} choiceTexts={choiceTexts} onChange={onChange} surveyId={surveyId} />
         </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Por qué la respuesta estaba mal, y si se revela la correcta.
+ *
+ * En preguntas de opción, la explicación va POR OPCIÓN: el motivo del error
+ * depende de qué eligió la persona, y un texto genérico no despeja la duda.
+ * Para el resto (y como red) hay una explicación de toda la pregunta.
+ */
+function ExplanationsBlock({
+  q,
+  accent,
+  choiceTexts,
+  onChange,
+  surveyId,
+}: {
+  q: BuilderQuestion;
+  accent: string;
+  choiceTexts: string[];
+  onChange: (patch: Partial<BuilderQuestion>) => void;
+  surveyId?: string;
+}) {
+  const { t } = useI18n();
+  const [abierto, setAbierto] = React.useState(false);
+  const [redactando, setRedactando] = React.useState(false);
+  const expl = q.explanations ?? {};
+  const correctas = new Set(
+    (q.correctChoices ?? []).concat(q.correctText ?? []).map(String)
+  );
+  const incorrectas = choiceTexts.filter((c) => !correctas.has(c));
+
+  function setOpcion(opcion: string, texto: string) {
+    onChange({ explanations: { ...expl, [opcion]: texto } });
+  }
+
+  return (
+    <div className="mt-3 border-t pt-3" style={{ borderColor: `${accent}33` }}>
+      <button
+        type="button"
+        onClick={() => setAbierto((v) => !v)}
+        className="mb-2 flex w-full items-center gap-1 text-xs font-semibold"
+        style={{ color: accent }}
+      >
+        {abierto ? "▾" : "▸"} {t("builder.grade.whyWrong")}
+      </button>
+
+      {abierto && (
+        <>
+          <label className="mb-3 flex items-start justify-between gap-3">
+            <span className="text-xs text-neutral-600 dark:text-neutral-300">
+              {t("builder.grade.revealCorrect")}
+              <span className="mt-0.5 block text-[11px] text-neutral-400">
+                {t("builder.grade.revealCorrectHint")}
+              </span>
+            </span>
+            <select
+              value={q.revealCorrect === undefined ? "inherit" : q.revealCorrect ? "yes" : "no"}
+              onChange={(e) =>
+                onChange({
+                  revealCorrect:
+                    e.target.value === "inherit" ? undefined : e.target.value === "yes",
+                })
+              }
+              className="shrink-0 rounded-md border border-neutral-200 bg-white px-2 py-1 text-xs dark:border-neutral-700 dark:bg-neutral-800"
+            >
+              <option value="inherit">{t("builder.grade.revealInherit")}</option>
+              <option value="yes">{t("builder.grade.revealYes")}</option>
+              <option value="no">{t("builder.grade.revealNo")}</option>
+            </select>
+          </label>
+
+          {incorrectas.length > 0 && (
+            <div className="space-y-2">
+              <div className="flex items-start justify-between gap-2">
+                <p className="text-[11px] text-neutral-400">
+                  {t("builder.grade.perOptionHint")}
+                </p>
+                {surveyId && (
+                  <button
+                    type="button"
+                    disabled={redactando}
+                    onClick={async () => {
+                      setRedactando(true);
+                      try {
+                        const { explanations } = await surveyApi.explainOptions(surveyId, {
+                          title: q.title,
+                          correct: [...correctas],
+                          wrong: incorrectas,
+                        });
+                        // No pisa lo que el autor ya escribió a mano.
+                        const mezcla = { ...explanations, ...expl };
+                        onChange({ explanations: mezcla });
+                        toast.success(t("builder.grade.explainDone"));
+                      } catch (e: any) {
+                        toast.error(e?.message || t("builder.grade.explainError"));
+                      } finally {
+                        setRedactando(false);
+                      }
+                    }}
+                    className="shrink-0 rounded-md border px-2 py-1 text-[11px] font-medium disabled:opacity-60"
+                    style={{ borderColor: accent, color: accent }}
+                  >
+                    {redactando ? t("builder.grade.explaining") : t("builder.grade.explainWithAi")}
+                  </button>
+                )}
+              </div>
+              {incorrectas.map((opcion) => (
+                <label key={opcion} className="block">
+                  <span className="mb-1 block truncate text-[11px] text-neutral-500 dark:text-neutral-400">
+                    {opcion}
+                  </span>
+                  <input
+                    value={expl[opcion] ?? ""}
+                    onChange={(e) => setOpcion(opcion, e.target.value)}
+                    placeholder={t("builder.grade.perOptionPlaceholder")}
+                    className="w-full rounded-md border border-neutral-200 px-2.5 py-1.5 text-sm outline-none focus:border-neutral-400 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
+                  />
+                </label>
+              ))}
+            </div>
+          )}
+
+          <label className="mt-3 block">
+            <span className="mb-1 block text-[11px] text-neutral-500 dark:text-neutral-400">
+              {t("builder.grade.generalExplanation")}
+            </span>
+            <textarea
+              value={q.explanation ?? ""}
+              onChange={(e) => onChange({ explanation: e.target.value })}
+              rows={2}
+              placeholder={t("builder.grade.generalExplanationPlaceholder")}
+              className="w-full rounded-md border border-neutral-200 px-2.5 py-2 text-sm outline-none focus:border-neutral-400 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
+            />
+          </label>
+        </>
       )}
     </div>
   );

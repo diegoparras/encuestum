@@ -96,6 +96,12 @@ interface GradedResult {
     awarded: number;
     points: number;
     feedback: string;
+    /** Lo que respondió esta persona (siempre viene). */
+    answer?: string;
+    /** La correcta: sólo si el autor habilitó revelarla en esta pregunta. */
+    correct_answer?: string;
+    /** Por qué no era correcta (del autor o de la IA). */
+    explanation?: string;
   }[];
 }
 
@@ -1034,8 +1040,28 @@ function ResultsScreen({
                 <VerdictDot verdict={q.verdict} />
                 <div className="min-w-0 flex-1">
                   <div className="text-sm font-medium text-neutral-800">{q.title}</div>
-                  {q.feedback && (
-                    <div className="text-xs text-neutral-500 mt-1">{q.feedback}</div>
+                  {/* Su propia respuesta: es el dato que despeja la duda, y
+                      antes no se mostraba en ningún lado. */}
+                  {q.answer ? (
+                    <div className="mt-1.5 text-xs text-neutral-600">
+                      <span className="text-neutral-400">{t("public.results.yourAnswer")}</span>{" "}
+                      <span className="font-medium">{q.answer}</span>
+                    </div>
+                  ) : (
+                    <div className="mt-1.5 text-xs italic text-neutral-400">
+                      {t("public.results.noAnswer")}
+                    </div>
+                  )}
+                  {q.correct_answer && (
+                    <div className="mt-1 text-xs text-green-700">
+                      <span className="text-green-600/70">{t("public.results.correctAnswer")}</span>{" "}
+                      <span className="font-medium">{q.correct_answer}</span>
+                    </div>
+                  )}
+                  {(q.explanation || q.feedback) && (
+                    <div className="mt-1.5 rounded-lg bg-neutral-50 px-2.5 py-1.5 text-xs leading-relaxed text-neutral-600">
+                      {q.explanation || q.feedback}
+                    </div>
                   )}
                 </div>
                 <div className="text-xs font-semibold text-neutral-400 shrink-0">

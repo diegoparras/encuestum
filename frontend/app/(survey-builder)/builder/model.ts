@@ -66,6 +66,14 @@ export interface BuilderQuestion {
   modelAnswer?: string;
   keyConcepts?: string[];
   rubric?: RubricItem[];
+  // Por qué una respuesta no era correcta. `explanations` es por opción (la
+  // clave es el texto de la opción); `explanation` vale para toda la pregunta.
+  // Lo que escribe el autor le gana al comentario que redacta la IA.
+  explanations?: Record<string, string>;
+  explanation?: string;
+  // Mostrar la respuesta correcta a quien respondió. `undefined` = heredar el
+  // ajuste de la encuesta; true/false lo fuerzan sólo en esta pregunta.
+  revealCorrect?: boolean;
 
   // Optional media shown above the question. imageUrl is an asset URL; videoUrl
   // may be a YouTube/Vimeo/mp4 URL or an uploaded video asset.
@@ -160,6 +168,9 @@ export interface EvaluationSettings {
   feedbackTiming: "immediate" | "onComplete" | "never";
   passingScore: number;
   showScoreToRespondent: boolean;
+  // Mostrar la respuesta correcta a quien se equivocó. Vale como valor por
+  // defecto: cada pregunta puede forzar lo contrario (ver revealCorrect).
+  revealCorrect: boolean;
   doublePass: boolean;
   reviewThreshold: number;
   aiCriteria: AiCriteria;
@@ -176,6 +187,7 @@ export const DEFAULT_EVALUATION: EvaluationSettings = {
   feedbackTiming: "onComplete",
   passingScore: 60,
   showScoreToRespondent: true,
+  revealCorrect: false,
   doublePass: false,
   reviewThreshold: 0.6,
   aiCriteria: { ...DEFAULT_AI_CRITERIA },
@@ -1310,6 +1322,7 @@ function hydrateEvaluationSettings(
     feedbackTiming: evaluation.feedbackTiming ?? "onComplete",
     passingScore: evaluation.passingScore ?? 60,
     showScoreToRespondent: evaluation.showScoreToRespondent ?? true,
+    revealCorrect: evaluation.revealCorrect ?? false,
     doublePass: !!evaluation.doublePass,
     reviewThreshold: evaluation.reviewThreshold ?? 0.6,
     aiCriteria: {
@@ -1363,6 +1376,9 @@ function hydrateGrading(
         : [];
     }
     q.modelAnswer = c.modelAnswer ?? "";
+    q.explanations = c.explanations && typeof c.explanations === "object" ? c.explanations : {};
+    q.explanation = c.explanation ?? "";
+    q.revealCorrect = typeof c.revealCorrect === "boolean" ? c.revealCorrect : undefined;
     q.keyConcepts = Array.isArray(c.keyConcepts) ? c.keyConcepts : [];
     q.rubric = Array.isArray(c.rubric)
       ? c.rubric.map((r: any) => newRubricItem(r.label ?? "", Number(r.points) || 0))
@@ -1414,6 +1430,13 @@ export function builderToEvaluation(
         cfg.caseSensitive = !!q.caseSensitive;
       }
     }
+    // Explicaciones y revelado: valen para cualquier tipo de pregunta.
+    const expl = Object.fromEntries(
+      Object.entries(q.explanations ?? {}).filter(([, v]) => (v ?? "").trim() !== "")
+    );
+    if (Object.keys(expl).length) cfg.explanations = expl;
+    if ((q.explanation ?? "").trim()) cfg.explanation = q.explanation!.trim();
+    if (q.revealCorrect !== undefined) cfg.revealCorrect = q.revealCorrect;
     questions[q.name] = cfg;
   }
   return { ...state.evaluation, questions };

@@ -400,6 +400,16 @@ export const surveyApi = {
       method: "POST",
       body: JSON.stringify({ survey_ids: surveyIds, folder_id: folderId }),
     }),
+  /** Redacta con IA por qué cada opción incorrecta no lo es (una vez por
+   *  pregunta al construir, no una vez por alumno). */
+  explainOptions: (
+    id: string,
+    body: { title: string; correct: string[]; wrong: string[] }
+  ) =>
+    request<{ explanations: Record<string, string> }>(
+      `/api/v1/survey/surveys/${id}/explain-options`,
+      { method: "POST", body: JSON.stringify(body) }
+    ),
   getDeletions: (id: string) =>
     request<ResponseDeletion[]>(`/api/v1/survey/surveys/${id}/deletions`),
   getReport: (id: string) =>

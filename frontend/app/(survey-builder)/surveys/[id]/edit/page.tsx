@@ -601,6 +601,7 @@ export default function SurveyEditorPage() {
             evaluation={state.evaluation}
             onEvaluationChange={setEvaluation}
             accent={state.accent}
+            surveyId={id}
           />
           {!selectedQuestion && (
             <div className="px-5 pb-6">

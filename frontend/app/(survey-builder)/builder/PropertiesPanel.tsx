@@ -61,6 +61,8 @@ interface Props {
   evaluation: EvaluationSettings;
   onEvaluationChange: (evaluation: EvaluationSettings) => void;
   accent: string;
+  /** Para que la corrección pueda pedirle explicaciones a la IA. */
+  surveyId?: string;
 }
 
 export function PropertiesPanel({
@@ -85,6 +87,7 @@ export function PropertiesPanel({
   evaluation,
   onEvaluationChange,
   accent,
+  surveyId,
 }: Props) {
   const { t } = useI18n();
   // Fechas en la zona horaria fija del servidor (ENCUESTUM_TIMEZONE).
@@ -581,7 +584,7 @@ export function PropertiesPanel({
       />
 
       {evaluation.enabled && (
-        <GradingSection question={q} accent={accent} onChange={onQuestionChange} />
+        <GradingSection question={q} accent={accent} onChange={onQuestionChange} surveyId={surveyId} />
       )}
 
       <VisibilitySection
@@ -979,6 +982,13 @@ function ExamSettings({
           label={t("builder.exam.showScore")}
           checked={evaluation.showScoreToRespondent}
           onChange={(v) => set({ showScoreToRespondent: v })}
+        />
+        {/* Valor por defecto: cada pregunta puede forzar lo contrario. */}
+        <ToggleRow
+          label={t("builder.exam.revealCorrect")}
+          hint={t("builder.exam.revealCorrectHint")}
+          checked={evaluation.revealCorrect}
+          onChange={(v) => set({ revealCorrect: v })}
         />
         <ToggleRow
           label={t("builder.exam.doublePass")}

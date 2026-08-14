@@ -30,13 +30,24 @@ export function GradesPanel({ surveyId, accent = SURVEY_ACCENT }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [grading, setGrading] = useState(false);
   const [onlyReview, setOnlyReview] = useState(false);
+  // Títulos de las preguntas: sin esto la corrección listaba el nombre interno
+  // (`radiogroup_1`) y corregir era adivinar de qué pregunta se hablaba.
+  const [titles, setTitles] = useState<Record<string, string>>({});
 
   async function load() {
     try {
-      const [an, resp] = await Promise.all([
+      const [an, resp, sv] = await Promise.all([
         surveyApi.analytics(surveyId),
         surveyApi.responses(surveyId),
+        surveyApi.get(surveyId),
       ]);
+      const mapa: Record<string, string> = {};
+      for (const page of (sv.json_schema as any)?.pages ?? []) {
+        for (const el of page?.elements ?? []) {
+          if (el?.name) mapa[el.name] = el.title || el.name;
+        }
+      }
+      setTitles(mapa);
       setAnalytics(an);
       setResponses(resp);
       setError(null);
@@ -211,6 +222,7 @@ export function GradesPanel({ surveyId, accent = SURVEY_ACCENT }: Props) {
               surveyId={surveyId}
               response={r}
               accent={accent}
+              titles={titles}
               onSaved={load}
             />
           ))}
@@ -229,11 +241,13 @@ function ResponseRow({
   surveyId,
   response,
   accent,
+  titles,
   onSaved,
 }: {
   surveyId: string;
   response: ResponseItem;
   accent: string;
+  titles: Record<string, string>;
   onSaved: () => void;
 }) {
   const [open, setOpen] = useState(false);
@@ -298,8 +312,14 @@ function ResponseRow({
               <VerdictDot verdict={q.verdict} />
               <div className="min-w-0 flex-1">
                 <div className="text-sm text-neutral-800 dark:text-neutral-200">
-                  {q.name}{" "}
+                  {titles[q.name] || q.name}{" "}
                   <span className="text-[11px] text-neutral-400 dark:text-neutral-500">({q.grader})</span>
+                </div>
+                {/* Qué contestó: quien corrige tenía la misma ceguera que el
+                    alumno — veía el veredicto pero no la respuesta. */}
+                <div className="mt-0.5 text-xs text-neutral-600 dark:text-neutral-300">
+                  <span className="text-neutral-400">Respondió:</span>{" "}
+                  {formatearRespuesta(response.answers?.[q.name])}
                 </div>
                 {q.feedback && (
                   <div className="text-xs text-neutral-500 dark:text-neutral-400">{q.feedback}</div>
@@ -429,6 +449,17 @@ function VerdictDot({ verdict }: { verdict: string }) {
 
 function csvCell(v: any): string {
   if (v === undefined || v === null) return "";
+  if (typeof v === "object") return JSON.stringify(v);
+  return String(v);
+}
+
+
+/** La respuesta tal como se lee (booleanos y listas incluidos). */
+function formatearRespuesta(v: any): React.ReactNode {
+  if (v === undefined || v === null || v === "" || (Array.isArray(v) && !v.length))
+    return <span className="italic text-neutral-400">sin respuesta</span>;
+  if (typeof v === "boolean") return v ? "Sí" : "No";
+  if (Array.isArray(v)) return v.join(", ");
   if (typeof v === "object") return JSON.stringify(v);
   return String(v);
 }
