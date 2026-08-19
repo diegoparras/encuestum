@@ -21,6 +21,12 @@
 //   2. Prendido y sin plataformas  -> botón que genera el link de registro.
 //   3. Con plataformas conectadas  -> lista con filas desplegables.
 //
+// En los estados 2 y 3 conviven las DOS formas de conectar: el registro
+// dinámico (un clic, pero lo tiene que hacer un administrador del sitio de
+// Moodle) y el alta manual (`LtiManualForm`, la única puerta para un docente
+// de curso). La línea que dice cuál te corresponde va al lado de los dos
+// botones: elegir mal cuesta más que cualquiera de los dos flujos.
+//
 // El estado 1 se resuelve con `ltiEnabled()` ANTES de tocar ningún `/lti/*`:
 // con la bandera apagada esos endpoints devuelven 404 y sin el chequeo previo
 // se vería un error de red donde debería haber una explicación. El módulo no
@@ -44,6 +50,7 @@ import {
   GraduationCap,
   Link2,
   Loader2,
+  Plug,
   Plus,
   Unplug,
 } from "lucide-react";
@@ -56,6 +63,7 @@ import {
   type LtiLink,
   type LtiPlatform,
 } from "@/utils/lti";
+import LtiManualForm from "./LtiManualForm";
 import ModPanel from "./ModPanel";
 import { useAsyncData } from "@/lib/useAsyncData";
 import { useI18n } from "@/lib/i18n";
@@ -196,6 +204,9 @@ function PanelLti() {
   // Link de registro recién generado (no se persiste: vale 30 minutos).
   const [registro, setRegistro] = useState<string | null>(null);
   const [generando, setGenerando] = useState(false);
+
+  // El formulario de alta manual, plegado hasta que alguien lo pide.
+  const [manual, setManual] = useState(false);
 
   // Detalle por plataforma, cargado la primera vez que se despliega la fila.
   const [abierta, setAbierta] = useState<string | null>(null);
@@ -431,15 +442,50 @@ function PanelLti() {
           </ul>
         )}
 
-        {plataformas.length > 0 && (
-          <Button variant="outline" size="sm" disabled={generando} onClick={onGenerar}>
-            {generando ? (
-              <Loader2 className="h-4 w-4 animate-spin" />
-            ) : (
-              <Plus className="h-4 w-4" />
+        <div className="space-y-2">
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Sin plataformas, el botón de registro dinámico ya está adentro
+                del recuadro punteado; acá sólo va el del alta manual. */}
+            {plataformas.length > 0 && (
+              <Button variant="outline" size="sm" disabled={generando} onClick={onGenerar}>
+                {generando ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Plus className="h-4 w-4" />
+                )}
+                {t("integrations.moodle.connectMore")}
+              </Button>
             )}
-            {t("integrations.moodle.connectMore")}
-          </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              aria-expanded={manual}
+              onClick={() => setManual((v) => !v)}
+            >
+              <Plug className="h-4 w-4" />
+              {manual
+                ? t("integrations.moodle.manual.close")
+                : t("integrations.moodle.manual.open")}
+            </Button>
+          </div>
+          {/* Cuál de las dos te corresponde. Una línea, al lado de los dos
+              botones: quien no es admin del sitio de Moodle puede pasarse
+              media hora peleando con el registro dinámico sin saber que nunca
+              iba a andar para él. */}
+          <p className="text-xs text-neutral-400 dark:text-neutral-500">
+            {t("integrations.moodle.manual.which")}
+          </p>
+        </div>
+
+        {manual && (
+          <LtiManualForm
+            onCreada={() => {
+              // Se pliega y se recarga el listado: la plataforma nueva tiene
+              // que aparecer arriba, no quedar invisible hasta un F5.
+              setManual(false);
+              reload();
+            }}
+          />
         )}
 
         {registro && (
