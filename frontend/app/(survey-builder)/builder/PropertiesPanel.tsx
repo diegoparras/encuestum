@@ -3,6 +3,7 @@
 import React from "react";
 import { Switch } from "@/components/ui/switch";
 import {
+  arrastrarCorrectas,
   AiCriteria,
   BRANCH_END,
   BranchRule,
@@ -414,7 +415,9 @@ export function PropertiesPanel({
           <Field label={t("builder.props.optionsImage")}>
             <ImageChoicesEditor
               choices={q.choices ?? []}
-              onChange={(choices) => onQuestionChange({ choices })}
+              onChange={(choices) =>
+                onQuestionChange({ choices, ...arrastrarCorrectas(q, choices) })
+              }
             />
           </Field>
           <ToggleRow
@@ -429,7 +432,9 @@ export function PropertiesPanel({
           <Field label={t("builder.props.options")}>
             <ChoicesEditor
               choices={q.choices ?? []}
-              onChange={(choices) => onQuestionChange({ choices })}
+              onChange={(choices) =>
+                onQuestionChange({ choices, ...arrastrarCorrectas(q, choices) })
+              }
             />
           </Field>
         )

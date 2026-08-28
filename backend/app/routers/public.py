@@ -20,7 +20,12 @@ from app.schemas import (
     SurveyAccessRequest,
     public_evaluation_meta,
 )
-from app.grading import extract_question_types, grade_deterministic, grade_response
+from app.grading import (
+    extract_question_choices,
+    extract_question_types,
+    grade_deterministic,
+    grade_response,
+)
 from app.models import _utcnow
 from app.security import create_purpose_token, read_purpose_token
 from app.webhooks import schedule_response_delivery
@@ -529,7 +534,9 @@ async def submit(
             async with track_ai_call(session, provider, s.org_id, "grade", s.id):
                 grade = await grade_response(
                     evaluation=evaluation, answers=r.answers,
-                    question_types=extract_question_types(s.json_schema), language=s.language or "es",
+                    question_types=extract_question_types(s.json_schema),
+                    question_choices=extract_question_choices(s.json_schema),
+                    language=s.language or "es",
                 )
             r.grade = grade
             r.score = grade.get("total")
@@ -705,7 +712,10 @@ async def grade_question(
             awarded = max(0.0, min(points, float(raw.get("score", 0) or 0)))
             return {"name": payload.name, "verdict": raw.get("verdict"), "awarded": round(awarded, 3),
                     "points": points, "feedback": raw.get("feedback", "")}
-        res = grade_deterministic(qcfg, qtype, payload.answer)
+        res = grade_deterministic(
+            qcfg, qtype, payload.answer,
+            extract_question_choices(s.json_schema).get(payload.name),
+        )
         return {"name": payload.name, "verdict": res.get("verdict"), "awarded": res.get("awarded"),
                 "points": points, "feedback": res.get("feedback", "")}
     except HTTPException:

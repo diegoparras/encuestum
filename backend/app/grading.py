@@ -21,6 +21,64 @@ GraderFn = Callable[..., Awaitable[dict]]
 _DISAGREE_FRACTION = 0.2
 
 
+def extract_question_choices(json_schema: Optional[dict]) -> Dict[str, set]:
+    """Mapa nombre → opciones que realmente se pueden elegir.
+
+    Sirve para no puntuar contra respuestas correctas fantasma: si una opción se
+    renombra o se borra, su texto viejo puede haber quedado marcado como correcto
+    en la configuración, y nadie puede volver a elegirlo.
+
+    Sólo se devuelven las preguntas con lista de opciones ESTÁTICA. Si vienen de
+    otro lado (`choicesByUrl`, `choicesFromQuestion`), acá no hay nada que
+    comparar y no hay que sacar conclusiones: se omite la pregunta."""
+    out: Dict[str, set] = {}
+    if not isinstance(json_schema, dict):
+        return out
+    for page in json_schema.get("pages", []) or []:
+        for el in page.get("elements", []) or []:
+            nombre = el.get("name")
+            opciones = el.get("choices")
+            if not nombre or not isinstance(opciones, list) or not opciones:
+                continue
+            textos = set()
+            for c in opciones:
+                if isinstance(c, dict):
+                    # El valor es lo que se guarda como respuesta; el texto es lo
+                    # que se ve. El builder los escribe iguales, pero un esquema
+                    # importado puede traerlos distintos: entran los dos.
+                    for k in ("value", "text"):
+                        v = c.get(k)
+                        if v is not None and str(v).strip():
+                            textos.add(str(v))
+                elif str(c).strip():
+                    textos.add(str(c))
+            if textos:
+                out[nombre] = textos
+    return out
+
+
+def correctas_alcanzables(qcfg: dict, opciones: Optional[set]) -> list:
+    """Las respuestas correctas configuradas que todavía se pueden elegir.
+
+    Las correctas se guardan por TEXTO. Si después se edita el texto de una
+    opción, el viejo queda marcado como correcto para siempre y ya no aparece en
+    ninguna lista: es inalcanzable. Con crédito parcial eso divide el puntaje por
+    un total que incluye respuestas imposibles, así que un examen contestado
+    perfecto podía dar 0.5.
+
+    Sin opciones conocidas (pregunta con opciones dinámicas) no se toca nada."""
+    configuradas = qcfg.get("correct") or []
+    if not isinstance(configuradas, list):
+        configuradas = [configuradas]
+    if not opciones:
+        return [str(c) for c in configuradas]
+    vivas = [str(c) for c in configuradas if str(c) in opciones]
+    # Si NINGUNA sobrevive, algo no cuadra (¿otro esquema? ¿otro separador?).
+    # Devolver la lista vacía pondría 0 a todo el mundo en silencio, que es peor
+    # que el problema original: ante la duda, se respeta lo configurado.
+    return vivas or [str(c) for c in configuradas]
+
+
 def extract_question_types(json_schema: Optional[dict]) -> Dict[str, str]:
     """Map question name → normalized type ('email' distinguished from 'text')."""
     types: Dict[str, str] = {}
@@ -61,7 +119,9 @@ def _verdict(awarded: float, points: float) -> str:
     return "partial"
 
 
-def grade_deterministic(qcfg: dict, qtype: str, answer: Any) -> dict:
+def grade_deterministic(
+    qcfg: dict, qtype: str, answer: Any, opciones: Optional[set] = None
+) -> dict:
     """Grade a single deterministic question. Returns a per-question result."""
     points = float(qcfg.get("points", 1) or 0)
     blank = answer is None or (isinstance(answer, (list, str)) and len(answer) == 0)
@@ -77,8 +137,9 @@ def grade_deterministic(qcfg: dict, qtype: str, answer: Any) -> dict:
     if blank:
         detail = "Sin respuesta."
     elif qtype == "checkbox":
-        correct = qcfg.get("correct") or []
-        correct_set = {str(c) for c in correct}
+        # Sólo las que se pueden elegir de verdad: una correcta fantasma
+        # (opción renombrada o borrada) haría imposible el puntaje completo.
+        correct_set = set(correctas_alcanzables(qcfg, opciones))
         answer_set = {str(a) for a in (answer if isinstance(answer, list) else [answer])}
         hits = len(correct_set & answer_set)
         wrong = len(answer_set - correct_set)
@@ -187,6 +248,7 @@ async def grade_response(
     evaluation: dict,
     answers: dict,
     question_types: Dict[str, str],
+    question_choices: Optional[Dict[str, set]] = None,
     language: str = "es",
     grader: Optional[GraderFn] = None,
 ) -> dict:
@@ -254,7 +316,9 @@ async def grade_response(
                 }
         else:
             used_auto = True
-            combined = grade_deterministic(qcfg, qtype, answer)
+            combined = grade_deterministic(
+                qcfg, qtype, answer, (question_choices or {}).get(name)
+            )
 
         awarded = float(combined.get("awarded", 0) or 0)
         total += awarded

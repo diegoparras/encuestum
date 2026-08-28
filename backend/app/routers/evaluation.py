@@ -12,7 +12,11 @@ from app.deps import OrgContext, current_context
 from app.hygiene import counted_only
 from app.models import Survey, SurveyResponse, _utcnow
 from app.schemas import GenerateQuestionsRequest, OverrideRequest, ResponseItem
-from app.grading import extract_question_types, grade_response
+from app.grading import (
+    extract_question_choices,
+    extract_question_types,
+    grade_response,
+)
 
 router = APIRouter(prefix="/surveys", tags=["evaluation"])
 
@@ -57,7 +61,9 @@ def _conservar_ediciones(anterior: dict | None, nuevo: dict) -> dict:
 async def _grade_and_store(s, r, session):
     grade = await grade_response(
         evaluation=s.evaluation or {}, answers=r.answers or {},
-        question_types=extract_question_types(s.json_schema), language=s.language or "es",
+        question_types=extract_question_types(s.json_schema),
+        question_choices=extract_question_choices(s.json_schema),
+        language=s.language or "es",
     )
     grade = _conservar_ediciones(r.grade, grade)
     r.grade = grade

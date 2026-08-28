@@ -622,6 +622,42 @@ export const QUESTION_TYPE_LABEL: Record<QuestionType, string> = Object.fromEntr
   QUESTION_TYPES.map((q) => [q.type, q.label])
 ) as Record<QuestionType, string>;
 
+/** Al cambiar las opciones, arrastra las marcas de "respuesta correcta".
+ *
+ *  Las correctas se guardan por TEXTO, no por id. Si después se renombra una
+ *  opción, el texto viejo queda marcado como correcto para siempre y ya no
+ *  aparece en ninguna lista: nadie puede elegirlo nunca más. Con crédito parcial
+ *  eso divide el puntaje por un total que incluye respuestas imposibles, y un
+ *  examen contestado perfecto da menos de 100%.
+ *
+ *  Las opciones sí tienen id estable, así que una renombrada se puede seguir: la
+ *  marca la acompaña. Una borrada pierde su marca, que es lo correcto. */
+export function arrastrarCorrectas(
+  q: BuilderQuestion,
+  nuevas: Choice[]
+): Partial<BuilderQuestion> {
+  const marcadas = q.correctChoices ?? [];
+  if (!marcadas.length) return {};
+  const textoAnterior = new Map((q.choices ?? []).map((c) => [c.id, c.text]));
+  const textoNuevo = new Map(nuevas.map((c) => [c.id, c.text]));
+  const vigentes = new Set(nuevas.map((c) => c.text));
+
+  const salida: string[] = [];
+  for (const marca of marcadas) {
+    if (vigentes.has(marca)) {
+      salida.push(marca); // la opción sigue igual
+      continue;
+    }
+    // No está: ¿se renombró? Se busca por el id que antes tenía ese texto.
+    let id: string | undefined;
+    for (const [k, t] of textoAnterior) if (t === marca) { id = k; break; }
+    const renombrada = id ? textoNuevo.get(id) : undefined;
+    if (renombrada) salida.push(renombrada);
+    // Si tampoco está por id, la opción se borró: la marca se cae con ella.
+  }
+  return { correctChoices: [...new Set(salida)] };
+}
+
 /** El tipo de pregunta en castellano, para mostrarle a una persona.
  *  `radiogroup` no le dice nada a quien corrige; "Opción única", sí.
  *
