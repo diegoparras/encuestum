@@ -427,10 +427,50 @@ export interface GeneratedQuestion {
   title: string;
   choices: string[];
   correctIndices: number[];
+  acceptableAnswers?: string[];
   modelAnswer: string;
   keyConcepts: string[];
   rubric: { label: string; points: number }[];
   points: number;
+  explanations?: { option: string; why_wrong: string }[];
+  bloom?: string;
+  objective?: string;
+  sourceQuote?: string;
+  /** true: la cita está en el material; false: no aparece; null: sin material. */
+  sourceVerified?: boolean | null;
+}
+
+export interface GenerateBody {
+  topic: string;
+  count: number;
+  types: string[];
+  language: string;
+  difficulty?: string;
+  context?: string;
+  bloom?: string[];
+  objectives?: string;
+  existing_titles?: string[];
+  variant_of?: Partial<GeneratedQuestion>;
+}
+
+export interface GenerateResult {
+  questions: GeneratedQuestion[];
+  usage?: UsageInfo;
+  dropped_duplicates?: number;
+  material?: { chars: number; used_chars: number; truncated: boolean } | null;
+}
+
+export interface WordingReview {
+  name: string;
+  issues: { kind: string; detail: string; suggestion: string }[];
+  rewrite: string;
+}
+
+export interface DataAnswer {
+  answer: string;
+  figures: { label: string; value: string }[];
+  caveats: string[];
+  answerable: boolean;
 }
 
 export interface SummaryOptions {
@@ -689,14 +729,50 @@ export const surveyApi = {
     request<Insights>(`/api/v1/survey/surveys/${id}/insights`),
   generateInsights: (id: string) =>
     request<Insights>(`/api/v1/survey/surveys/${id}/insights`, { method: "POST" }),
-  generateQuestions: (
+  generateQuestions: (id: string, body: GenerateBody) =>
+    request<GenerateResult>(`/api/v1/survey/surveys/${id}/generate-questions`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  /** Texto de un PDF/DOCX/HTML/TXT subido o de una página web, para usar como
+   *  material de la generación. */
+  extractMaterial: async (id: string, src: { file?: File; url?: string }) => {
+    const fd = new FormData();
+    if (src.file) fd.append("file", src.file);
+    if (src.url) fd.append("url", src.url);
+    const res = await fetch(getApiUrl(`/api/v1/survey/surveys/${id}/generate/material`), {
+      method: "POST",
+      credentials: "include",
+      body: fd,
+    });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(typeof j?.detail === "string" ? j.detail : `Error ${res.status}`);
+    return j as { text: string; chars: number; source: string };
+  },
+  reviewWording: (
     id: string,
-    body: { topic: string; count: number; types: string[]; language: string; difficulty?: string; context?: string }
+    questions: { name: string; title: string; type: string; choices: string[]; rateMin?: number; rateMax?: number }[]
   ) =>
-    request<{ questions: GeneratedQuestion[]; usage?: UsageInfo }>(
-      `/api/v1/survey/surveys/${id}/generate-questions`,
-      { method: "POST", body: JSON.stringify(body) }
-    ),
+    request<{ questions: WordingReview[]; usage?: UsageInfo }>(`/api/v1/survey/surveys/${id}/review-wording`, {
+      method: "POST",
+      body: JSON.stringify({ questions }),
+    }),
+  suggestRubric: (id: string, name: string, body: { title?: string; model_answer?: string; points?: number }) =>
+    request<{
+      rubric: { label: string; points: number; description: string }[];
+      keyConcepts: string[];
+      common_errors: string[];
+      sample_size: number;
+      usage?: UsageInfo;
+    }>(`/api/v1/survey/surveys/${id}/questions/${encodeURIComponent(name)}/suggest-rubric`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  ask: (id: string, question: string, segmentBy?: string | null) =>
+    request<DataAnswer & { usage?: UsageInfo }>(`/api/v1/survey/surveys/${id}/ask`, {
+      method: "POST",
+      body: JSON.stringify({ question, segment_by: segmentBy || null }),
+    }),
 
   // ---- Acceso: invitados (modo lista) y liberación de resultados ----
   listInvitees: (id: string) =>

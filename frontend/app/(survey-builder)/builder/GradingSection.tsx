@@ -2,7 +2,7 @@
 
 import React from "react";
 import { Switch } from "@/components/ui/switch";
-import { BuilderQuestion, Choice, RevealMode } from "./model";
+import { BuilderQuestion, Choice, RevealMode, newRubricItem } from "./model";
 import { RubricEditor } from "./RubricEditor";
 import { resolveAssetUrl } from "./design";
 import { useI18n } from "@/lib/i18n";
@@ -220,6 +220,7 @@ export function GradingSection({ question: q, accent, onChange, surveyId }: Prop
                   rubric={q.rubric ?? []}
                   onChange={(rubric) => onChange({ rubric })}
                 />
+                {surveyId && <SuggestRubricButton q={q} surveyId={surveyId} onChange={onChange} />}
               </Field>
             </>
           )}
@@ -629,6 +630,63 @@ function ToggleRow({
     <div className="flex items-center justify-between gap-3">
       <span className="text-sm text-neutral-700 dark:text-neutral-300">{label}</span>
       <Switch checked={checked} onCheckedChange={onChange} />
+    </div>
+  );
+}
+
+/** Rúbrica propuesta por la IA leyendo hasta 10 respuestas reales de esta
+ *  pregunta (sólo tiene sentido una vez que hay respuestas). */
+function SuggestRubricButton({
+  q,
+  surveyId,
+  onChange,
+}: {
+  q: BuilderQuestion;
+  surveyId: string;
+  onChange: (patch: Partial<BuilderQuestion>) => void;
+}) {
+  const { t } = useI18n();
+  const [busy, setBusy] = React.useState(false);
+  const [errores, setErrores] = React.useState<string[]>([]);
+
+  async function sugerir() {
+    if ((q.rubric ?? []).length && !window.confirm(t("builder.grade.suggestRubricConfirm"))) return;
+    setBusy(true);
+    try {
+      const r = await surveyApi.suggestRubric(surveyId, q.name, {
+        title: q.title,
+        model_answer: q.modelAnswer,
+        points: q.points,
+      });
+      onChange({
+        rubric: r.rubric.map((c) => newRubricItem(c.description ? `${c.label}: ${c.description}` : c.label, c.points)),
+        keyConcepts: r.keyConcepts.length ? r.keyConcepts : q.keyConcepts,
+      });
+      setErrores(r.common_errors);
+      toast.success(t("builder.grade.suggestRubricDone", { n: r.sample_size }));
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="mt-2">
+      <button
+        type="button"
+        onClick={sugerir}
+        disabled={busy}
+        title={t("builder.grade.suggestRubricTitle")}
+        className="inline-flex items-center gap-1.5 rounded-md border border-neutral-200 px-2 py-1 text-xs font-medium text-neutral-600 hover:bg-neutral-50 disabled:opacity-60 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
+      >
+        {busy ? "…" : "✨"} {t("builder.grade.suggestRubric")}
+      </button>
+      {errores.length > 0 && (
+        <p className="mt-1.5 text-[11px] text-neutral-500 dark:text-neutral-400">
+          {t("builder.grade.commonErrors", { list: errores.join(" · ") })}
+        </p>
+      )}
     </div>
   );
 }

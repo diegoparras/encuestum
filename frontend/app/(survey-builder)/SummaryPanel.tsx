@@ -23,6 +23,8 @@ import {
   AlertTriangle,
   ShieldAlert,
   Loader2,
+  Sparkles,
+  Send,
 } from "lucide-react";
 import {
   surveyApi,
@@ -34,6 +36,7 @@ import {
   type Funnel,
   type Significance,
   type QualityReport,
+  type DataAnswer,
 } from "./surveyApi";
 import { useI18n } from "@/lib/i18n";
 import { useAsyncData } from "@/lib/useAsyncData";
@@ -141,6 +144,8 @@ export function SummaryPanel({
       )}
 
       {hasResponses && <QualityCard surveyId={surveyId} onExcluded={reload} />}
+
+      {hasResponses && <AskCard surveyId={surveyId} segmentBy={segmentBy} accent={accent} />}
 
       {!hasResponses ? (
         <div className="rounded-xl border border-dashed border-neutral-300 py-14 text-center dark:border-neutral-700">
@@ -1424,6 +1429,81 @@ function FunnelExtras({ funnel }: { funnel: Funnel }) {
             </span>
           }
         />
+      )}
+    </div>
+  );
+}
+
+/** "Preguntale a tus datos": la IA responde con los números que calcula el
+ *  servidor (no inventa). Si hay un segmento activo, el cruce va en el
+ *  contexto, con su prueba de significancia. */
+function AskCard({ surveyId, segmentBy, accent }: { surveyId: string; segmentBy: string | null; accent: string }) {
+  const [q, setQ] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [res, setRes] = useState<DataAnswer | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function preguntar(e: React.FormEvent) {
+    e.preventDefault();
+    if (q.trim().length < 3) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      setRes(await surveyApi.ask(surveyId, q.trim(), segmentBy));
+    } catch (x) {
+      setErr(x instanceof Error ? x.message : String(x));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="rounded-xl border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900 print:hidden">
+      <form onSubmit={preguntar} className="flex items-center gap-2">
+        <Sparkles className="h-4 w-4 shrink-0" style={{ color: accent }} />
+        <input
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          maxLength={500}
+          placeholder={
+            segmentBy
+              ? "Preguntale a tus datos (con el cruce activo): ¿qué grupo está más conforme?"
+              : "Preguntale a tus datos: ¿qué es lo que más se critica?"
+          }
+          className="min-w-0 flex-1 bg-transparent text-sm outline-none"
+        />
+        <button
+          type="submit"
+          disabled={busy || q.trim().length < 3}
+          className="inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-medium text-white disabled:opacity-50"
+          style={{ backgroundColor: accent }}
+        >
+          {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />} Preguntar
+        </button>
+      </form>
+      {err && <p className="mt-2 text-sm text-red-600">{err}</p>}
+      {res && (
+        <div className="mt-3 border-t border-neutral-100 pt-3 text-sm dark:border-neutral-800">
+          <p className={res.answerable ? "text-neutral-800 dark:text-neutral-100" : "text-neutral-500"}>{res.answer}</p>
+          {res.figures.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {res.figures.map((f, i) => (
+                <span key={i} className="rounded-md bg-neutral-100 px-2 py-0.5 text-xs dark:bg-neutral-800">
+                  <span className="text-neutral-500">{f.label}:</span>{" "}
+                  <span className="font-semibold tabular-nums">{f.value}</span>
+                </span>
+              ))}
+            </div>
+          )}
+          {res.caveats.map((c, i) => (
+            <p key={i} className="mt-1.5 flex items-start gap-1 text-xs text-amber-700 dark:text-amber-400">
+              <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" /> {c}
+            </p>
+          ))}
+          <p className="mt-2 text-[11px] text-neutral-400">
+            Las cifras salen de los datos calculados por Encuestum, no de la IA. Verificalas en los gráficos.
+          </p>
+        </div>
       )}
     </div>
   );

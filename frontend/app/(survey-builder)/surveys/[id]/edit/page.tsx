@@ -14,7 +14,7 @@ import {
   ListChecks,
   Check,
 } from "lucide-react";
-import { GraduationCap, Sparkles, Palette } from "lucide-react";
+import { GraduationCap, Sparkles, Palette, SpellCheck2 } from "lucide-react";
 import {
   surveyApi,
   type UsageInfo,
@@ -49,6 +49,7 @@ import { PropertiesPanel } from "../../../builder/PropertiesPanel";
 import { AccentPicker } from "../../../builder/AccentPicker";
 import { DesignPanel } from "../../../builder/DesignPanel";
 import { GenerateDialog } from "../../../builder/GenerateDialog";
+import { WordingReviewDialog } from "../../../builder/WordingReview";
 
 // SurveyJS es pesado: diferimos la vista previa a un chunk perezoso (ssr:false)
 // para que no entre en el bundle inicial del editor. El registro del tipo de
@@ -106,8 +107,25 @@ export default function SurveyEditorPage() {
   // Secuencia de cambios: si el usuario editó mientras se guardaba, no marcamos "limpio".
   const changeSeqRef = useRef(0);
   const [genOpen, setGenOpen] = useState(false);
+  const [wordingOpen, setWordingOpen] = useState(false);
   const [designOpen, setDesignOpen] = useState(false);
   const [lastUsage, setLastUsage] = useState<UsageInfo | null>(null);
+  const sumarUso = useCallback(
+    (u: UsageInfo) =>
+      setLastUsage((prev) =>
+        prev
+          ? {
+              ...u,
+              prompt_tokens: (prev.prompt_tokens ?? 0) + (u.prompt_tokens ?? 0),
+              completion_tokens: (prev.completion_tokens ?? 0) + (u.completion_tokens ?? 0),
+              total_tokens: (prev.total_tokens ?? 0) + (u.total_tokens ?? 0),
+              cost_usd:
+                prev.cost_usd == null && u.cost_usd == null ? null : (prev.cost_usd ?? 0) + (u.cost_usd ?? 0),
+            }
+          : u
+      ),
+    []
+  );
 
   // Carga la encuesta y arma el estado del builder dentro del fetcher, para que
   // cualquier fallo (conexión o parseo) quede capturado como estado de error.
@@ -483,6 +501,15 @@ export default function SurveyEditorPage() {
           </button>
 
           <button
+            onClick={() => setWordingOpen(true)}
+            disabled={!state.questions.length}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-neutral-200 dark:border-neutral-800 px-2.5 py-1.5 text-xs font-medium text-neutral-600 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 disabled:opacity-50"
+            title={t("builder.page.wordingTitle")}
+          >
+            <SpellCheck2 className="w-4 h-4" /> {t("builder.page.wording")}
+          </button>
+
+          <button
             onClick={() => setDesignOpen(true)}
             className="inline-flex items-center gap-1.5 rounded-lg border border-neutral-200 dark:border-neutral-800 px-2.5 py-1.5 text-xs font-medium text-neutral-600 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800"
             title={t("builder.page.designTitle")}
@@ -674,15 +701,32 @@ export default function SurveyEditorPage() {
         open={genOpen}
         accent={state.accent}
         language={language || "es"}
+        surveyId={id}
+        existingTitles={state.questions.map((q) => q.title).filter(Boolean)}
         onClose={() => setGenOpen(false)}
-        onGenerate={async (body) => {
-          const res = await surveyApi.generateQuestions(id, body);
-          insertGenerated(res.questions || []);
-          if (res.usage) setLastUsage(res.usage);
-        }}
+        onInsert={insertGenerated}
+        onUsage={sumarUso}
       />
 
-      {lastUsage && (
+      {wordingOpen && (
+        <WordingReviewDialog
+          surveyId={id}
+          questions={state.questions}
+          accent={state.accent}
+          onClose={() => setWordingOpen(false)}
+          onUsage={sumarUso}
+          onApply={(qid, title) =>
+            mutate((prev) => ({
+              ...prev,
+              questions: prev.questions.map((q) => (q.id === qid ? { ...q, title } : q)),
+            }))
+          }
+        />
+      )}
+
+      {/* Se muestra al cerrar el generador o la revisión (encima los taparía),
+          con el consumo sumado de todas las llamadas de esa sesión. */}
+      {lastUsage && !genOpen && !wordingOpen && (
         <UsageModal usage={lastUsage} onClose={() => setLastUsage(null)} />
       )}
     </div>

@@ -767,7 +767,7 @@ export function createQuestion(type: QuestionType, index: number): BuilderQuesti
 export function generatedToQuestion(gen: any, index: number): BuilderQuestion {
   const rawType = String(gen?.type || "comment");
   const type: QuestionType = (
-    ["radiogroup", "checkbox", "comment", "text", "boolean", "rating"].includes(rawType)
+    ["radiogroup", "checkbox", "dropdown", "comment", "text", "boolean", "rating"].includes(rawType)
       ? rawType
       : "comment"
   ) as QuestionType;
@@ -798,6 +798,10 @@ export function generatedToQuestion(gen: any, index: number): BuilderQuestion {
   } else if (type === "rating") {
     q.grader = "auto";
     q.correctNumber = Number(gen?.modelAnswer) || undefined;
+  } else if (type === "text" && Array.isArray(gen?.acceptableAnswers) && gen.acceptableAnswers.length) {
+    // Respuesta corta: corrección automática contra las formas aceptables.
+    q.grader = "auto";
+    q.correctText = gen.acceptableAnswers.map(String).filter((s: string) => s.trim() !== "");
   } else {
     q.grader = "llm";
     q.modelAnswer = gen?.modelAnswer || "";
@@ -805,6 +809,13 @@ export function generatedToQuestion(gen: any, index: number): BuilderQuestion {
     q.rubric = Array.isArray(gen?.rubric)
       ? gen.rubric.map((r: any) => newRubricItem(r.label ?? "", Number(r.points) || 0))
       : [];
+  }
+  // Por qué cada distractor es incorrecto, generado en la misma llamada.
+  if (Array.isArray(gen?.explanations) && gen.explanations.length) {
+    const expl: { option?: unknown; why_wrong?: unknown }[] = gen.explanations;
+    q.explanations = Object.fromEntries(
+      expl.filter((e) => e?.option && e?.why_wrong).map((e) => [String(e.option), String(e.why_wrong)])
+    );
   }
   return q;
 }
