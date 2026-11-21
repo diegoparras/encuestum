@@ -262,9 +262,41 @@ async def retry_now(session: AsyncSession, job: Job) -> None:
     session.add(job)
 
 
+DONE_TTL = timedelta(days=90)
+_MAINTENANCE_EVERY = timedelta(hours=1)
+
+
+async def maintenance() -> dict:
+    """Limpieza periódica: borradores vencidos y tareas terminadas viejas.
+
+    Las tareas FALLIDAS no se borran: son las que alguien tiene que mirar. Las
+    terminadas bien se conservan 90 días como registro de entregas."""
+    from sqlalchemy import delete
+
+    from app.db import _session_maker
+    from app.models import DRAFT_TTL_DAYS, SurveyDraft
+
+    async with _session_maker() as session:
+        borradores = await session.execute(
+            delete(SurveyDraft).where(SurveyDraft.updated_at < _now() - timedelta(days=DRAFT_TTL_DAYS))
+        )
+        viejas = await session.execute(
+            delete(Job).where(Job.status == JOB_DONE, Job.finished_at < _now() - DONE_TTL)
+        )
+        await session.commit()
+    return {"drafts": borradores.rowcount or 0, "jobs": viejas.rowcount or 0}
+
+
 async def worker_loop(stop: asyncio.Event) -> None:
     LOGGER.info("Worker de tareas en segundo plano iniciado.")
+    ultimo_mantenimiento = None
     while not stop.is_set():
+        if ultimo_mantenimiento is None or _now() - ultimo_mantenimiento > _MAINTENANCE_EVERY:
+            ultimo_mantenimiento = _now()
+            try:
+                await maintenance()
+            except Exception as exc:  # noqa: BLE001
+                LOGGER.warning("mantenimiento de la cola falló: %s", exc)
         try:
             n = await run_pending()
         except Exception as exc:  # noqa: BLE001 — el worker no se muere por una tanda

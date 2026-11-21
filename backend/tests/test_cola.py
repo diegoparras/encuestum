@@ -160,3 +160,77 @@ def test_las_entregas_de_otra_organizacion_no_se_ven_ni_se_reintentan(monkeypatc
     otro, _o, otra_sid, _ = _setup()
     assert otro.get(f"{API}/surveys/{sid}/deliveries").status_code == 404
     assert otro.post(f"{API}/surveys/{otra_sid}/deliveries/{fila['id']}/retry").status_code == 404
+
+
+def test_respuestas_paginadas_y_filtradas_del_lado_del_servidor():
+    c, _me, sid, slug = _setup()
+    ids = [_submit(slug, {"cap": "París" if i % 2 else "Madrid"}) for i in range(5)]
+    r = c.get(f"{API}/surveys/{sid}/responses?limit=2&offset=0")
+    assert r.headers["x-total-count"] == "5" and len(r.json()) == 2
+    pagina2 = c.get(f"{API}/surveys/{sid}/responses?limit=2&offset=2").json()
+    pagina3 = c.get(f"{API}/surveys/{sid}/responses?limit=2&offset=4").json()
+    vistos = [x["id"] for x in r.json() + pagina2 + pagina3]
+    assert sorted(vistos) == sorted(ids) and len(set(vistos)) == 5
+    c.post(f"{API}/surveys/{sid}/responses/bulk", json={"ids": ids[:2], "action": "exclude"})
+    excl = c.get(f"{API}/surveys/{sid}/responses?filter=excluded")
+    assert excl.headers["x-total-count"] == "2"
+    assert c.get(f"{API}/surveys/{sid}/responses?filter=counted").headers["x-total-count"] == "3"
+    # Sin `limit`, como antes: todas.
+    assert len(c.get(f"{API}/surveys/{sid}/responses").json()) == 5
+
+
+def test_dos_pestanas_editando_no_se_pisan_sin_aviso():
+    c, _me, sid, _slug = _setup()
+    base = c.get(f"{API}/surveys/{sid}").json()["content_hash"]
+    # Pestaña A guarda con la huella que tenía: pasa y recibe la nueva.
+    a = c.put(f"{API}/surveys/{sid}", json={"title": "Desde A", "base_content_hash": base})
+    assert a.status_code == 200 and a.json()["content_hash"] != base
+    # Pestaña B todavía tiene la huella vieja: conflicto, nada se pisa.
+    b = c.put(f"{API}/surveys/{sid}", json={"title": "Desde B", "base_content_hash": base})
+    assert b.status_code == 409 and b.json()["detail"]["code"] == "survey_conflict"
+    assert c.get(f"{API}/surveys/{sid}").json()["title"] == "Desde A"
+    # Cambiar algo que no es contenido (el acceso) no choca con el editor.
+    assert c.put(f"{API}/surveys/{sid}", json={"results_mode": "never", "base_content_hash": base}).status_code == 200
+    # Sin huella (API, llamadores viejos) no se controla.
+    assert c.put(f"{API}/surveys/{sid}", json={"title": "Sin control"}).status_code == 200
+
+
+def _invitado(c, sid, slug, email="alu@escuela.com"):
+    c.put(f"{API}/surveys/{sid}", json={"access_mode": "list"})
+    code = c.post(f"{API}/surveys/{sid}/invitees", json={"invitees": [{"email": email}]}).json()[0]["code"]
+    token = new_client().post(f"{API}/public/{slug}/access",
+                              json={"email": email, "code": code}).json()["access_token"]
+    return token
+
+
+def test_el_borrador_se_retoma_desde_otro_dispositivo_y_se_borra_al_enviar():
+    c, _me, sid, slug = _setup()
+    token = _invitado(c, sid, slug)
+    compu, celu = new_client(), new_client()  # dos navegadores distintos
+    assert compu.put(f"{API}/public/{slug}/draft",
+                     json={"answers": {"cap": "Madrid"}, "page": 0, "access_token": token}).json()["saved"]
+    d = celu.get(f"{API}/public/{slug}/draft", params={"access_token": token}).json()
+    assert d["enabled"] and d["draft"]["answers"] == {"cap": "Madrid"}
+    assert c.get(f"{API}/surveys/{sid}/funnel").json()["in_progress"] == 1
+
+    r = celu.post(f"{API}/public/{slug}/submit", json={"answers": {"cap": "París"}, "access_token": token})
+    assert r.status_code == 201
+    assert celu.get(f"{API}/public/{slug}/draft", params={"access_token": token}).json()["draft"] is None
+    assert c.get(f"{API}/surveys/{sid}/funnel").json()["in_progress"] == 0
+
+
+def test_en_una_encuesta_publica_anonima_no_se_guarda_nada_en_el_servidor():
+    _c, _me, sid, slug = _setup()
+    anon = new_client()
+    assert anon.put(f"{API}/public/{slug}/draft", json={"answers": {"cap": "Madrid"}}).json() == {"enabled": False}
+    assert anon.get(f"{API}/public/{slug}/draft").json() == {"enabled": False}
+    assert _sql("SELECT count(*) AS n FROM survey_drafts WHERE survey_id=$1::uuid", sid)[0]["n"] == 0
+
+
+def test_los_borradores_vencidos_se_limpian():
+    c, _me, sid, slug = _setup()
+    token = _invitado(c, sid, slug, "viejo@escuela.com")
+    new_client().put(f"{API}/public/{slug}/draft", json={"answers": {"cap": "x"}, "access_token": token})
+    _sql("UPDATE survey_drafts SET updated_at = now() - interval '31 days' WHERE survey_id=$1::uuid", sid)
+    asyncio.run(jobs.maintenance())
+    assert _sql("SELECT count(*) AS n FROM survey_drafts WHERE survey_id=$1::uuid", sid)[0]["n"] == 0

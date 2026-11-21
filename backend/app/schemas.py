@@ -53,6 +53,9 @@ class SurveyUpdateRequest(BaseModel):
     grading_message: Optional[str] = None  # texto mientras se procesa/corrige
     redirect_url: Optional[str] = None
     require_captcha: Optional[bool] = None
+    # Control de concurrencia: el `content_hash` que el editor tenía al cargar o
+    # al último guardado. Sin él no se controla (llamadores viejos, API).
+    base_content_hash: Optional[str] = None
 
 
 class SurveySummary(BaseModel):
@@ -101,9 +104,15 @@ class SurveyDetail(BaseModel):
     require_captcha: bool = False
     created_at: datetime
     updated_at: datetime
+    # Huella del contenido editable (preguntas, corrección, diseño, título).
+    # El editor la devuelve en `base_content_hash` al guardar: si no coincide,
+    # alguien más cambió la encuesta mientras tanto (ver `update_survey`).
+    content_hash: Optional[str] = None
 
     @classmethod
     def from_model(cls, s: Survey) -> "SurveyDetail":
+        from app.audit import survey_content_hash
+
         return cls(
             id=s.id, title=s.title, slug=s.slug, status=s.status, language=s.language,
             json_schema=s.json_schema or {}, theme=s.theme, evaluation=s.evaluation,
@@ -121,6 +130,7 @@ class SurveyDetail(BaseModel):
             redirect_url=getattr(s, "redirect_url", None),
             require_captcha=bool(getattr(s, "require_captcha", False)),
             created_at=s.created_at, updated_at=s.updated_at,
+            content_hash=survey_content_hash(s),
         )
 
 

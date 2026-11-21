@@ -131,6 +131,12 @@ function getVisitorId(): string | null {
 }
 
 // Fire-and-forget funnel ping (view | progress). Never blocks nor throws.
+/** Marca de tiempo del borrador local. Fuera del componente: el lint de React
+ *  no distingue un callback del render y marca `Date.now()` como impuro. */
+function ahora(): number {
+  return Date.now();
+}
+
 function trackVisit(slug: string, event: "view" | "progress", question?: string) {
   const vid = getVisitorId();
   if (!vid) return;
@@ -329,6 +335,7 @@ export default function SurveyView({ slug }: { slug: string }) {
     // Save & resume: keep partial answers on this device and restore them, so a
     // respondent can close the tab and come back. Cleared on submit.
     const resumeKey = `enc_resume_${slug}`;
+    let localAt = 0;
     try {
       const saved =
         typeof window !== "undefined" ? window.localStorage.getItem(resumeKey) : null;
@@ -336,23 +343,79 @@ export default function SurveyView({ slug }: { slug: string }) {
         const parsed = JSON.parse(saved);
         if (parsed && parsed.data) survey.data = parsed.data;
         if (typeof parsed?.page === "number") survey.currentPageNo = parsed.page;
+        if (typeof parsed?.at === "number") localAt = parsed.at;
       }
     } catch {
       /* ignore corrupt resume state */
     }
+
+    // Borrador en el SERVIDOR: sólo existe cuando se sabe quién responde
+    // (invitado con código, alumno desde Moodle) y permite retomar desde otro
+    // dispositivo. En encuestas públicas anónimas el servidor contesta
+    // `enabled: false` y no se le vuelve a mandar nada.
+    const draftUrl = `${apiBase()}/api/v1/survey/public/${encodeURIComponent(slug)}/draft`;
+    let serverDrafts: boolean | null = null;
+    let touched = false;
+    let draftTimer: ReturnType<typeof setTimeout> | null = null;
+    fetch(
+      `${draftUrl}${accessToken ? `?access_token=${encodeURIComponent(accessToken)}` : ""}`,
+      { credentials: "include", cache: "no-store" }
+    )
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => {
+        serverDrafts = !!j?.enabled;
+        const d = j?.draft;
+        // Gana el más nuevo, y nunca se pisa lo que la persona ya empezó acá.
+        if (!d || touched) return;
+        if (localAt && Date.parse(d.updated_at) <= localAt) return;
+        if (d.answers && Object.keys(d.answers).length) survey.data = d.answers;
+        if (typeof d.page === "number") survey.currentPageNo = d.page;
+      })
+      .catch(() => {
+        serverDrafts = false;
+      });
+    const pushDraft = () => {
+      if (serverDrafts === false) return;
+      if (draftTimer) clearTimeout(draftTimer);
+      draftTimer = setTimeout(() => {
+        fetch(draftUrl, {
+          method: "PUT",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            answers: survey.data,
+            page: survey.currentPageNo,
+            ...(accessToken ? { access_token: accessToken } : {}),
+          }),
+        })
+          .then((r) => (r.ok ? r.json() : null))
+          .then((j) => {
+            if (j && j.enabled === false) serverDrafts = false;
+          })
+          .catch(() => {
+            /* best-effort: el borrador local sigue */
+          });
+      }, 2000);
+    };
+
     const persist = () => {
+      touched = true;
       try {
         window.localStorage.setItem(
           resumeKey,
-          JSON.stringify({ data: survey.data, page: survey.currentPageNo })
+          JSON.stringify({ data: survey.data, page: survey.currentPageNo, at: ahora() })
         );
       } catch {
         /* storage may be unavailable */
       }
+      pushDraft();
     };
     survey.onValueChanged.add(persist);
     survey.onCurrentPageChanged.add(persist);
     survey.onComplete.add(() => {
+      // El envío borra el borrador del servidor; uno pendiente no lo revive.
+      if (draftTimer) clearTimeout(draftTimer);
+      serverDrafts = false;
       try {
         window.localStorage.removeItem(resumeKey);
       } catch {

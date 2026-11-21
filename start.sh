@@ -130,8 +130,12 @@ fi
 # pone quien despliega, mismo nivel de confianza que el resto de este script.
 sed -i "s|__ANCESTROS__|${ANCESTROS}|g" "$LTI_SNIPPET"
 
-# Backend (FastAPI) on :8000
-( cd /app/backend && exec uvicorn app.main:app --host 127.0.0.1 --port 8000 ) &
+# Backend (FastAPI) on :8000. ENCUESTUM_WORKERS procesos (1 por defecto). Con
+# Postgres se puede subir (p. ej. 2-4); con SQLite dejalo en 1: varios procesos
+# escribiendo el mismo archivo terminan en "database is locked". Cada proceso
+# corre su propio worker de la cola y se reparten las tareas sin pisarse.
+WORKERS="${ENCUESTUM_WORKERS:-1}"
+( cd /app/backend && exec uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers "$WORKERS" ) &
 BACKEND=$!
 
 # Frontend (Next.js standalone) on :3000

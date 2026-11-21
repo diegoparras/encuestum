@@ -7,10 +7,11 @@
  */
 
 import React, { useEffect, useState } from "react";
-import { History, Loader2, ShieldAlert, ShieldCheck, X } from "lucide-react";
+import { History, Loader2, RotateCw, ShieldAlert, ShieldCheck, X } from "lucide-react";
 import {
   surveyApi,
   type AuditEvent,
+  type JobInfo,
   type ResponseDeletion,
   type ResponseHistory,
 } from "./surveyApi";
@@ -71,6 +72,8 @@ function describir(e: Pick<AuditEvent, "action" | "detail">): string {
       return `Exportó ${d.rows ?? 0} ${d.rows === 1 ? "respuesta" : "respuestas"} (${String(
         d.format || "csv"
       ).toUpperCase()})`;
+    case "delivery.retried":
+      return "Reintentó una entrega a mano";
     case "grades.regrade_all":
       return `Recorrigió ${d.graded ?? 0} de ${d.total ?? 0} respuestas${
         d.discard_manual ? ", descartando lo corregido a mano" : ""
@@ -270,7 +273,11 @@ export function ResponseHistoryPanel({ surveyId, responseId }: { surveyId: strin
       </p>
     );
   }
-  const hayAlgo = h.grade_revisions.length > 0 || h.events.length > 0 || h.answered_version != null;
+  const hayAlgo =
+    h.grade_revisions.length > 0 ||
+    h.events.length > 0 ||
+    h.answered_version != null ||
+    (h.deliveries?.length ?? 0) > 0;
   if (!hayAlgo) return null;
 
   type Item = { at: string; titulo: string; detalle: string };
@@ -318,6 +325,87 @@ export function ResponseHistoryPanel({ surveyId, responseId }: { surveyId: strin
           </li>
         ))}
       </ol>
+      {(h.deliveries?.length ?? 0) > 0 && (
+        <Entregas surveyId={surveyId} inicial={h.deliveries!} />
+      )}
     </section>
+  );
+}
+
+const TIPOS_ENTREGA: Record<string, string> = {
+  "lms.grade": "Nota al LMS",
+  "webhook.deliver": "Webhook",
+  "grade.response": "Corrección automática",
+};
+
+function estadoEntrega(j: JobInfo): { texto: string; clase: string } {
+  if (j.status === "done")
+    return { texto: "Enviada", clase: "text-emerald-700 dark:text-emerald-300" };
+  if (j.status === "failed")
+    return { texto: `Falló tras ${j.attempts} intentos`, clase: "text-red-600 dark:text-red-400" };
+  if (j.status === "running") return { texto: "Enviando…", clase: "text-neutral-500" };
+  return j.attempts > 0
+    ? {
+        texto: `Reintentará ${j.run_after ? new Date(j.run_after).toLocaleTimeString() : "pronto"}`,
+        clase: "text-amber-600 dark:text-amber-400",
+      }
+    : { texto: "En cola", clase: "text-neutral-500" };
+}
+
+/** Estado de lo que salió (o tiene que salir) por esta respuesta: la nota al
+ *  LMS y los webhooks. Lo que falló se puede reintentar desde acá. */
+function Entregas({ surveyId, inicial }: { surveyId: string; inicial: JobInfo[] }) {
+  const [rows, setRows] = useState(inicial);
+  const [busy, setBusy] = useState<string | null>(null);
+
+  async function reintentar(j: JobInfo) {
+    setBusy(j.id);
+    try {
+      const nuevo = await surveyApi.retryDelivery(surveyId, j.id);
+      setRows((rs) => rs.map((x) => (x.id === j.id ? nuevo : x)));
+    } catch {
+      /* el estado no cambia; el botón queda para volver a probar */
+    } finally {
+      setBusy(null);
+    }
+  }
+
+  return (
+    <div className="mt-3 border-t border-neutral-100 pt-2 dark:border-neutral-800">
+      <p className="mb-1 text-xs font-medium uppercase tracking-wide text-neutral-400">Entregas</p>
+      <ul className="space-y-1.5">
+        {rows.map((j) => {
+          const e = estadoEntrega(j);
+          const puede = j.status === "failed" || (j.status === "pending" && j.attempts > 0);
+          return (
+            <li key={j.id} className="flex items-start gap-2 text-sm">
+              <div className="min-w-0 flex-1">
+                <p className="text-neutral-800 dark:text-neutral-200">
+                  {TIPOS_ENTREGA[j.kind] || j.kind}
+                  {j.payload?.url ? (
+                    <span className="text-xs text-neutral-400"> · {j.payload.url}</span>
+                  ) : null}{" "}
+                  <span className={`text-xs ${e.clase}`}>· {e.texto}</span>
+                </p>
+                {j.last_error && j.status !== "done" && (
+                  <p className="truncate text-xs text-neutral-400" title={j.last_error}>
+                    {j.last_error}
+                  </p>
+                )}
+              </div>
+              {puede && (
+                <button
+                  onClick={() => reintentar(j)}
+                  disabled={busy === j.id}
+                  className="inline-flex shrink-0 items-center gap-1 rounded-md border border-neutral-200 px-2 py-0.5 text-xs text-neutral-600 hover:bg-neutral-50 disabled:opacity-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
+                >
+                  <RotateCw className={`h-3 w-3 ${busy === j.id ? "animate-spin" : ""}`} /> Reintentar
+                </button>
+              )}
+            </li>
+          );
+        })}
+      </ul>
+    </div>
   );
 }

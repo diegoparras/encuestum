@@ -5,7 +5,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from fastapi.responses import StreamingResponse
 from sqlalchemy import delete, func
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -158,6 +158,27 @@ async def update_survey(
             s.slug = norm
 
     data = payload.model_dump(exclude_unset=True)
+    # Control de concurrencia optimista. Antes ganaba el último que guardaba:
+    # dos pestañas (o dos docentes) con el autosave prendido se pisaban sin
+    # aviso. Sólo se controla cuando el pedido trae contenido editable, así que
+    # cambiar el link o el acceso desde otra pantalla no bloquea al editor.
+    base = data.pop("base_content_hash", None)
+    toca_contenido = bool({"json_schema", "evaluation", "theme", "title"} & set(data))
+    if base and toca_contenido:
+        from app.audit import survey_content_hash
+
+        actual = survey_content_hash(s)
+        if base != actual:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "survey_conflict",
+                    "message": "Otra pestaña u otra persona cambió esta encuesta mientras la "
+                               "editabas. Recargá para ver la última versión.",
+                    "content_hash": actual,
+                    "updated_at": s.updated_at.isoformat() if s.updated_at else None,
+                },
+            )
     # org_id / created_by / slug are handled explicitly, never via the generic loop.
     data.pop("org_id", None)
     data.pop("created_by", None)
@@ -352,17 +373,45 @@ async def purge_survey(
 @router.get("/{sid}/responses", response_model=List[ResponseItem])
 async def list_responses(
     sid: uuid.UUID,
+    response: Response,
+    limit: Optional[int] = Query(None, ge=1, le=1000, description="Tamaño de página; sin él, todas"),
+    offset: int = Query(0, ge=0),
+    filter: str = Query("all", pattern="^(all|counted|needs_review|excluded|graded|ungraded)$"),
+    q: Optional[str] = Query(None, max_length=200, description="Busca en el email o código de quien respondió"),
     ctx: OrgContext = Depends(current_context),
     session: AsyncSession = Depends(get_session),
 ):
+    """Respuestas de la encuesta, las más nuevas primero.
+
+    Paginada con `limit`/`offset` (el total va en el header `X-Total-Count`),
+    filtrable del lado del servidor. Sin `limit` devuelve todas, como antes:
+    los llamadores viejos siguen funcionando, pero una encuesta con miles de
+    respuestas tiene que pedirlas de a páginas."""
+    from sqlalchemy import or_
+
     await _survey_or_404(sid, ctx.org.id, session)
-    responses = (
-        await session.scalars(
-            select(SurveyResponse)
-            .where(SurveyResponse.survey_id == sid)
-            .order_by(SurveyResponse.submitted_at.desc())
-        )
-    ).all()
+    cond = [SurveyResponse.survey_id == sid]
+    if filter == "needs_review":
+        cond.append(SurveyResponse.needs_review == True)  # noqa: E712
+    elif filter == "excluded":
+        cond.append(or_(SurveyResponse.excluded == True, SurveyResponse.is_test == True))  # noqa: E712
+    elif filter == "graded":
+        cond.append(SurveyResponse.graded_at.is_not(None))
+    elif filter == "ungraded":
+        cond.append(SurveyResponse.graded_at.is_(None))
+    if q and q.strip():
+        like = f"%{q.strip().lower()}%"
+        cond.append(or_(func.lower(SurveyResponse.respondent_email).like(like),
+                        func.lower(SurveyResponse.respondent_code).like(like)))
+    base = select(SurveyResponse).where(*cond)
+    if filter == "counted":
+        base = counted_only(base)
+    total = int(await session.scalar(select(func.count()).select_from(base.subquery())) or 0)
+    response.headers["X-Total-Count"] = str(total)
+    stmt = base.order_by(SurveyResponse.submitted_at.desc(), SurveyResponse.id)
+    if limit is not None:
+        stmt = stmt.offset(offset).limit(limit)
+    responses = (await session.scalars(stmt)).all()
     return [ResponseItem.from_model(r) for r in responses]
 
 
@@ -446,7 +495,16 @@ async def _funnel_data(sid: uuid.UUID, s, session: AsyncSession) -> dict:
         )
         or 0
     )
+    # Personas identificadas (invitados, alumnos desde Moodle) con una
+    # respuesta a medio hacer guardada: empezaron y todavía pueden terminar.
+    from app.models import SurveyDraft
+
+    in_progress = int(
+        await session.scalar(select(func.count(SurveyDraft.id)).where(SurveyDraft.survey_id == sid))
+        or 0
+    )
     return {
+        "in_progress": in_progress,
         "views": views,
         "starts": starts,
         "completions": completions,

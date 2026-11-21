@@ -73,6 +73,8 @@ if settings.cors_origins:
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
+        # Headers propios que el panel tiene que poder leer en cross-origin.
+        expose_headers=["X-Total-Count", "X-Encuestum-SHA256", "ETag"],
     )
 
 

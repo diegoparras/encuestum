@@ -56,6 +56,9 @@ export interface SurveyDetail {
   require_captcha?: boolean;
   created_at: string;
   updated_at: string;
+  /** Huella del contenido editable: el editor la devuelve al guardar para que
+   *  el servidor detecte si otra pestaña o persona cambió la encuesta. */
+  content_hash?: string | null;
 }
 
 // ---- Panel de resultados (resumen tipo "Google Forms") ----
@@ -156,6 +159,24 @@ export interface AuditEvent {
   created_at: string;
 }
 
+/** Una tarea de la cola persistente: entrega al LMS, webhook, email o
+ *  recorrección masiva. */
+export interface JobInfo {
+  id: string;
+  kind: string;
+  status: "pending" | "running" | "done" | "failed";
+  attempts: number;
+  max_attempts: number;
+  last_error: string | null;
+  progress: { done?: number; total?: number; graded?: number } | null;
+  result: Record<string, any> | null;
+  response_id: string | null;
+  payload: { url?: string; to?: string; webhook_id?: string };
+  created_at: string | null;
+  run_after: string | null;
+  finished_at: string | null;
+}
+
 /** Un cambio de nota de una respuesta. */
 export interface GradeRevision {
   id: string;
@@ -178,6 +199,7 @@ export interface ResponseHistory {
   answered_version: number | null;
   integrity: boolean | null;
   grade_revisions: GradeRevision[];
+  deliveries?: JobInfo[];
   events: { action: string; actor_email: string | null; detail: Record<string, any> | null; created_at: string }[];
 }
 
@@ -331,6 +353,32 @@ export interface GeneratedQuestion {
   points: number;
 }
 
+const RESPONSES_PAGE = 500;
+
+/** Como `request`, pero devuelve también el total del header `X-Total-Count`. */
+async function requestWithTotal<T>(path: string): Promise<{ items: T; total: number }> {
+  const res = await fetch(getApiUrl(path), { cache: "no-store", credentials: "include" });
+  if (!res.ok) throw new Error((await res.text().catch(() => "")) || `Request failed (${res.status})`);
+  const total = Number(res.headers.get("X-Total-Count") ?? "NaN");
+  const items = (await res.json()) as T;
+  return { items, total: Number.isFinite(total) ? total : Array.isArray(items) ? items.length : 0 };
+}
+
+async function fetchAllResponses(
+  id: string,
+  onProgress?: (loaded: number, total: number) => void
+): Promise<ResponseItem[]> {
+  const out: ResponseItem[] = [];
+  for (let offset = 0; ; offset += RESPONSES_PAGE) {
+    const { items, total } = await requestWithTotal<ResponseItem[]>(
+      `/api/v1/survey/surveys/${id}/responses?limit=${RESPONSES_PAGE}&offset=${offset}`
+    );
+    out.push(...items);
+    onProgress?.(out.length, total);
+    if (items.length < RESPONSES_PAGE || out.length >= total) return out;
+  }
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(getApiUrl(path), {
     cache: "no-store",
@@ -341,13 +389,21 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   if (!res.ok) {
     const raw = await res.text().catch(() => "");
     let msg = raw;
+    let detail: unknown = null;
     try {
       const j = JSON.parse(raw);
+      detail = j?.detail ?? null;
       if (j && typeof j.detail === "string") msg = j.detail;
+      else if (j?.detail && typeof j.detail.message === "string") msg = j.detail.message;
     } catch {
       /* not JSON; use raw text */
     }
-    throw new Error(msg || `Request failed (${res.status})`);
+    // `status` y `detail` viajan con el error: quien llama distingue, p. ej.,
+    // un conflicto de edición (409) de un fallo cualquiera.
+    throw Object.assign(new Error(msg || `Request failed (${res.status})`), {
+      status: res.status,
+      detail,
+    });
   }
   if (res.status === 204) return undefined as T;
   return (await res.json()) as T;
@@ -393,7 +449,7 @@ export const surveyApi = {
         | "redirect_url"
         | "require_captcha"
       >
-    >
+    > & { base_content_hash?: string | null }
   ) =>
     request<SurveyDetail>(`/api/v1/survey/surveys/${id}`, {
       method: "PUT",
@@ -412,8 +468,14 @@ export const surveyApi = {
   /** Borrado definitivo e irreversible. Solo funciona desde la papelera. */
   purge: (id: string) =>
     request<void>(`/api/v1/survey/surveys/${id}/purge`, { method: "DELETE" }),
-  responses: (id: string) =>
-    request<ResponseItem[]>(`/api/v1/survey/surveys/${id}/responses`),
+  /** Todas las respuestas, pedidas de a páginas: cada request queda acotado
+   *  aunque la encuesta tenga miles. `onProgress` recibe lo cargado y el total. */
+  responses: (id: string, onProgress?: (loaded: number, total: number) => void) =>
+    fetchAllResponses(id, onProgress),
+  responsesPage: (id: string, limit: number, offset: number, filter = "all") =>
+    requestWithTotal<ResponseItem[]>(
+      `/api/v1/survey/surveys/${id}/responses?limit=${limit}&offset=${offset}&filter=${filter}`
+    ),
   /** Acciones sobre varias respuestas. `delete` requiere rol admin. */
   bulkResponses: (
     id: string,
@@ -487,11 +549,17 @@ export const surveyApi = {
     }),
 
   // ---- Evaluation ----
+  /** Encola la recorrección de todas las respuestas (en segundo plano: una
+   *  encuesta grande ya no se corta por timeout). Seguir el avance con getJob. */
   gradeAll: (id: string) =>
-    request<{ graded: number; total: number }>(
-      `/api/v1/survey/surveys/${id}/grade-all?only_ungraded=false`,
+    request<{ job_id: string; status: string }>(
+      `/api/v1/survey/surveys/${id}/grade-all?only_ungraded=false&background=true`,
       { method: "POST" }
     ),
+  getJob: (id: string, jobId: string) =>
+    request<JobInfo>(`/api/v1/survey/surveys/${id}/jobs/${jobId}`),
+  retryDelivery: (id: string, jobId: string) =>
+    request<JobInfo>(`/api/v1/survey/surveys/${id}/deliveries/${jobId}/retry`, { method: "POST" }),
   reviewQueue: (id: string) =>
     request<ResponseItem[]>(`/api/v1/survey/surveys/${id}/review-queue`),
   override: (

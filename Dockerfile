@@ -29,9 +29,13 @@ ENV VIRTUAL_ENV=/opt/venv
 RUN python3 -m venv "$VIRTUAL_ENV"
 ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 
-# Backend
-COPY backend/requirements.txt /app/backend/requirements.txt
-RUN pip install --no-cache-dir -r /app/backend/requirements.txt
+# Backend. Se instala desde el lockfile con hashes: la imagen sale igual hoy
+# que dentro de seis meses, y una versión mayor nueva de una dependencia no la
+# rompe sola (pasó con SQLAlchemy 2.1, que dejó de traer `greenlet`). Para
+# actualizar: `uv pip compile requirements.txt --universal --python-version 3.11
+# --generate-hashes -o requirements.lock`, correr los tests y commitear.
+COPY backend/requirements.lock /app/backend/requirements.lock
+RUN pip install --no-cache-dir --require-hashes -r /app/backend/requirements.lock
 COPY backend/ /app/backend/
 
 # Frontend standalone (server.js + estáticos)
@@ -51,4 +55,8 @@ ENV ENCUESTUM_DATA_DIR=/app_data \
 VOLUME ["/app_data"]
 
 EXPOSE 80
+# Sano = nginx responde y el backend contesta /api/ready (que toca la base).
+# Sin curl en la imagen slim: Python ya está.
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
+  CMD python3 -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1/api/ready', timeout=4)" || exit 1
 CMD ["/start.sh"]

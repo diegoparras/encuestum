@@ -6,6 +6,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
+from sqlalchemy import delete as sa_delete
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
@@ -336,6 +337,103 @@ async def track_visit(
         await session.rollback()
 
 
+# ── Borradores en el servidor (retomar desde otro dispositivo) ───────────────
+_MAX_DRAFT_BYTES = 256 * 1024
+
+
+class DraftRequest(BaseModel):
+    answers: dict = Field(default_factory=dict)
+    page: int = 0
+    access_token: Optional[str] = None
+
+
+async def _draft_key(request: Request, s: Survey, access_token: Optional[str], session) -> Optional[str]:
+    """La identidad bajo la que se guarda el borrador, o None si no hay una.
+
+    Sin identidad (encuesta pública anónima) no se guarda nada en el servidor:
+    ver `SurveyDraft`. Un vínculo LTI anónimo tampoco: guardar por `sub` sería
+    identificar a quien eligió no ser identificado."""
+    lti = _lti_context(request, s)
+    if lti:
+        if not lti.get("sub") or lti.get("anonymous"):
+            return None
+        if lti.get("link_id"):
+            link = await session.get(LtiResourceLink, uuid.UUID(lti["link_id"]))
+            if link is None or link.anonymous:
+                return None
+        origen = lti.get("link_id") or lti.get("mod_site_id") or "lms"
+        return f"lms:{origen}:{lti['sub']}"
+    if getattr(s, "access_mode", "public") == "list" and _valid_access(s, access_token):
+        data = read_purpose_token(_ACCESS_PURPOSE, access_token or "") or {}
+        if data.get("code"):
+            return f"inv:{data['code']}"
+    return None
+
+
+@router.get("/{slug}/draft")
+async def get_draft(
+    slug: str,
+    request: Request,
+    access_token: Optional[str] = None,
+    session: AsyncSession = Depends(get_session),
+):
+    """El borrador de quien responde, si tiene identidad y dejó uno.
+    `enabled: false` le dice al navegador que no hace falta mandar borradores."""
+    from app.models import SurveyDraft
+
+    await rate_limit(request, f"draft:{slug}", limit=120, window_s=60)
+    s = await _visible(slug, session)
+    key = await _draft_key(request, s, access_token, session)
+    if key is None:
+        return {"enabled": False}
+    d = (
+        await session.scalars(
+            select(SurveyDraft).where(SurveyDraft.survey_id == s.id, SurveyDraft.key == key)
+        )
+    ).first()
+    if d is None:
+        return {"enabled": True, "draft": None}
+    return {"enabled": True, "draft": {"answers": d.answers, "page": d.page,
+                                       "updated_at": d.updated_at.isoformat()}}
+
+
+@router.put("/{slug}/draft")
+async def save_draft(
+    slug: str,
+    payload: DraftRequest,
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+):
+    """Guarda (o reemplaza) el borrador. Silencioso si no hay identidad."""
+    import json as _json
+
+    from app.models import SurveyDraft
+
+    await rate_limit(request, f"draft:{slug}", limit=120, window_s=60)
+    s = await _visible(slug, session)
+    key = await _draft_key(request, s, payload.access_token, session)
+    if key is None:
+        return {"enabled": False}
+    if len(_json.dumps(payload.answers, default=str)) > _MAX_DRAFT_BYTES:
+        raise HTTPException(status_code=413, detail="El borrador es demasiado grande.")
+    d = (
+        await session.scalars(
+            select(SurveyDraft).where(SurveyDraft.survey_id == s.id, SurveyDraft.key == key)
+        )
+    ).first()
+    if d is None:
+        d = SurveyDraft(survey_id=s.id, key=key)
+    d.answers = payload.answers
+    d.page = max(0, int(payload.page or 0))
+    d.updated_at = _utcnow()
+    session.add(d)
+    try:
+        await session.commit()
+    except Exception:  # noqa: BLE001 — carrera del upsert: otro request lo creó
+        await session.rollback()
+    return {"enabled": True, "saved": True}
+
+
 @router.post("/{slug}/access")
 async def survey_access(
     slug: str,
@@ -521,6 +619,15 @@ async def submit(
         lti_sub=None if anonimo else (lti.get("sub") if lti else None),
         mod_site_id=mod_site_id, mod_cmid=mod_cmid, mod_grademax=mod_grademax,
     )
+    # Enviada: el borrador (si lo había) ya no tiene razón de existir.
+    clave_borrador = await _draft_key(request, s, payload.access_token, session)
+    if clave_borrador is not None:
+        from app.models import SurveyDraft
+
+        await session.execute(
+            sa_delete(SurveyDraft).where(SurveyDraft.survey_id == s.id, SurveyDraft.key == clave_borrador)
+        )
+
     r.id = r.id or uuid.uuid4()
     r.submitted_at = _utcnow()
     r.integrity_hash = response_hash(r)

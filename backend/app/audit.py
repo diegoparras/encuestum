@@ -33,6 +33,16 @@ def canonical_hash(obj: Any) -> str:
     return hashlib.sha256(raw.encode("utf-8")).hexdigest()
 
 
+def survey_content_hash(s) -> str:
+    """Huella de lo que se edita en el editor. Distinta de la de versión (que
+    sólo mira estructura y rúbrica): acá también cuentan título y diseño,
+    porque pisar esos cambios ajenos también es perder trabajo."""
+    return canonical_hash(
+        {"title": s.title, "schema": s.json_schema or {}, "evaluation": s.evaluation or None,
+         "theme": s.theme or None}
+    )[:16]
+
+
 def _survey_content(s) -> dict:
     return {"schema": s.json_schema or {}, "evaluation": s.evaluation or None}
 

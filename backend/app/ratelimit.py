@@ -14,6 +14,22 @@ from app.config import get_settings
 
 _lock = threading.Lock()
 _hits: dict[str, tuple[float, int]] = defaultdict(lambda: (0.0, 0))
+# Cada cuánto se barren las ventanas vencidas del modo en memoria. Antes no se
+# barrían nunca: cada IP distinta dejaba su clave para siempre y la memoria
+# crecía sin techo (justo bajo un ataque con muchas IPs, cuando más importa).
+_SWEEP_EVERY_S = 300
+_MAX_WINDOW_S = 3600
+_last_sweep = 0.0
+
+
+def _sweep(now: float) -> None:
+    """Saca las ventanas que ya vencieron. Se llama con `_lock` tomado."""
+    global _last_sweep
+    if now - _last_sweep < _SWEEP_EVERY_S:
+        return
+    _last_sweep = now
+    for k in [k for k, (start, _c) in _hits.items() if now - start >= _MAX_WINDOW_S]:
+        del _hits[k]
 
 _redis = None
 _redis_init = False
@@ -56,6 +72,7 @@ def _too_many(retry: int) -> HTTPException:
 def _check_memory(key: str, limit: int, window_s: int) -> None:
     now = time.time()
     with _lock:
+        _sweep(now)
         start, count = _hits[key]
         if now - start >= window_s:
             _hits[key] = (now, 1)
@@ -85,6 +102,23 @@ async def rate_limit(request: Request, bucket: str, *, limit: int, window_s: int
             return
         except HTTPException:
             raise
-        except Exception:  # noqa: BLE001 — if Redis is down, fall back to memory
-            pass
+        except Exception as exc:  # noqa: BLE001 — if Redis is down, fall back to memory
+            # Avisa: con Redis caído el límite pasa a ser por proceso, y con
+            # varias réplicas eso lo multiplica. Antes caía en silencio.
+            _warn_redis_down(exc)
     _check_memory(key, limit, window_s)
+
+
+_redis_warned_at = 0.0
+
+
+def _warn_redis_down(exc: Exception) -> None:
+    global _redis_warned_at
+    import logging
+
+    now = time.time()
+    if now - _redis_warned_at > 300:
+        _redis_warned_at = now
+        logging.getLogger("encuestum.ratelimit").warning(
+            "Redis no responde (%s): el rate limit cae a memoria, por proceso.", exc
+        )

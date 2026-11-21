@@ -32,6 +32,7 @@ export function GradesPanel({ surveyId, accent = SURVEY_ACCENT }: Props) {
   const [responses, setResponses] = useState<ResponseItem[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [grading, setGrading] = useState(false);
+  const [progress, setProgress] = useState<{ done: number; total: number } | null>(null);
   const [onlyReview, setOnlyReview] = useState(false);
   // Títulos de las preguntas: sin esto la corrección listaba el nombre interno
   // (`radiogroup_1`) y corregir era adivinar de qué pregunta se hablaba.
@@ -72,13 +73,23 @@ export function GradesPanel({ surveyId, accent = SURVEY_ACCENT }: Props) {
 
   async function gradeAll() {
     setGrading(true);
+    setProgress(null);
     try {
-      await surveyApi.gradeAll(surveyId);
+      // Corre en segundo plano: se consulta el avance hasta que termina.
+      const { job_id } = await surveyApi.gradeAll(surveyId);
+      for (;;) {
+        await new Promise((r) => setTimeout(r, 1500));
+        const job = await surveyApi.getJob(surveyId, job_id);
+        if (job.progress?.total) setProgress({ done: job.progress.done ?? 0, total: job.progress.total });
+        if (job.status === "done") break;
+        if (job.status === "failed") throw new Error(job.last_error || "La corrección falló.");
+      }
       await load();
     } catch (e: any) {
       setError(e?.message || "No se pudo corregir.");
     } finally {
       setGrading(false);
+      setProgress(null);
     }
   }
 
@@ -170,7 +181,11 @@ export function GradesPanel({ surveyId, accent = SURVEY_ACCENT }: Props) {
             ) : (
               <RefreshCw className="w-4 h-4" />
             )}
-            Corregir todo
+            {grading && progress
+              ? `Corrigiendo ${progress.done} de ${progress.total}…`
+              : grading
+                ? "Corrigiendo…"
+                : "Corregir todo"}
           </button>
           <button
             onClick={exportCsv}

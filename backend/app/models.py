@@ -702,6 +702,36 @@ class AuditEvent(SQLModel, table=True):
     )
 
 
+class SurveyDraft(SQLModel, table=True):
+    """Respuestas a medio hacer, guardadas en el servidor para retomar desde
+    cualquier dispositivo.
+
+    Sólo existe cuando se sabe QUIÉN responde (invitado con código, alumno que
+    entra desde Moodle): `key` es esa identidad. En las encuestas públicas
+    anónimas no se guarda nada acá -- el borrador vive en el navegador -- para
+    no retener en el servidor lo que alguien empezó y decidió no enviar.
+    Se borra al enviar y vence a los `DRAFT_TTL_DAYS` días."""
+
+    __tablename__ = "survey_drafts"
+    __table_args__ = (UniqueConstraint("survey_id", "key", name="uq_survey_draft_key"),)
+
+    id: uuid.UUID = Field(primary_key=True, default_factory=uuid.uuid4)
+    survey_id: uuid.UUID = Field(
+        sa_column=Column(
+            ForeignKey("surveys.id", ondelete="CASCADE"), index=True, nullable=False
+        )
+    )
+    key: str = Field(sa_column=Column(String, nullable=False))
+    answers: dict = Field(sa_column=Column(JSON, nullable=False), default_factory=dict)
+    page: int = Field(sa_column=Column(Integer, nullable=False, server_default="0"), default=0)
+    updated_at: datetime = Field(
+        sa_column=Column(DateTime(timezone=True), nullable=False, default=_utcnow, index=True)
+    )
+
+
+DRAFT_TTL_DAYS = 30
+
+
 JOB_PENDING = "pending"
 JOB_RUNNING = "running"
 JOB_DONE = "done"

@@ -94,7 +94,13 @@ export default function SurveyEditorPage() {
   const [dirty, setDirty] = useState(false);
   const [savedTick, setSavedTick] = useState(false);
   // Estado del autosave: alimenta el indicador junto al botón Guardar.
-  const [autoStatus, setAutoStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
+  const [autoStatus, setAutoStatus] = useState<"idle" | "saving" | "saved" | "error" | "conflict">(
+    "idle"
+  );
+  // Huella del contenido tal como lo vio este editor (al cargar o al último
+  // guardado). Viaja en cada guardado: si no coincide con la del servidor,
+  // otra pestaña u otra persona cambió la encuesta y no se pisa sin avisar.
+  const contentHashRef = useRef<string | null>(null);
   // Evita autosaves concurrentes (si hay un save en vuelo, se espera al próximo tick).
   const savingRef = useRef(false);
   // Secuencia de cambios: si el usuario editó mientras se guardaba, no marcamos "limpio".
@@ -129,6 +135,8 @@ export default function SurveyEditorPage() {
   useEffect(() => {
     if (!loaded) return;
     const s = loaded.survey;
+    contentHashRef.current = s.content_hash ?? null;
+    setAutoStatus((a) => (a === "conflict" ? "idle" : a));
     setState(loaded.built);
     setStatus(s.status);
     setSlug(s.slug);
@@ -269,7 +277,7 @@ export default function SurveyEditorPage() {
   // Actions -----------------------------------------------------------------
   // Guarda la encuesta. Con `silent: true` (autosave) no molesta al usuario:
   // sin alert de error (solo el indicador "Sin guardar") y sin tilde del botón.
-  async function save(opts: { silent?: boolean } = {}) {
+  async function save(opts: { silent?: boolean; force?: boolean } = {}) {
     if (!state || savingRef.current) return;
     savingRef.current = true;
     const seqAtStart = changeSeqRef.current;
@@ -277,8 +285,10 @@ export default function SurveyEditorPage() {
     // El botón manual ya muestra su propio spinner; el indicador "Guardando…"
     // es para el autosave.
     if (opts.silent) setAutoStatus("saving");
+    let forzar = false;
     try {
-      await surveyApi.update(id, {
+      const updated = await surveyApi.update(id, {
+        base_content_hash: opts.force ? null : contentHashRef.current,
         title: state.title,
         json_schema: builderToSchema(state),
         theme: designToTheme(state.accent, state.design),
@@ -292,6 +302,7 @@ export default function SurveyEditorPage() {
         redirect_url: state.redirectUrl,
         language,
       });
+      contentHashRef.current = updated?.content_hash ?? null;
       // Solo marcamos "limpio" si no hubo ediciones mientras viajaba el request.
       if (changeSeqRef.current === seqAtStart) setDirty(false);
       if (opts.silent) {
@@ -306,6 +317,13 @@ export default function SurveyEditorPage() {
         setTimeout(() => setSavedTick(false), 1800);
       }
     } catch (e: any) {
+      if (e?.status === 409) {
+        // Conflicto de edición: el autosave se detiene (seguir guardando
+        // pisaría el trabajo ajeno). Se decide a mano: recargar o sobrescribir.
+        setAutoStatus("conflict");
+        if (!opts.silent) forzar = window.confirm(t("builder.page.conflictConfirm"));
+        return;
+      }
       // El autosave no spamea toasts: deja el indicador rojo y reintenta con
       // el próximo cambio. El aviso ruidoso queda para el guardado manual.
       setAutoStatus("error");
@@ -314,6 +332,9 @@ export default function SurveyEditorPage() {
       savingRef.current = false;
       setSaving(false);
     }
+    // Recién acá, con el guardado anterior cerrado: "sobrescribir" vuelve a
+    // guardar sin la huella, a sabiendas de que pisa el cambio ajeno.
+    if (forzar) await save({ force: true });
   }
 
   // El autosave siempre reutiliza el MISMO save() de arriba (última versión,
@@ -327,7 +348,7 @@ export default function SurveyEditorPage() {
   // reinicia el timer (el efecto depende de `state`). Se pausa mientras el
   // diálogo de IA está abierto (generación en curso) o durante publicar.
   useEffect(() => {
-    if (!dirty || genOpen || publishing) return;
+    if (!dirty || genOpen || publishing || autoStatus === "conflict") return;
     const timer = setTimeout(() => {
       // Si ya hay un save en vuelo, no encimamos: el próximo cambio (o el
       // propio save al no limpiar `dirty`) volverá a programar el autosave.
@@ -335,7 +356,7 @@ export default function SurveyEditorPage() {
       void saveRef.current({ silent: true });
     }, 2500);
     return () => clearTimeout(timer);
-  }, [dirty, state, language, genOpen, publishing]);
+  }, [dirty, state, language, genOpen, publishing, autoStatus]);
 
   async function togglePublish() {
     setPublishing(true);
@@ -494,6 +515,14 @@ export default function SurveyEditorPage() {
             <span className="inline-flex items-center gap-1 text-[11px] text-neutral-400 dark:text-neutral-500">
               <Check className="w-3 h-3" /> {t("builder.page.saved")}
             </span>
+          ) : autoStatus === "conflict" ? (
+            <button
+              onClick={() => reload()}
+              className="inline-flex items-center gap-1 text-[11px] font-medium text-red-600 underline"
+              title={t("builder.page.conflictTitle")}
+            >
+              {t("builder.page.conflict")}
+            </button>
           ) : autoStatus === "error" ? (
             <span
               className="inline-flex items-center gap-1 text-[11px] font-medium text-red-600"
