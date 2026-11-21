@@ -77,6 +77,8 @@ class Settings:
         # para detectar envíos repetidos desde una misma conexión sin retener un
         # dato personal en claro. Se apaga para encuestas sin rastro de red.
         self.store_ip_hash = _bool("ENCUESTUM_STORE_IP_HASH", True)
+        # Worker de la cola de tareas en segundo plano (app/jobs.py).
+        self.jobs_worker_enabled = _bool("ENCUESTUM_JOBS_WORKER", True)
         # Guard anti-SSRF: bloquea requests salientes (webhooks, base URL del LLM
         # y también LTI -- JWKS de la plataforma, token endpoint de AGS, y los
         # fetches del registro dinámico) hacia direcciones privadas/internas.

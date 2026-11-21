@@ -1,7 +1,7 @@
 import logging
 import math
 import uuid
-from datetime import timezone
+from datetime import timedelta, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -580,22 +580,35 @@ async def submit(
             LOGGER.warning("grading failed for %s: %s", r.id, exc)
             r.needs_review = True
             session.add(r)
+            # La respuesta ya está guardada; la corrección se reintenta sola en
+            # segundo plano (un proveedor de IA caído un minuto no puede dejar
+            # la nota pendiente para siempre).
+            from app import jobs
+
+            jobs.enqueue(
+                session, "grade.response", {"response_id": str(r.id)},
+                org_id=s.org_id, survey_id=s.id, response_id=r.id,
+                dedupe_key=f"grade.response:{r.id}", delay=timedelta(minutes=1),
+            )
             await session.commit()
             grade = None
 
-    # Fire webhooks with the final (graded) state — never blocks the respondent.
-    schedule_response_delivery(s.id, r.id)
+    # Todo lo que sale de acá se ENCOLA en una sola transacción (ver
+    # app/jobs.py): webhooks con el estado final (ya corregido), la nota al LMS
+    # y los avisos por email. Nada de esto bloquea a quien respondió, y nada se
+    # pierde si el proceso se reinicia antes de enviarlo.
+    schedule_response_delivery(s.id, r.id, session=session)
     # Si vino de un LMS y quedó una nota, se la devolvemos al libro de calificaciones.
     if lti and r.score is not None:
         from app.lti.ags import schedule_score
 
-        schedule_score(r.id)
-    # Email the owner(s) if configured (fire-and-forget).
+        schedule_score(r.id, session=session, survey_id=s.id, org_id=s.org_id)
     if getattr(s, "notify_emails", None):
         from app.notify import schedule_response_notification
         schedule_response_notification(
-            s.notify_emails, s.title, s.id, await _response_count(s.id, session)
+            s.notify_emails, s.title, s.id, await _response_count(s.id, session), session=session
         )
+    await session.commit()
 
     if grade is None:
         return {"id": str(r.id), "status": "recorded"}

@@ -159,7 +159,7 @@ def _vino_de_un_lms(r: SurveyResponse) -> bool:
     return r.lti_link_id is not None or r.mod_site_id is not None
 
 
-def _agendar_nota(*response_ids: uuid.UUID) -> None:
+def _agendar_nota(*response_ids: uuid.UUID, session=None, survey=None) -> None:
     """Avisa al LMS de una nota que se corrigió o corrigió de nuevo fuera del
     submit original -- override manual, re-corrida individual o masiva.
 
@@ -192,7 +192,11 @@ def _agendar_nota(*response_ids: uuid.UUID) -> None:
     from app.lti.ags import schedule_score
 
     for rid in response_ids:
-        schedule_score(rid)
+        schedule_score(
+            rid, session=session,
+            survey_id=survey.id if survey is not None else None,
+            org_id=survey.org_id if survey is not None else None,
+        )
 
 
 @router.post("/{sid}/responses/{rid}/grade", response_model=ResponseItem)
@@ -208,59 +212,151 @@ async def grade_one(sid: uuid.UUID, rid: uuid.UUID, discard_manual: bool = False
     provider = await resolve_provider(session, ctx.org.id)
     async with track_ai_call(session, provider, ctx.org.id, "grade", sid, ctx.user.id, response_id=r.id):
         await _grade_and_store(s, r, session, actor=ctx.user, discard_manual=discard_manual)
+        # Una corrección individual también puede corregir una nota que ya se
+        # había mandado al LMS (o entregar la primera vez que quedó sin
+        # enviar): sin esto, Moodle se queda mostrando la nota vieja. Se
+        # encola en la misma transacción que la nota nueva.
+        if _vino_de_un_lms(r):
+            _agendar_nota(r.id, session=session, survey=s)
     await session.commit()
     await session.refresh(r)
-    # Una corrección individual también puede corregir una nota que ya se
-    # había mandado al LMS (o entregar la primera vez que quedó sin enviar --
-    # ver el finding de "grade passback con un solo trigger" del review): sin
-    # esto, Moodle se queda mostrando la nota vieja hasta que algo más la
-    # dispare.
-    if _vino_de_un_lms(r):
-        _agendar_nota(r.id)
     return ResponseItem.from_model(r)
 
 
-@router.post("/{sid}/grade-all")
-async def grade_all(sid: uuid.UUID, only_ungraded: bool = True, discard_manual: bool = False, ctx: OrgContext = Depends(current_context), session: AsyncSession = Depends(get_session)):
-    """Corrige (o vuelve a corregir) todas las respuestas. Las correcciones
-    manuales se conservan salvo `discard_manual=true`; cada respuesta deja su
-    revisión en el historial y su propio registro de consumo de IA."""
-    s = await _survey_or_404(sid, ctx.org.id, session)
-    if not (s.evaluation or {}).get("enabled"):
-        raise HTTPException(status_code=400, detail="Survey is not an assessment")
-    stmt = counted_only(select(SurveyResponse).where(SurveyResponse.survey_id == sid))
-    if only_ungraded:
-        stmt = stmt.where(SurveyResponse.graded_at.is_(None))
-    responses = (await session.scalars(stmt)).all()
+async def _regrade_all(session, s, *, actor, only_ungraded: bool, discard_manual: bool, progress=None) -> dict:
+    """Corrige todas las respuestas contables de `s`. Cada una se guarda (y
+    encola su nota al LMS) en su propia transacción: si el proceso se corta a la
+    mitad, lo ya corregido queda corregido y el resto se puede retomar."""
     from app.ai_config import resolve_provider
     from app.ai_usage import track_ai_call
-    provider = await resolve_provider(session, ctx.org.id)
-    graded = 0
-    a_notificar: list[uuid.UUID] = []
-    for r in responses:
-        try:
-            async with track_ai_call(session, provider, ctx.org.id, "grade", sid, ctx.user.id, response_id=r.id):
-                await _grade_and_store(s, r, session, actor=ctx.user, discard_manual=discard_manual)
-            graded += 1
-            if _vino_de_un_lms(r):
-                a_notificar.append(r.id)
-        except Exception:
-            r.needs_review = True
-            session.add(r)
     from app.audit import record_event
 
+    stmt = counted_only(select(SurveyResponse.id).where(SurveyResponse.survey_id == s.id))
+    if only_ungraded:
+        stmt = stmt.where(SurveyResponse.graded_at.is_(None))
+    ids = (await session.scalars(stmt.order_by(SurveyResponse.submitted_at))).all()
+    provider = await resolve_provider(session, s.org_id)
+    graded = 0
+    total = len(ids)
+    for i, rid in enumerate(ids):
+        r = await session.get(SurveyResponse, rid)
+        if r is None:
+            continue
+        try:
+            async with track_ai_call(session, provider, s.org_id, "grade", s.id, actor.id if actor else None, response_id=r.id):
+                await _grade_and_store(s, r, session, actor=actor, discard_manual=discard_manual)
+                if _vino_de_un_lms(r):
+                    _agendar_nota(r.id, session=session, survey=s)
+            graded += 1
+        except Exception:
+            # El rollback expira todo lo cargado: la encuesta se recarga con
+            # `await` para que el resto del bucle no la lea de forma perezosa
+            # (en async eso revienta con MissingGreenlet).
+            await session.rollback()
+            await session.refresh(s)
+            r = await session.get(SurveyResponse, rid)
+            if r is not None:
+                r.needs_review = True
+                session.add(r)
+        await session.commit()
+        if progress is not None and (i % 5 == 4 or i == total - 1):
+            await progress(done=i + 1, total=total, graded=graded)
     record_event(
-        session, action="grades.regrade_all", org_id=ctx.org.id, actor=ctx.user, survey_id=sid,
-        detail={"graded": graded, "total": len(responses), "only_ungraded": only_ungraded,
+        session, action="grades.regrade_all", org_id=s.org_id, actor=actor, survey_id=s.id,
+        detail={"graded": graded, "total": total, "only_ungraded": only_ungraded,
                 "discard_manual": discard_manual},
     )
     await session.commit()
-    # Recién después del commit: si se agendara adentro del loop, una
-    # entrega en background podría leer la fila antes de que este commit la
-    # persista.
-    if a_notificar:
-        _agendar_nota(*a_notificar)
-    return {"graded": graded, "total": len(responses)}
+    return {"graded": graded, "total": total}
+
+
+@router.post("/{sid}/grade-all")
+async def grade_all(sid: uuid.UUID, only_ungraded: bool = True, discard_manual: bool = False, background: bool = False, ctx: OrgContext = Depends(current_context), session: AsyncSession = Depends(get_session)):
+    """Corrige (o vuelve a corregir) todas las respuestas. Las correcciones
+    manuales se conservan salvo `discard_manual=true`; cada respuesta deja su
+    revisión en el historial y su propio registro de consumo de IA.
+
+    Con `background=true` no espera: encola la tarea y devuelve su id, que se
+    consulta en `GET /surveys/{sid}/jobs/{job_id}` para ver el avance. Es el
+    modo para encuestas grandes, donde la corrida en el request se cortaba por
+    timeout y perdía todo lo hecho."""
+    s = await _survey_or_404(sid, ctx.org.id, session)
+    if not (s.evaluation or {}).get("enabled"):
+        raise HTTPException(status_code=400, detail="Survey is not an assessment")
+    if background:
+        from app import jobs
+
+        # Una corrida masiva por encuesta a la vez: apretar dos veces el botón
+        # devuelve la que ya está en marcha en vez de corregir todo dos veces.
+        en_curso = await jobs.find_active(session, f"grades.regrade_all:{sid}")
+        if en_curso is not None:
+            return {"job_id": str(en_curso.id), "status": en_curso.status}
+        job = jobs.enqueue(
+            session, "grades.regrade_all",
+            {"survey_id": str(sid), "user_id": str(ctx.user.id),
+             "only_ungraded": only_ungraded, "discard_manual": discard_manual},
+            org_id=ctx.org.id, survey_id=sid, max_attempts=3,
+            dedupe_key=f"grades.regrade_all:{sid}",
+        )
+        await session.commit()
+        return {"job_id": str(job.id), "status": job.status}
+    return await _regrade_all(session, s, actor=ctx.user, only_ungraded=only_ungraded,
+                              discard_manual=discard_manual)
+
+
+async def regrade_all_job(payload: dict, ctx) -> dict:
+    """Handler `grades.regrade_all` de la cola, con avance visible."""
+    from app.db import _session_maker
+    from app.models import User
+
+    async with _session_maker() as session:
+        s = await session.get(Survey, uuid.UUID(payload["survey_id"]))
+        if s is None or s.deleted_at is not None or not (s.evaluation or {}).get("enabled"):
+            return {"graded": 0, "total": 0}
+        actor = await session.get(User, uuid.UUID(payload["user_id"])) if payload.get("user_id") else None
+        return await _regrade_all(
+            session, s, actor=actor,
+            only_ungraded=bool(payload.get("only_ungraded", True)),
+            discard_manual=bool(payload.get("discard_manual", False)),
+            progress=ctx.progress,
+        )
+
+
+async def grade_response_job(payload: dict, ctx) -> dict:
+    """Handler `grade.response`: reintenta la corrección de una respuesta que
+    no se pudo corregir al enviarla (p. ej. el proveedor de IA no contestó).
+    Levanta si vuelve a fallar, para que la cola reintente más tarde."""
+    from app.ai_config import resolve_provider
+    from app.ai_usage import track_ai_call
+    from app.db import _session_maker
+
+    async with _session_maker() as session:
+        r = await session.get(SurveyResponse, uuid.UUID(payload["response_id"]))
+        if r is None:
+            return {"skipped": True}
+        s = await session.get(Survey, r.survey_id)
+        if s is None or not (s.evaluation or {}).get("enabled"):
+            return {"skipped": True}
+        provider = await resolve_provider(session, s.org_id)
+        async with track_ai_call(session, provider, s.org_id, "grade", s.id, response_id=r.id):
+            await _grade_and_store(s, r, session, source="submit_retry")
+            if _vino_de_un_lms(r):
+                _agendar_nota(r.id, session=session, survey=s)
+        await session.commit()
+        return {"score": r.score}
+
+
+@router.get("/{sid}/jobs/{job_id}")
+async def get_job(sid: uuid.UUID, job_id: uuid.UUID, ctx: OrgContext = Depends(current_context), session: AsyncSession = Depends(get_session)):
+    """Estado y avance de una tarea en segundo plano de esta encuesta."""
+    from app.jobs import job_view
+    from app.models import Job
+
+    await _survey_or_404(sid, ctx.org.id, session)
+    j = await session.get(Job, job_id)
+    if j is None or j.survey_id != sid or j.org_id != ctx.org.id:
+        raise HTTPException(status_code=404, detail="Job not found")
+    return job_view(j)
 
 
 @router.get("/{sid}/review-queue", response_model=List[ResponseItem])
@@ -326,14 +422,14 @@ async def override_grade(sid: uuid.UUID, rid: uuid.UUID, payload: OverrideReques
         session, r, source="manual", grade_before=anterior, actor=ctx.user,
         survey_version_id=r.survey_version_id, note=payload.note,
     )
-    await session.commit()
-    await session.refresh(r)
     # El override es precisamente el workflow de `needs_review`: un docente
     # corrigiendo una nota de IA. Sin esto, esa corrección nunca llegaba al
     # libro de calificaciones del LMS -- Moodle seguía mostrando la nota
-    # original.
+    # original. Encolada en la misma transacción que la nota nueva.
     if _vino_de_un_lms(r):
-        _agendar_nota(r.id)
+        _agendar_nota(r.id, session=session, survey=s)
+    await session.commit()
+    await session.refresh(r)
     return ResponseItem.from_model(r)
 
 

@@ -54,6 +54,21 @@ async def send_email(to: str, subject: str, text: str, html: str | None = None) 
         raise
 
 
+async def send_job(payload: dict, ctx) -> dict:
+    """Handler `email.send` de la cola: si el SMTP falla, `send_email` levanta y
+    la cola reintenta. Sin SMTP configurado no hay nada que reintentar (queda
+    en el log, como siempre)."""
+    await send_email(payload["to"], payload["subject"], payload["text"], payload.get("html"))
+    return {"to": payload["to"]}
+
+
+def enqueue_email(session, to: str, subject: str, text: str, **kw) -> None:
+    """Encola un email dentro de la transacción en curso."""
+    from app import jobs
+
+    jobs.enqueue(session, "email.send", {"to": to, "subject": subject, "text": text}, **kw)
+
+
 # ── Templates ────────────────────────────────────────────────────────────────
 async def send_invite_email(to: str, org_name: str, accept_url: str) -> None:
     text = (

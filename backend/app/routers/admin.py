@@ -15,7 +15,7 @@ from pydantic import BaseModel, EmailStr, Field
 
 from app.db import get_session
 from app.deps import OrgContext, current_context
-from app.email import build_url, send_email
+from app.email import build_url, enqueue_email
 from app.exporting import CSV_MEDIA, XLSX_MEDIA, export_rows, rows_to_csv, sheets_to_xlsx
 from app.audit import record_event
 from app.hygiene import counted_only
@@ -744,9 +744,20 @@ async def response_history(
             .order_by(AuditEvent.created_at.asc())
         )
     ).all()
+    from app.jobs import job_view
+    from app.models import Job
+
+    entregas = (
+        await session.scalars(
+            select(Job)
+            .where(Job.response_id == rid, Job.kind.in_(("lms.grade", "webhook.deliver", "grade.response")))
+            .order_by(Job.created_at.asc())
+        )
+    ).all()
     return {
         "response_id": str(r.id),
         "submitted_at": r.submitted_at.isoformat() if r.submitted_at else None,
+        "deliveries": [job_view(j) for j in entregas],
         "answered_version": numeros.get(r.survey_version_id),
         "integrity": verify_response(r),
         "grade_revisions": [
@@ -775,6 +786,52 @@ async def response_history(
             for e in events
         ],
     }
+
+
+@router.get("/{sid}/deliveries")
+async def survey_deliveries(
+    sid: uuid.UUID,
+    status: Optional[str] = Query(None, pattern="^(pending|running|done|failed)$"),
+    limit: int = Query(200, ge=1, le=1000),
+    ctx: OrgContext = Depends(current_context),
+    session: AsyncSession = Depends(get_session),
+):
+    """Entregas y tareas de esta encuesta (notas al LMS, webhooks, emails,
+    recorrecciones), las más recientes primero. Con `status=failed`, lo que se
+    rindió y necesita atención."""
+    from app.jobs import job_view
+    from app.models import Job
+
+    await _survey_or_404(sid, ctx.org.id, session)
+    stmt = select(Job).where(Job.survey_id == sid, Job.org_id.is_(None) | (Job.org_id == ctx.org.id))
+    if status:
+        stmt = stmt.where(Job.status == status)
+    rows = (await session.scalars(stmt.order_by(Job.created_at.desc()).limit(limit))).all()
+    return [job_view(j) for j in rows]
+
+
+@router.post("/{sid}/deliveries/{job_id}/retry")
+async def retry_delivery(
+    sid: uuid.UUID,
+    job_id: uuid.UUID,
+    ctx: OrgContext = Depends(current_context),
+    session: AsyncSession = Depends(get_session),
+):
+    """Reintenta ya una entrega fallida (o que espera su próximo intento)."""
+    from app.jobs import job_view, retry_now
+    from app.models import JOB_DONE, JOB_RUNNING, Job
+
+    await _survey_or_404(sid, ctx.org.id, session)
+    j = await session.get(Job, job_id)
+    if j is None or j.survey_id != sid or (j.org_id is not None and j.org_id != ctx.org.id):
+        raise HTTPException(status_code=404, detail="Entrega no encontrada")
+    if j.status in (JOB_DONE, JOB_RUNNING):
+        raise HTTPException(status_code=409, detail="Esa entrega no está pendiente ni fallida")
+    await retry_now(session, j)
+    record_event(session, action="delivery.retried", org_id=ctx.org.id, actor=ctx.user,
+                 survey_id=sid, response_id=j.response_id, detail={"kind": j.kind})
+    await session.commit()
+    return job_view(j)
 
 
 @router.get("/{sid}/export")
@@ -951,25 +1008,13 @@ async def send_invitee_links(
             f"Tu código de acceso es: {inv.code}\n"
         )
         outbox.append((inv.email, subject, text))
+        # Encolado en la misma transacción que marca `sent_at`: o quedan las dos
+        # cosas o ninguna, y si el SMTP falla la cola reintenta.
+        enqueue_email(session, inv.email, subject, text, org_id=ctx.org.id, survey_id=sid)
         inv.sent_at = _utcnow()
         session.add(inv)
     await session.commit()
-
-    if outbox:
-        try:
-            asyncio.get_running_loop().create_task(_dispatch_invitee_emails(outbox))
-        except RuntimeError:
-            pass
     return {"sent": len(outbox), "total": len(rows)}
-
-
-async def _dispatch_invitee_emails(outbox: list[tuple[str, str, str]]) -> None:
-    """Send queued invitee emails in the background (no DB access here)."""
-    for email, subject, text in outbox:
-        try:
-            await send_email(email, subject, text)
-        except Exception as exc:  # noqa: BLE001
-            LOGGER.warning("envío de invitación a %s falló: %s", email, exc)
 
 
 @router.post("/{sid}/release-results", response_model=SurveyDetail)

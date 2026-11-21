@@ -35,7 +35,28 @@ async def lifespan(app: FastAPI):
         LOGGER.info("Aplicando migraciones de base de datos…")
         await run_migrations()
         LOGGER.info("Migraciones al día.")
-    yield
+
+    # Worker de la cola persistente (app/jobs.py), en el mismo proceso: no hay
+    # una pieza más que operar. Con varias réplicas, cada una corre el suyo y
+    # se reparten las tareas; ENCUESTUM_JOBS_WORKER=false lo apaga (p. ej. en
+    # los tests, que vacían la cola a mano para ser determinísticos).
+    import asyncio
+
+    stop = asyncio.Event()
+    worker = None
+    if settings.jobs_worker_enabled:
+        from app.jobs import worker_loop
+
+        worker = asyncio.create_task(worker_loop(stop))
+    try:
+        yield
+    finally:
+        stop.set()
+        if worker is not None:
+            try:
+                await asyncio.wait_for(worker, timeout=10)
+            except (asyncio.TimeoutError, asyncio.CancelledError):
+                worker.cancel()
 
 
 APP_VERSION = "1.1.24"

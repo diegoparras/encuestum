@@ -702,6 +702,58 @@ class AuditEvent(SQLModel, table=True):
     )
 
 
+JOB_PENDING = "pending"
+JOB_RUNNING = "running"
+JOB_DONE = "done"
+JOB_FAILED = "failed"
+
+
+class Job(SQLModel, table=True):
+    """Una tarea en segundo plano, persistida (ver `app/jobs.py`).
+
+    Reemplaza a los `asyncio.create_task` sueltos: si el proceso se reinicia,
+    lo pendiente sigue acá y se retoma; si falla, se reintenta con espera
+    creciente; y lo que se rindió queda a la vista con su último error. Es,
+    además, el registro de entregas: cada nota enviada al LMS, cada webhook y
+    cada email es una fila con su estado.
+
+    `survey_id`/`response_id` sin FK, igual que la auditoría: el registro de
+    una entrega no tiene que desaparecer con lo que describe."""
+
+    __tablename__ = "jobs"
+
+    id: uuid.UUID = Field(primary_key=True, default_factory=uuid.uuid4)
+    kind: str = Field(sa_column=Column(String, nullable=False, index=True))
+    payload: dict = Field(sa_column=Column(JSON, nullable=False), default_factory=dict)
+    status: str = Field(
+        sa_column=Column(String, nullable=False, index=True, server_default=JOB_PENDING),
+        default=JOB_PENDING,
+    )
+    attempts: int = Field(sa_column=Column(Integer, nullable=False, server_default="0"), default=0)
+    max_attempts: int = Field(sa_column=Column(Integer, nullable=False, server_default="6"), default=6)
+    run_after: datetime = Field(
+        sa_column=Column(DateTime(timezone=True), nullable=False, default=_utcnow, index=True)
+    )
+    locked_at: Optional[datetime] = Field(sa_column=Column(DateTime(timezone=True)), default=None)
+    last_error: Optional[str] = Field(sa_column=Column(String), default=None)
+    # Avance de las tareas largas (p. ej. {"done": 40, "total": 120}).
+    progress: Optional[dict] = Field(sa_column=Column(JSON), default=None)
+    result: Optional[dict] = Field(sa_column=Column(JSON), default=None)
+    # Dos pedidos de la misma entrega mientras la primera sigue pendiente son
+    # uno solo (p. ej. tres recorrecciones seguidas de la misma nota al LMS).
+    dedupe_key: Optional[str] = Field(sa_column=Column(String, index=True), default=None)
+    org_id: Optional[uuid.UUID] = Field(
+        sa_column=Column(ForeignKey("organizations.id", ondelete="CASCADE"), index=True),
+        default=None,
+    )
+    survey_id: Optional[uuid.UUID] = Field(sa_column=Column(Uuid, index=True), default=None)
+    response_id: Optional[uuid.UUID] = Field(sa_column=Column(Uuid, index=True), default=None)
+    created_at: datetime = Field(
+        sa_column=Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    )
+    finished_at: Optional[datetime] = Field(sa_column=Column(DateTime(timezone=True)), default=None)
+
+
 # ── LTI 1.3 (Encuestum como herramienta de un LMS) ───────────────────────────
 
 
