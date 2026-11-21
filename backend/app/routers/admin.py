@@ -2,7 +2,7 @@ import asyncio
 import logging
 import re
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response
@@ -503,8 +503,24 @@ async def _funnel_data(sid: uuid.UUID, s, session: AsyncSession) -> dict:
         await session.scalar(select(func.count(SurveyDraft.id)).where(SurveyDraft.survey_id == sid))
         or 0
     )
+    # Tiempo de completado y dispositivo, de los metadatos que pone el
+    # servidor al recibir (respuestas desde la 0026 en adelante).
+    from app.quality import completion_seconds, device_of
+
+    recibidas = (
+        await session.scalars(
+            counted_only(select(SurveyResponse).where(SurveyResponse.survey_id == sid))
+        )
+    ).all()
+    dispositivos: dict[str, int] = {}
+    for r in recibidas:
+        d = device_of(r)
+        if d:
+            dispositivos[d] = dispositivos.get(d, 0) + 1
     return {
         "in_progress": in_progress,
+        "completion_seconds": completion_seconds(recibidas),
+        "devices": dispositivos,
         "views": views,
         "starts": starts,
         "completions": completions,
@@ -521,6 +537,44 @@ async def _funnel_data(sid: uuid.UUID, s, session: AsyncSession) -> dict:
     }
 
 
+def _parse_summary_filters(filters: Optional[str]) -> list[dict]:
+    import json
+
+    if not filters:
+        return []
+    try:
+        raw = json.loads(filters)
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=422, detail="filtros inválidos")
+    if not isinstance(raw, list):
+        return []
+    try:
+        return [
+            {"name": str(f["name"]), "values": list(f.get("values") or [])}
+            for f in raw
+            if isinstance(f, dict) and f.get("name")
+        ]
+    except (TypeError, KeyError):
+        raise HTTPException(status_code=422, detail="filtros inválidos")
+
+
+async def _summary_for(sid, ctx, session, *, segment_by, filters, date_from, date_to):
+    from app.summarizing import build_summary
+
+    if date_from and date_to and date_from > date_to:
+        raise HTTPException(status_code=422, detail="El rango de fechas está invertido.")
+    s = await _survey_or_404(sid, ctx.org.id, session)
+    responses = (
+        await session.scalars(
+            counted_only(select(SurveyResponse).where(SurveyResponse.survey_id == sid))
+        )
+    ).all()
+    return s, build_summary(
+        s.json_schema or {}, responses, filters=_parse_summary_filters(filters),
+        segment_by=segment_by, date_from=date_from, date_to=date_to,
+    )
+
+
 @router.get("/{sid}/summary")
 async def response_summary(
     sid: uuid.UUID,
@@ -528,35 +582,66 @@ async def response_summary(
     session: AsyncSession = Depends(get_session),
     segment_by: Optional[str] = Query(None),
     filters: Optional[str] = Query(None, description="JSON: [{name, values:[...]}]"),
+    date_from: Optional[date] = Query(None, description="Desde (inclusive, UTC)"),
+    date_to: Optional[date] = Query(None, description="Hasta (inclusive, UTC)"),
 ):
     """Per-question, chart-ready aggregation of all responses (the Resumen view).
-    Con `segment_by` cruza cada pregunta por otra (cross-tab); con `filters`
-    (JSON) restringe el universo a quienes respondieron ciertos valores."""
-    import json
+    Con `segment_by` cruza cada pregunta por otra (cross-tab, con prueba chi²);
+    con `filters` (JSON) restringe el universo a quienes respondieron ciertos
+    valores; con `date_from`/`date_to`, a un rango de fechas."""
+    _s, summary = await _summary_for(sid, ctx, session, segment_by=segment_by, filters=filters,
+                                     date_from=date_from, date_to=date_to)
+    return summary
 
-    from app.summarizing import build_summary
+
+@router.get("/{sid}/quality")
+async def response_quality(
+    sid: uuid.UUID,
+    ctx: OrgContext = Depends(current_context),
+    session: AsyncSession = Depends(get_session),
+):
+    """Respuestas con señales de baja calidad (apuradas, en línea recta,
+    duplicadas) entre las que hoy cuentan. No excluye nada: lo decide quien
+    analiza, con la exclusión reversible de siempre."""
+    from app.quality import assess
 
     s = await _survey_or_404(sid, ctx.org.id, session)
-    parsed_filters: list[dict] = []
-    if filters:
-        try:
-            raw = json.loads(filters)
-            if isinstance(raw, list):
-                parsed_filters = [
-                    {"name": str(f["name"]), "values": list(f.get("values") or [])}
-                    for f in raw
-                    if isinstance(f, dict) and f.get("name")
-                ]
-        except (ValueError, TypeError, KeyError):
-            raise HTTPException(status_code=422, detail="filtros inválidos")
     responses = (
         await session.scalars(
             counted_only(select(SurveyResponse).where(SurveyResponse.survey_id == sid))
         )
     ).all()
-    return build_summary(
-        s.json_schema or {}, responses, filters=parsed_filters, segment_by=segment_by
-    )
+    return assess(s.json_schema or {}, responses)
+
+
+@router.get("/{sid}/summary/crosstab")
+async def export_crosstab(
+    sid: uuid.UUID,
+    segment_by: str = Query(...),
+    format: str = Query("csv", pattern="^(csv|xlsx)$"),
+    filters: Optional[str] = Query(None),
+    date_from: Optional[date] = Query(None),
+    date_to: Optional[date] = Query(None),
+    ctx: OrgContext = Depends(current_context),
+    session: AsyncSession = Depends(get_session),
+):
+    """El cruce del resumen como planilla (conteos, % y p-valor por pregunta).
+    Son agregados, no respuestas individuales: no requiere rol admin."""
+    from app.summarizing import crosstab_rows
+
+    s, summary = await _summary_for(sid, ctx, session, segment_by=segment_by, filters=filters,
+                                    date_from=date_from, date_to=date_to)
+    rows = crosstab_rows(summary)
+    if not rows:
+        raise HTTPException(status_code=422, detail="Esa pregunta no sirve para segmentar.")
+    base = f"{s.slug or 'encuesta'}-cruce"
+    if format == "xlsx":
+        data = await asyncio.to_thread(sheets_to_xlsx, [("Cruce", rows)])
+        return StreamingResponse(iter([data]), media_type=XLSX_MEDIA,
+                                 headers={"Content-Disposition": f'attachment; filename="{base}.xlsx"'})
+    data = await asyncio.to_thread(rows_to_csv, rows)
+    return StreamingResponse(iter([data]), media_type=CSV_MEDIA,
+                             headers={"Content-Disposition": f'attachment; filename="{base}.csv"'})
 
 
 @router.get("/{sid}/report")

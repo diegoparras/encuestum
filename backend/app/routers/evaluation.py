@@ -550,6 +550,13 @@ async def analytics(sid: uuid.UUID, ctx: OrgContext = Depends(current_context), 
          "correct_rate": round(a["correct"] / a["n"] * 100, 1) if a["n"] else 0}
         for a in q_agg.values()
     ]
+    # Análisis de ítems: dificultad, discriminación, distractores y la
+    # confiabilidad del examen (ver app/item_analysis.py).
+    from app.item_analysis import analyze
+
+    analisis = analyze(s.json_schema or {}, s.evaluation or {}, graded)
+    for q in per_question:
+        q.update(analisis["items"].get(q["name"], {}))
     # En el orden de la encuesta: el agregado viene en el orden de la corrección,
     # que no tiene por qué ser el mismo.
     per_question.sort(key=lambda q: (q["number"] is None, q["number"] or 0))
@@ -561,6 +568,7 @@ async def analytics(sid: uuid.UUID, ctx: OrgContext = Depends(current_context), 
         "avg_percent": round(sum(percents) / len(percents), 1) if percents else None,
         "pass_rate": round(passed / len(graded) * 100, 1) if graded else None,
         "score_distribution": buckets, "per_question": per_question,
+        "reliability": analisis["reliability"],
     }
 
 
@@ -632,8 +640,15 @@ def _open_titles(schema: dict) -> dict:
 
 @router.get("/{sid}/insights")
 async def get_insights(sid: uuid.UUID, ctx: OrgContext = Depends(current_context), session: AsyncSession = Depends(get_session)):
+    """El análisis guardado, más cuántas respuestas cuentan HOY: el panel avisa
+    cuántas llegaron después del análisis (antes no había forma de saberlo)."""
+    from sqlalchemy import func
+
     s = await _survey_or_404(sid, ctx.org.id, session)
-    return s.insights or {"questions": []}
+    actual = int(await session.scalar(
+        counted_only(select(func.count(SurveyResponse.id)).where(SurveyResponse.survey_id == sid))
+    ) or 0)
+    return {**(s.insights or {"questions": []}), "current_count": actual}
 
 
 @router.post("/{sid}/insights")
@@ -655,7 +670,8 @@ async def generate_insights(sid: uuid.UUID, ctx: OrgContext = Depends(current_co
                 continue
             question_summary = await summarize_open_responses(question_title=title, language=s.language or "es", answers=answers)
             out.append({"name": name, "title": title, "n": len(answers), "summary": question_summary})
-    insights = {"generated_at": _utcnow().isoformat(), "questions": out, "usage": usage_summary(acc)}
+    insights = {"generated_at": _utcnow().isoformat(), "questions": out, "usage": usage_summary(acc),
+                "response_count": len(responses)}
     s.insights = insights
     session.add(s)
     await session.commit()

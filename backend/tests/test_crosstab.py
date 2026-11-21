@@ -46,7 +46,10 @@ def _data():
 def test_filterable_lists_only_categorical():
     fq = filterable_questions(SCHEMA)
     names = {q["name"] for q in fq}
-    assert names == {"depto"}  # rating y comment no son dimensiones
+    # Una escala también es dimensión (cada valor, una columna); un texto libre no.
+    assert names == {"depto", "sat"}
+    sat = next(q for q in fq if q["name"] == "sat")
+    assert [o["value"] for o in sat["options"]] == ["1", "2", "3", "4", "5"]
     assert fq[0]["options"] == [
         {"value": "ventas", "label": "Ventas"},
         {"value": "sop", "label": "Soporte"},
