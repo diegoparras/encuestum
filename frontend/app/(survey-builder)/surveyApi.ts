@@ -81,6 +81,19 @@ interface SummaryQuestionBase {
   answered: number;
   /** Desglose por valor del segmento (cross-tab), si se pidió segment_by. */
   by_segment?: Record<string, SummaryQuestion>;
+  /** Prueba chi² de la diferencia entre segmentos (si aplica). */
+  significance?: Significance | null;
+}
+
+export interface Significance {
+  chi2: number;
+  dof: number;
+  p: number;
+  cramers_v: number | null;
+  n: number;
+  /** false: demasiadas celdas con menos de 5 esperados; el p-valor no es confiable. */
+  reliable: boolean;
+  significant: boolean;
 }
 
 /** Unión discriminada por `kind` con la forma del gráfico de cada pregunta. */
@@ -95,10 +108,47 @@ export type SummaryQuestion =
       min: number;
       max: number;
       average: number | null;
+      median?: number | null;
+      stdev?: number | null;
+      top2?: number;
+      bottom2?: number;
+      nps?: { score: number; promoters: number; passives: number; detractors: number } | null;
       distribution: SummaryDistribution[];
     })
-  | (SummaryQuestionBase & { kind: "text"; values: string[] })
-  | (SummaryQuestionBase & { kind: "files"; values: string[] });
+  | (SummaryQuestionBase & {
+      kind: "text";
+      values: string[];
+      terms?: { term: string; count: number }[];
+    })
+  | (SummaryQuestionBase & { kind: "files"; values: string[] })
+  | (SummaryQuestionBase & {
+      kind: "matrix";
+      rows: { value: string; label: string }[];
+      columns: { value: string; label: string }[];
+      cells: number[][];
+    })
+  | (SummaryQuestionBase & {
+      kind: "ranking";
+      items: { value: string; label: string; n: number; avg_position: number | null; first: number }[];
+    })
+  | (SummaryQuestionBase & {
+      kind: "numeric";
+      n: number;
+      min: number | null;
+      max: number | null;
+      average: number | null;
+      median: number | null;
+      stdev: number | null;
+      histogram: { from: number; to: number; count: number }[];
+    })
+  | (SummaryQuestionBase & {
+      kind: "dates";
+      n: number;
+      min: string | null;
+      max: string | null;
+      median: string | null;
+      by_month: { month: string; count: number }[];
+    });
 
 /** Pregunta categórica utilizable como filtro o segmento. */
 export interface FilterableQuestion {
@@ -111,7 +161,10 @@ export interface FilterableQuestion {
 export interface SummarySegment {
   name: string;
   title: string;
-  values: { value: string; label: string; count: number }[];
+  multi?: boolean;
+  /** Algún segmento tiene menos de 30 respuestas: comparar con cuidado. */
+  small_sample?: boolean;
+  values: { value: string; label: string; count: number; small?: boolean }[];
 }
 
 /** Un filtro activo: una pregunta y los valores admitidos. */
@@ -123,6 +176,9 @@ export interface SummaryFilter {
 export interface SummaryReport {
   total_responses: number;
   filtered_responses: number;
+  date_from?: string | null;
+  date_to?: string | null;
+  timeline?: { date: string; count: number }[];
   filters: { name: string; title: string; values: string[] }[];
   segment: SummarySegment | null;
   filterable: FilterableQuestion[];
@@ -232,6 +288,17 @@ export interface Funnel {
   start_rate: number | null;
   completion_rate: number | null;
   dropoff: FunnelDropoff[];
+  /** Personas identificadas con una respuesta a medio hacer guardada. */
+  in_progress?: number;
+  completion_seconds?: { n: number; median: number | null; p25: number | null; p75: number | null };
+  devices?: Record<string, number>;
+}
+
+export interface QualityReport {
+  checked: number;
+  completion: { n: number; median: number | null };
+  speed_threshold_seconds: number | null;
+  flagged: { response_id: string; reasons: { code: string; detail: string }[] }[];
 }
 
 // Invitado (modo lista): cada uno con su código de acceso único.
@@ -287,7 +354,17 @@ export interface Analytics {
     responses: number;
     avg_score_pct: number | null;
     correct_rate: number;
+    // Análisis de ítems (ver backend/app/item_analysis.py).
+    difficulty?: number | null;
+    discrimination?: number | null;
+    d_index?: number | null;
+    flags?: string[];
+    distractors?: {
+      never_chosen: string[];
+      attracts_top: { option: string; upper: number; lower: number }[];
+    };
   }[];
+  reliability?: { alpha: number; n: number; items: number; level: "buena" | "aceptable" | "baja" } | null;
 }
 
 // ---- Planilla de notas (gradebook) de una evaluación ----
@@ -340,6 +417,9 @@ export interface QuestionInsight {
 export interface Insights {
   generated_at?: string;
   questions: QuestionInsight[];
+  /** Respuestas que contaban al generar el análisis, y las que cuentan hoy. */
+  response_count?: number;
+  current_count?: number;
 }
 
 export interface GeneratedQuestion {
@@ -351,6 +431,22 @@ export interface GeneratedQuestion {
   keyConcepts: string[];
   rubric: { label: string; points: number }[];
   points: number;
+}
+
+export interface SummaryOptions {
+  segmentBy?: string | null;
+  filters?: SummaryFilter[];
+  dateFrom?: string | null;
+  dateTo?: string | null;
+}
+
+function summaryQuery(opts?: SummaryOptions): string {
+  const qs = new URLSearchParams();
+  if (opts?.segmentBy) qs.set("segment_by", opts.segmentBy);
+  if (opts?.filters && opts.filters.length) qs.set("filters", JSON.stringify(opts.filters));
+  if (opts?.dateFrom) qs.set("date_from", opts.dateFrom);
+  if (opts?.dateTo) qs.set("date_to", opts.dateTo);
+  return qs.toString() ? `?${qs.toString()}` : "";
 }
 
 const RESPONSES_PAGE = 500;
@@ -533,14 +629,17 @@ export const surveyApi = {
     }),
   getSummary: (
     id: string,
-    opts?: { segmentBy?: string | null; filters?: SummaryFilter[] }
-  ) => {
-    const qs = new URLSearchParams();
-    if (opts?.segmentBy) qs.set("segment_by", opts.segmentBy);
-    if (opts?.filters && opts.filters.length) qs.set("filters", JSON.stringify(opts.filters));
-    const suffix = qs.toString() ? `?${qs.toString()}` : "";
-    return request<SummaryReport>(`/api/v1/survey/surveys/${id}/summary${suffix}`);
+    opts?: SummaryOptions
+  ) => request<SummaryReport>(`/api/v1/survey/surveys/${id}/summary${summaryQuery(opts)}`),
+  /** URL del cruce como planilla (se descarga con la cookie de sesión). */
+  crosstabUrl: (id: string, opts: SummaryOptions, format: "csv" | "xlsx" = "csv") => {
+    const q = summaryQuery(opts);
+    return getApiUrl(
+      `/api/v1/survey/surveys/${id}/summary/crosstab${q ? `${q}&` : "?"}format=${format}`
+    );
   },
+  getQuality: (id: string) =>
+    request<QualityReport>(`/api/v1/survey/surveys/${id}/quality`),
   getFunnel: (id: string) =>
     request<Funnel>(`/api/v1/survey/surveys/${id}/funnel`),
   duplicateSurvey: (id: string) =>

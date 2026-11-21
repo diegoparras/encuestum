@@ -106,7 +106,7 @@ def test_terminos_frecuentes_en_abiertas():
     rs = [_R({"op": t}) for t in ["El precio es alto", "Precio alto, mala atención",
                                   "Mala atención en el local", "Buen precio"]]
     terms = {t["term"]: t["count"] for t in _q(build_summary(SCHEMA, rs), "op")["terms"]}
-    assert terms["precio"] == 3 and terms["mala atencion"] == 2
+    assert terms["precio"] == 3 and terms["mala atención"] == 2
 
 
 def test_chi2_y_alfa_contra_valores_de_referencia():
@@ -182,3 +182,14 @@ def test_calidad_marca_apuradas_en_linea_recta_y_duplicadas():
     assert motivos["r12"] == {"duplicate"}
     assert "r1" not in motivos  # la original no se marca
     assert out["completion"]["median"] == 300
+
+
+def test_la_significancia_de_una_escala_se_prueba_por_tramos():
+    import random
+
+    random.seed(1)
+    rs = ([_R({"depto": "v", "nps": random.choice([8, 9, 10, 9, 7])}) for _ in range(60)]
+          + [_R({"depto": "s", "nps": random.choice([2, 4, 6, 5, 7])}) for _ in range(60)])
+    sig = _q(build_summary(SCHEMA, rs, segment_by="depto"), "nps")["significance"]
+    # Con 11 valores sueltos no sería confiable; agrupada en tramos, sí.
+    assert sig["reliable"] and sig["significant"] and sig["dof"] == 2

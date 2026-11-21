@@ -418,12 +418,22 @@ def _contingency(q: dict, seg_values: list[str]) -> Optional[list[list[int]]]:
             for k in keys
         ]
     if q["kind"] == "rating":
-        keys = [d["value"] for d in q["distribution"]]
-        return [
-            [next((d["count"] for d in (by.get(sv) or {}).get("distribution", []) if d["value"] == k), 0)
-             for sv in seg_values]
-            for k in keys
-        ]
+        # Una fila por valor de la escala deja casi todas las celdas con menos
+        # de 5 casos esperados y la prueba nunca resulta confiable. Se agrupa en
+        # tramos: detractores/pasivos/promotores en 0-10, tercios en el resto.
+        lo, hi = q["min"], q["max"]
+        if lo == 0 and hi == 10:
+            tramo = lambda v: 0 if v <= 6 else 1 if v <= 8 else 2  # noqa: E731
+            n_tramos = 3
+        else:
+            n_tramos = min(3, hi - lo + 1)
+            ancho = (hi - lo + 1) / n_tramos
+            tramo = lambda v: min(n_tramos - 1, int((v - lo) / ancho))  # noqa: E731
+        table = [[0] * len(seg_values) for _ in range(n_tramos)]
+        for j, sv in enumerate(seg_values):
+            for d in (by.get(sv) or {}).get("distribution", []):
+                table[tramo(d["value"])][j] += d["count"]
+        return table
     return None
 
 

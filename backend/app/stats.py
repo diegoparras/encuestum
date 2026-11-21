@@ -201,7 +201,7 @@ we they he she my our your their me them do does did so if no yes
 e um uma os as do da dos das em no na nos nas ao aos pelo pela com nao sim mais
 """.split()
 )
-_WORD = re.compile(r"[a-z0-9]+(?:'[a-z]+)?")
+_WORD = re.compile(r"[^\W_]+(?:'[^\W_]+)?", re.UNICODE)
 
 
 def _fold(s: str) -> str:
@@ -213,17 +213,33 @@ def top_terms(texts: Iterable[str], limit: int = 20, min_count: int = 2) -> list
     """Palabras y pares de palabras más frecuentes, sin palabras vacías.
 
     Cuenta en cuántas RESPUESTAS aparece cada término (no cuántas veces): una
-    persona que repite "precio" diez veces no lo vuelve un tema."""
+    persona que repite "precio" diez veces no lo vuelve un tema. Agrupa sin
+    tildes ni mayúsculas ("atencion" = "Atención") pero muestra la forma más
+    usada. Los pares son de palabras realmente contiguas: "precio alto" sale de
+    "precio alto", no de "precio para lo que es alto"."""
     docs: Counter = Counter()
+    formas: dict[str, Counter] = {}
     for t in texts:
-        words = [w for w in _WORD.findall(_fold(t or "")) if w not in _STOP and len(w) > 2]
-        seen = set(words)
-        seen |= {f"{a} {b}" for a, b in zip(words, words[1:])}
-        docs.update(seen)
+        tokens = _WORD.findall((t or "").lower())
+        vistos: set[str] = set()
+        prev: Optional[tuple[str, str]] = None
+        for tok in tokens:
+            k = _fold(tok)
+            if k in _STOP or len(k) <= 2 or k.isdigit():
+                prev = None
+                continue
+            vistos.add(k)
+            formas.setdefault(k, Counter())[tok] += 1
+            if prev is not None:
+                par = f"{prev[0]} {k}"
+                vistos.add(par)
+                formas.setdefault(par, Counter())[f"{prev[1]} {tok}"] += 1
+            prev = (k, tok)
+        docs.update(vistos)
     out = [{"term": k, "count": v} for k, v in docs.items() if v >= min_count]
     # Primero los más frecuentes; a igual frecuencia, los pares (más informativos).
     out.sort(key=lambda d: (-d["count"], -d["term"].count(" "), d["term"]))
-    # Un par que aparece tantas veces como su palabra suelta la vuelve redundante.
+    # Una palabra que casi siempre aparece dentro del mismo par es redundante.
     pares = {d["term"]: d["count"] for d in out if " " in d["term"]}
     filtrado = []
     for d in out:
@@ -231,5 +247,5 @@ def top_terms(texts: Iterable[str], limit: int = 20, min_count: int = 2) -> list
             d["term"] in p.split() and c >= d["count"] for p, c in pares.items()
         ):
             continue
-        filtrado.append(d)
+        filtrado.append({"term": formas[d["term"]].most_common(1)[0][0], "count": d["count"]})
     return filtrado[:limit]

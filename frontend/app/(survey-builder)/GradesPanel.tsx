@@ -167,6 +167,30 @@ export function GradesPanel({ surveyId, accent = SURVEY_ACCENT }: Props) {
         />
       </div>
 
+      {analytics.reliability && (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-lg border border-neutral-200 bg-white px-4 py-3 text-sm dark:border-neutral-800 dark:bg-neutral-900">
+          <span className="font-medium text-neutral-800 dark:text-neutral-100">
+            Confiabilidad del examen: α = {analytics.reliability.alpha.toFixed(2).replace(".", ",")}
+          </span>
+          <span
+            className={`rounded-full px-2 py-0.5 text-xs font-medium ${
+              analytics.reliability.level === "buena"
+                ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300"
+                : analytics.reliability.level === "aceptable"
+                  ? "bg-sky-50 text-sky-700 dark:bg-sky-950/40 dark:text-sky-300"
+                  : "bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300"
+            }`}
+          >
+            {analytics.reliability.level}
+          </span>
+          <span className="text-xs text-neutral-500 dark:text-neutral-400">
+            Alfa de Cronbach (KR-20 con preguntas de bien/mal), {analytics.reliability.items} preguntas,{" "}
+            {analytics.reliability.n} personas. Mide si las preguntas miden lo mismo: ≥ 0,8 buena, 0,7 aceptable; en
+            un parcial corto de aula, 0,6 es habitual.
+          </span>
+        </div>
+      )}
+
       {/* Distribution + actions */}
       <div className="flex flex-wrap items-end justify-between gap-4">
         <Distribution buckets={analytics.score_distribution} accent={accent} />
@@ -208,6 +232,12 @@ export function GradesPanel({ surveyId, accent = SURVEY_ACCENT }: Props) {
                 <th className="text-left font-medium px-3 py-2">Respuestas</th>
                 <th className="text-left font-medium px-3 py-2">% acierto</th>
                 <th className="text-left font-medium px-3 py-2">Puntaje medio</th>
+                <th
+                  className="text-left font-medium px-3 py-2"
+                  title="Correlación entre esta pregunta y el resto del examen. Alta (≥ 0,3): la aciertan más los que mejor rinden, como debe ser. Cerca de 0 o negativa: la pregunta no mide lo mismo que el resto (o la clave está mal)."
+                >
+                  Discriminación
+                </th>
               </tr>
             </thead>
             <tbody className="divide-y divide-neutral-100 dark:divide-neutral-800">
@@ -233,11 +263,17 @@ export function GradesPanel({ surveyId, accent = SURVEY_ACCENT }: Props) {
                   </td>
                   {/* El título completo queda en el tooltip: acá se corta para
                       que la tabla no se vuelva ilegible con preguntas largas. */}
-                  <td
-                    className="px-3 py-2 max-w-[22rem] truncate text-neutral-800 dark:text-neutral-200"
-                    title={q.title || q.name}
-                  >
-                    {q.title || q.name}
+                  <td className="px-3 py-2 max-w-[22rem] text-neutral-800 dark:text-neutral-200">
+                    <div className="truncate" title={q.title || q.name}>
+                      {q.title || q.name}
+                    </div>
+                    {/* Alertas del análisis de ítems, debajo del título: en una
+                        columna propia la tabla se desbordaba. */}
+                    {!!q.flags?.length && (
+                      <div className="mt-1">
+                        <ItemFlags flags={q.flags} distractors={q.distractors} />
+                      </div>
+                    )}
                   </td>
                   <td className="px-3 py-2 text-neutral-600 dark:text-neutral-300">
                     {questionTypeLabel(q.type)}
@@ -246,6 +282,9 @@ export function GradesPanel({ surveyId, accent = SURVEY_ACCENT }: Props) {
                   <td className="px-3 py-2">{q.correct_rate}%</td>
                   <td className="px-3 py-2">
                     {q.avg_score_pct != null ? `${q.avg_score_pct}%` : "—"}
+                  </td>
+                  <td className="px-3 py-2 tabular-nums">
+                    <DiscBar value={q.discrimination ?? null} />
                   </td>
                 </tr>
                 );
@@ -590,4 +629,80 @@ function formatearRespuesta(v: any): React.ReactNode {
   if (Array.isArray(v)) return v.join(", ");
   if (typeof v === "object") return JSON.stringify(v);
   return String(v);
+}
+
+const FLAG_LABELS: Record<string, { label: string; tip: string }> = {
+  muy_facil: { label: "Muy fácil", tip: "La acierta el 90% o más: casi no distingue entre quien sabe y quien no." },
+  muy_dificil: { label: "Muy difícil", tip: "La acierta el 20% o menos. ¿La clave está bien? ¿Se enseñó el tema?" },
+  discriminacion_negativa: {
+    label: "Revisar clave",
+    tip: "La aciertan más los que peor rinden en el resto del examen. Suele ser una clave mal cargada o una consigna ambigua.",
+  },
+  discrimina_poco: { label: "Discrimina poco", tip: "Acertarla tiene poco que ver con el resto del examen." },
+  distractor_inutil: { label: "Opciones que nadie elige", tip: "" },
+  distractor_ambiguo: { label: "Opción ambigua", tip: "" },
+};
+
+function ItemFlags({
+  flags,
+  distractors,
+}: {
+  flags: string[];
+  distractors?: { never_chosen: string[]; attracts_top: { option: string; upper: number; lower: number }[] };
+}) {
+  if (!flags.length) return null;
+  return (
+    <div className="flex flex-wrap gap-1">
+      {flags.map((f) => {
+        const info = FLAG_LABELS[f] ?? { label: f, tip: "" };
+        let tip = info.tip;
+        if (f === "distractor_inutil" && distractors)
+          tip = `Nadie eligió: ${distractors.never_chosen.join(", ")}. Un distractor que no distrae no suma a la pregunta.`;
+        if (f === "distractor_ambiguo" && distractors)
+          tip = distractors.attracts_top
+            .map(
+              (d) =>
+                `«${d.option}» la eligió el ${Math.round(d.upper * 100)}% de los mejores contra el ${Math.round(
+                  d.lower * 100
+                )}% de los de peor nota`
+            )
+            .join(". ");
+        const grave = f === "discriminacion_negativa";
+        return (
+          <span
+            key={f}
+            title={tip}
+            className={`cursor-help rounded-full px-1.5 py-0.5 text-[11px] font-medium ${
+              grave
+                ? "bg-red-50 text-red-700 dark:bg-red-950/40 dark:text-red-300"
+                : "bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300"
+            }`}
+          >
+            {info.label}
+          </span>
+        );
+      })}
+    </div>
+  );
+}
+
+function DiscBar({ value }: { value: number | null }) {
+  if (value == null)
+    return (
+      <span className="text-xs text-neutral-300 dark:text-neutral-600" title="Hacen falta al menos 10 respuestas.">
+        —
+      </span>
+    );
+  const color = value < 0 ? "#dc2626" : value < 0.2 ? "#d97706" : "#16a34a";
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <span className="relative h-1.5 w-12 overflow-hidden rounded-full bg-neutral-100 dark:bg-neutral-800">
+        <span
+          className="absolute inset-y-0 left-0 rounded-full"
+          style={{ width: `${Math.min(100, Math.abs(value) * 100)}%`, backgroundColor: color }}
+        />
+      </span>
+      <span style={{ color }}>{value.toFixed(2).replace(".", ",")}</span>
+    </span>
+  );
 }
