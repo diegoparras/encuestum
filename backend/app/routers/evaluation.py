@@ -1,7 +1,7 @@
 import uuid
-from typing import Dict, List
+from typing import Dict, List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from pydantic import BaseModel, Field as PydField
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
@@ -678,20 +678,291 @@ async def generate_insights(sid: uuid.UUID, ctx: OrgContext = Depends(current_co
     return insights
 
 
+def _fold_title(t: str) -> str:
+    import re
+    import unicodedata
+
+    t = unicodedata.normalize("NFKD", (t or "").lower())
+    t = "".join(ch for ch in t if not unicodedata.combining(ch))
+    return re.sub(r"[^\w]+", " ", t).strip()
+
+
+def _es_duplicada(titulo: str, otros: list[str], umbral: float = 0.9) -> bool:
+    """Misma pregunta con otras palabras (casi la misma redacción). Dos
+    preguntas con distintos NÚMEROS nunca son duplicadas: "¿Cuánto es 2+3?" y
+    "¿Cuánto es 2+4?" son variantes legítimas aunque el texto casi coincida."""
+    import re
+    from difflib import SequenceMatcher
+
+    a = _fold_title(titulo)
+    nums_a = sorted(re.findall(r"\d+", a))
+    for b in otros:
+        if not b:
+            continue
+        if a == b:
+            return True
+        if sorted(re.findall(r"\d+", b)) != nums_a:
+            continue
+        if SequenceMatcher(None, a, b).ratio() >= umbral:
+            return True
+    return False
+
+
+def _titulos_de(schema: dict) -> list[str]:
+    return [
+        el.get("title") or ""
+        for p in (schema or {}).get("pages", []) or []
+        if isinstance(p, dict)
+        for el in p.get("elements", []) or []
+        if isinstance(el, dict) and el.get("title")
+    ]
+
+
 @router.post("/{sid}/generate-questions")
-async def generate_questions(sid: uuid.UUID, payload: GenerateQuestionsRequest, ctx: OrgContext = Depends(current_context), session: AsyncSession = Depends(get_session)):
-    await _survey_or_404(sid, ctx.org.id, session)
-    from app.llm_calls import generate_survey_questions
+async def generate_questions(sid: uuid.UUID, payload: GenerateQuestionsRequest, request: Request, ctx: OrgContext = Depends(current_context), session: AsyncSession = Depends(get_session)):
+    """Genera preguntas con IA.
+
+    * El material se recorta a lo relevante para el tema (no viaja entero).
+    * Más de 6 preguntas se piden en lotes en paralelo (no se corta por
+      timeout); las repetidas (entre sí o con las que ya hay) se descartan y,
+      si faltan, se piden de nuevo una vez.
+    * Cada pregunta dice si su cita del material se encontró de verdad
+      (`sourceVerified`).
+    * No escribe en la encuesta: el editor muestra las preguntas para revisar
+      antes de insertarlas."""
+    import asyncio
+
     from app.ai_config import resolve_provider
-    from app.ai_usage import track_ai_call, summary
+    from app.ai_usage import summary, track_ai_call
+    from app.llm_calls import BLOOM_LEVELS, GEN_TYPES, generate_survey_questions
+    from app.material import quote_in_material, select_relevant
+    from app.ratelimit import rate_limit
+
+    await rate_limit(request, f"generate:{ctx.org.id}", limit=30, window_s=600)
+    s = await _survey_or_404(sid, ctx.org.id, session)
+    count = max(1, min(30, payload.count))
+    types = [t for t in payload.types if t in GEN_TYPES] or ["radiogroup"]
+    bloom = [b for b in payload.bloom if b in BLOOM_LEVELS]
+    material = (payload.context or "").strip()
+    usado, recortado = select_relevant(material, payload.topic) if material else ("", False)
+    existentes = [t for t in (_titulos_de(s.json_schema) + payload.existing_titles) if t]
+
+    async def lote(n: int, evitar: list[str]) -> list[dict]:
+        data = await generate_survey_questions(
+            topic=payload.topic, count=n, types=types, language=payload.language,
+            difficulty=payload.difficulty, context=usado or None, bloom=bloom or None,
+            objectives=payload.objectives, avoid=evitar, variant_of=payload.variant_of,
+        )
+        return list(data.get("questions") or [])
 
     provider = await resolve_provider(session, ctx.org.id)
+    descartadas = 0
     async with track_ai_call(session, provider, ctx.org.id, "generate", sid, ctx.user.id) as acc:
-        data = await generate_survey_questions(
-            topic=payload.topic, count=max(1, min(20, payload.count)), types=payload.types,
-            language=payload.language, difficulty=payload.difficulty, context=payload.context,
-        )
+        tam = [5] * (count // 5) + ([count % 5] if count % 5 else []) if count > 6 else [count]
+        resultados = await asyncio.gather(*(lote(n, existentes) for n in tam))
+        vistas = [_fold_title(t) for t in existentes]
+        if payload.variant_of and payload.variant_of.get("title"):
+            vistas.append(_fold_title(payload.variant_of["title"]))
+        elegidas: list[dict] = []
+        for q in (q for r in resultados for q in r):
+            if _es_duplicada(q.get("title", ""), vistas):
+                descartadas += 1
+                continue
+            vistas.append(_fold_title(q.get("title", "")))
+            elegidas.append(q)
+        faltan = count - len(elegidas)
+        if faltan > 0 and descartadas:
+            extra = await lote(faltan, existentes + [q.get("title", "") for q in elegidas])
+            for q in extra:
+                if not _es_duplicada(q.get("title", ""), vistas):
+                    vistas.append(_fold_title(q.get("title", "")))
+                    elegidas.append(q)
+
+    for q in elegidas[:count]:
+        q["sourceVerified"] = quote_in_material(q.get("sourceQuote"), material) if material else None
+    return {
+        "questions": elegidas[:count],
+        "usage": summary(acc),
+        "dropped_duplicates": descartadas,
+        "material": {"chars": len(material), "used_chars": len(usado), "truncated": recortado} if material else None,
+    }
+
+
+@router.post("/{sid}/generate/material")
+async def extract_material(
+    sid: uuid.UUID,
+    request: Request,
+    file: Optional[UploadFile] = File(None),
+    url: Optional[str] = Form(None),
+    ctx: OrgContext = Depends(current_context),
+    session: AsyncSession = Depends(get_session),
+):
+    """Saca el texto de un PDF, DOCX, HTML o texto subido, o de una página web,
+    para usarlo como material base de la generación. No guarda nada."""
+    from app.material import MAX_BYTES, MaterialError, extract_text, fetch_url
+    from app.ratelimit import rate_limit
+
+    await rate_limit(request, f"material:{ctx.org.id}", limit=30, window_s=600)
+    await _survey_or_404(sid, ctx.org.id, session)
+    try:
+        if file is not None:
+            data = await file.read(MAX_BYTES + 1)
+            text = extract_text(file.filename or "", data)
+            fuente = file.filename or "archivo"
+        elif url and url.strip():
+            text = await fetch_url(url.strip())
+            fuente = url.strip()
+        else:
+            raise HTTPException(status_code=422, detail="Subí un archivo o indicá una URL.")
+    except MaterialError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    if not text.strip():
+        raise HTTPException(status_code=422, detail="No se encontró texto en ese material.")
+    return {"text": text, "chars": len(text), "source": fuente}
+
+
+class WordingQuestion(BaseModel):
+    name: str
+    title: str = PydField(max_length=2000)
+    type: str = ""
+    choices: List[str] = PydField(default_factory=list, max_length=50)
+    rateMin: Optional[int] = None
+    rateMax: Optional[int] = None
+
+
+class WordingRequest(BaseModel):
+    # Lo que hay en el editor (puede no estar guardado).
+    questions: List[WordingQuestion] = PydField(max_length=80)
+
+
+@router.post("/{sid}/review-wording")
+async def review_wording_endpoint(sid: uuid.UUID, payload: WordingRequest, request: Request, ctx: OrgContext = Depends(current_context), session: AsyncSession = Depends(get_session)):
+    """Revisión metodológica de la redacción: preguntas sesgadas, dobles,
+    opciones que se superponen, escalas desbalanceadas, ambigüedad."""
+    from app.ai_config import resolve_provider
+    from app.ai_usage import summary, track_ai_call
+    from app.llm_calls import review_wording
+    from app.ratelimit import rate_limit
+
+    await rate_limit(request, f"wording:{ctx.org.id}", limit=20, window_s=600)
+    s = await _survey_or_404(sid, ctx.org.id, session)
+    qs = [q.model_dump(exclude_none=True) for q in payload.questions if q.title.strip()]
+    if not qs:
+        raise HTTPException(status_code=422, detail="No hay preguntas para revisar.")
+    provider = await resolve_provider(session, ctx.org.id)
+    async with track_ai_call(session, provider, ctx.org.id, "review", sid, ctx.user.id) as acc:
+        data = await review_wording(questions=qs, language=s.language or "es")
+    nombres = {q["name"] for q in qs}
+    data["questions"] = [q for q in data.get("questions", []) if q.get("name") in nombres]
     return {**data, "usage": summary(acc)}
+
+
+class RubricSuggestRequest(BaseModel):
+    title: Optional[str] = None
+    model_answer: Optional[str] = None
+    points: Optional[float] = None
+
+
+@router.post("/{sid}/questions/{name}/suggest-rubric")
+async def suggest_rubric_endpoint(sid: uuid.UUID, name: str, payload: RubricSuggestRequest, request: Request, ctx: OrgContext = Depends(current_context), session: AsyncSession = Depends(get_session)):
+    """Propone una rúbrica mirando hasta 10 respuestas REALES de los alumnos
+    (variadas en largo), no sólo la consigna: así los criterios distinguen lo
+    que de verdad aparece en las respuestas."""
+    from app.ai_config import resolve_provider
+    from app.ai_usage import summary, track_ai_call
+    from app.llm_calls import suggest_rubric
+    from app.ratelimit import rate_limit
+
+    await rate_limit(request, f"rubric:{ctx.org.id}", limit=30, window_s=600)
+    s = await _survey_or_404(sid, ctx.org.id, session)
+    qcfg = ((s.evaluation or {}).get("questions") or {}).get(name) or {}
+    titulo = payload.title or qcfg.get("title") or next(
+        (t for el in _elementos(s.json_schema) if el.get("name") == name for t in [el.get("title")]), None
+    )
+    if not titulo:
+        raise HTTPException(status_code=404, detail="Pregunta no encontrada")
+    puntos = float(payload.points or qcfg.get("points") or 1)
+    responses = (await session.scalars(
+        counted_only(select(SurveyResponse).where(SurveyResponse.survey_id == sid))
+    )).all()
+    textos = [str(v).strip() for r in responses if isinstance((v := (r.answers or {}).get(name)), str) and str(v).strip()]
+    if len(textos) < 3:
+        raise HTTPException(status_code=409, detail="Hacen falta al menos 3 respuestas para proponer una rúbrica.")
+    # Muestra variada: repartida entre las más cortas y las más largas.
+    textos = sorted(set(textos), key=len)
+    paso = max(1, len(textos) // 10)
+    muestra = textos[::paso][:10]
+    provider = await resolve_provider(session, ctx.org.id)
+    async with track_ai_call(session, provider, ctx.org.id, "rubric", sid, ctx.user.id) as acc:
+        data = await suggest_rubric(
+            title=titulo, model_answer=payload.model_answer or qcfg.get("modelAnswer", ""),
+            points=puntos, answers=muestra, language=s.language or "es",
+        )
+    return {**data, "points": puntos, "sample_size": len(muestra), "usage": summary(acc)}
+
+
+class AskRequest(BaseModel):
+    question: str = PydField(min_length=3, max_length=500)
+    segment_by: Optional[str] = None
+
+
+@router.post("/{sid}/ask")
+async def ask_endpoint(sid: uuid.UUID, payload: AskRequest, request: Request, ctx: OrgContext = Depends(current_context), session: AsyncSession = Depends(get_session)):
+    """"Preguntale a tus datos": la IA responde sobre los resultados usando SOLO
+    los números que calcula el servidor (mismo principio que el informe
+    ejecutivo). Con `segment_by`, el contexto incluye el cruce con su prueba
+    de significancia, para preguntas del tipo "¿qué piensan los de Ventas?"."""
+    from app.ai_config import resolve_provider
+    from app.ai_usage import summary, track_ai_call
+    from app.llm_calls import ask_data
+    from app.ratelimit import rate_limit
+    from app.summarizing import build_report_context, build_summary
+
+    await rate_limit(request, f"ask:{ctx.org.id}", limit=40, window_s=600)
+    s = await _survey_or_404(sid, ctx.org.id, session)
+    responses = (await session.scalars(
+        counted_only(select(SurveyResponse).where(SurveyResponse.survey_id == sid))
+    )).all()
+    if not responses:
+        raise HTTPException(status_code=409, detail="Todavía no hay respuestas para analizar.")
+    contexto = build_report_context(s.json_schema or {}, responses)
+    if payload.segment_by:
+        cruce = build_summary(s.json_schema or {}, responses, segment_by=payload.segment_by)
+        if cruce.get("segment"):
+            contexto["segment"] = {
+                "by": cruce["segment"]["title"],
+                "groups": [{"label": v["label"], "n": v["count"]} for v in cruce["segment"]["values"]],
+                "questions": [
+                    {
+                        "title": q["title"],
+                        "significance": q.get("significance"),
+                        "by_group": {
+                            sv["label"]: (
+                                {o["label"]: o["count"] for o in (q["by_segment"].get(sv["value"]) or {}).get("options", [])}
+                                if q["kind"] == "choice"
+                                else {"average": (q["by_segment"].get(sv["value"]) or {}).get("average")}
+                            )
+                            for sv in cruce["segment"]["values"]
+                        },
+                    }
+                    for q in cruce["questions"]
+                    if q.get("by_segment")
+                ],
+            }
+    provider = await resolve_provider(session, ctx.org.id)
+    async with track_ai_call(session, provider, ctx.org.id, "ask", sid, ctx.user.id) as acc:
+        data = await ask_data(question=payload.question, context=contexto, language=s.language or "es")
+    return {**data, "usage": summary(acc)}
+
+
+def _elementos(schema: dict) -> list[dict]:
+    return [
+        el
+        for p in (schema or {}).get("pages", []) or []
+        if isinstance(p, dict)
+        for el in p.get("elements", []) or []
+        if isinstance(el, dict)
+    ]
 
 
 class ExplainRequest(BaseModel):

@@ -70,7 +70,7 @@ async def _fake_sum(*, question_title, language, answers):
             "key_takeaways": ["a", "b"]}
 
 
-async def _fake_gen(*, topic, count, types, language, difficulty, context=None):
+async def _fake_gen(*, topic, count, types, language, difficulty, context=None, **kw):
     return {"questions": [{"type": "radiogroup", "title": f"P {topic}", "choices": ["A", "B"],
                            "correctIndices": [1], "modelAnswer": "", "keyConcepts": [],
                            "rubric": [], "points": 1.0}]}

@@ -228,9 +228,18 @@ class OverrideRequest(BaseModel):
 
 
 class GenerateQuestionsRequest(BaseModel):
-    topic: str
+    topic: str = Field(max_length=500)
     count: int = 5
     types: List[str] = Field(default_factory=lambda: ["radiogroup", "comment"])
     language: str = "es"
     difficulty: str = "media"
-    context: Optional[str] = None
+    # Material base (texto). Puede ser largo: el servidor elige los fragmentos
+    # relevantes (ver app/material.py), no viaja entero al modelo.
+    context: Optional[str] = Field(default=None, max_length=600_000)
+    # Niveles de Bloom a cubrir y objetivos de aprendizaje (opcionales).
+    bloom: List[str] = Field(default_factory=list)
+    objectives: Optional[str] = Field(default=None, max_length=4000)
+    # Títulos que ya hay en el editor (aunque no estén guardados): no repetirlas.
+    existing_titles: List[str] = Field(default_factory=list, max_length=500)
+    # Generar variantes de esta pregunta en vez de preguntas nuevas.
+    variant_of: Optional[dict[str, Any]] = None
