@@ -73,6 +73,10 @@ class Settings:
         # Only trust X-Forwarded-For when behind a proxy you control (nginx). Off
         # by default so clients can't spoof their IP to evade rate limits.
         self.trust_proxy = _bool("ENCUESTUM_TRUST_PROXY", False)
+        # Guardar un seudónimo (HMAC) de la IP de cada respuesta. No la IP: sirve
+        # para detectar envíos repetidos desde una misma conexión sin retener un
+        # dato personal en claro. Se apaga para encuestas sin rastro de red.
+        self.store_ip_hash = _bool("ENCUESTUM_STORE_IP_HASH", True)
         # Guard anti-SSRF: bloquea requests salientes (webhooks, base URL del LLM
         # y también LTI -- JWKS de la plataforma, token endpoint de AGS, y los
         # fetches del registro dinámico) hacia direcciones privadas/internas.

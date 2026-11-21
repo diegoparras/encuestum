@@ -284,3 +284,11 @@ async def explain_wrong_options(
     return await llm.structured(
         system=EXPLAIN_SYSTEM, user=user, schema_model=WrongAnswerExplanations
     )
+
+
+def grader_prompt_version() -> str:
+    """Huella corta del prompt del corrector: cambia sola cuando alguien edita
+    `GRADER_SYSTEM`, así cada nota dice con qué instrucciones se puso."""
+    import hashlib
+
+    return hashlib.sha256(GRADER_SYSTEM.encode("utf-8")).hexdigest()[:12]

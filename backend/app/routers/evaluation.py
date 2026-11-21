@@ -35,43 +35,110 @@ async def _response_or_404(sid, rid, session):
     return r
 
 
-def _conservar_ediciones(anterior: dict | None, nuevo: dict) -> dict:
-    """Recorregir no puede borrar lo que escribió un humano.
+def _verdict_for(awarded: float, pts: float) -> str:
+    return "correct" if awarded >= pts and pts > 0 else "incorrect" if awarded <= 0 else "partial"
 
-    Volver a corregir reemplaza el `grade` entero. Si un docente editó el
-    comentario de una pregunta, ese texto es trabajo suyo y desaparecería sin
-    dejar rastro. Se conserva por nombre de pregunta.
 
-    La aprobación, en cambio, NO se conserva: la corrección cambió, así que el
-    visto bueno anterior ya no dice nada sobre esta."""
-    ediciones = {
-        q.get("name"): q.get("feedback_edited")
-        for q in (anterior or {}).get("questions", []) or []
-        if str(q.get("feedback_edited") or "").strip()
-    }
-    if not ediciones:
-        return nuevo
+def _recalcular_totales(grade: dict, evaluation: dict | None) -> dict:
+    """Total, porcentaje y aprobado coherentes con lo que hay en `questions`.
+
+    Antes el override cambiaba el total pero dejaba `passed` como estaba: una
+    nota subida a mano de 40 a 90 seguía contando como desaprobada en las
+    estadísticas. Un total fijado a mano (`manual_total`) pisa la suma."""
+    questions = grade.get("questions", []) or []
+    max_total = float(grade.get("max", 0) or 0)
+    total = sum(float(q.get("awarded", 0) or 0) for q in questions)
+    if grade.get("manual_total") is not None:
+        total = float(grade["manual_total"])
+        if max_total > 0:
+            total = max(0.0, min(max_total, total))
+    grade["total"] = round(total, 3)
+    pct = (total / max_total * 100.0) if max_total > 0 else 0.0
+    grade["percent"] = round(pct, 1)
+    passing = float((evaluation or {}).get("passingScore", 60) or 0)
+    grade["passed"] = pct >= passing if max_total > 0 else None
+    return grade
+
+
+def _conservar_ediciones(anterior: dict | None, nuevo: dict, evaluation: dict | None = None) -> dict:
+    """Recorregir no puede borrar lo que hizo un humano.
+
+    Volver a corregir reemplaza el `grade` entero. Lo que un docente puso a
+    mano es trabajo suyo y antes desaparecía sin dejar rastro:
+
+    * el comentario editado de una pregunta (`feedback_edited`);
+    * el puntaje asignado a mano a una pregunta (`manual_award`), que se
+      conserva acotado a los puntos que la pregunta vale AHORA;
+    * el total fijado a mano (`manual_total`) y la nota del override.
+
+    La aprobación de comentarios, en cambio, NO se conserva: la corrección
+    cambió, así que el visto bueno anterior ya no dice nada sobre esta."""
+    previas = {q.get("name"): q for q in (anterior or {}).get("questions", []) or []}
+    hubo_manual = False
     for q in nuevo.get("questions", []) or []:
-        texto = ediciones.get(q.get("name"))
+        prev = previas.get(q.get("name"))
+        if not prev:
+            continue
+        texto = str(prev.get("feedback_edited") or "").strip()
         if texto:
             q["feedback_edited"] = texto
+        if prev.get("manual_award"):
+            pts = float(q.get("points", 0) or 0)
+            awarded = max(0.0, min(pts, float(prev.get("awarded", 0) or 0)))
+            q["awarded"] = round(awarded, 3)
+            q["verdict"] = _verdict_for(awarded, pts)
+            q["needs_review"] = False
+            q["manual_award"] = True
+            hubo_manual = True
+    if (anterior or {}).get("manual_total") is not None:
+        nuevo["manual_total"] = anterior["manual_total"]
+        hubo_manual = True
+    if hubo_manual:
+        nuevo["overridden"] = True
+        if (anterior or {}).get("override_note"):
+            nuevo["override_note"] = anterior["override_note"]
+        nuevo["needs_review"] = any(q.get("needs_review") for q in nuevo.get("questions", []) or [])
+        _recalcular_totales(nuevo, evaluation)
     return nuevo
 
 
-async def _grade_and_store(s, r, session):
+def _sin_ediciones_manuales(grade: dict | None) -> dict | None:
+    """El `grade` anterior sin lo manual: para recorregir descartándolo."""
+    if not grade:
+        return grade
+    g = dict(grade)
+    g.pop("manual_total", None)
+    g["questions"] = [
+        {k: v for k, v in q.items() if k != "manual_award"} for q in g.get("questions", []) or []
+    ]
+    return g
+
+
+async def _grade_and_store(s, r, session, *, source: str = "regrade", actor=None, discard_manual: bool = False):
+    from app.audit import ensure_survey_version, record_grade_revision
+
+    version = await ensure_survey_version(session, s)
+    anterior = r.grade
     grade = await grade_response(
         evaluation=s.evaluation or {}, answers=r.answers or {},
         question_types=extract_question_types(s.json_schema),
         question_choices=extract_question_choices(s.json_schema),
         language=s.language or "es",
     )
-    grade = _conservar_ediciones(r.grade, grade)
+    grade["graded_with_version"] = version.number
+    base = _sin_ediciones_manuales(anterior) if discard_manual else anterior
+    grade = _conservar_ediciones(base, grade, s.evaluation)
     r.grade = grade
     r.score = grade.get("total")
     r.max_score = grade.get("max")
     r.needs_review = bool(grade.get("needs_review"))
     r.graded_at = _utcnow()
     session.add(r)
+    record_grade_revision(
+        session, r, source=source, grade_before=anterior, actor=actor,
+        survey_version_id=version.id,
+        note="Se descartaron las correcciones manuales" if discard_manual and anterior else None,
+    )
     return r
 
 
@@ -129,7 +196,9 @@ def _agendar_nota(*response_ids: uuid.UUID) -> None:
 
 
 @router.post("/{sid}/responses/{rid}/grade", response_model=ResponseItem)
-async def grade_one(sid: uuid.UUID, rid: uuid.UUID, ctx: OrgContext = Depends(current_context), session: AsyncSession = Depends(get_session)):
+async def grade_one(sid: uuid.UUID, rid: uuid.UUID, discard_manual: bool = False, ctx: OrgContext = Depends(current_context), session: AsyncSession = Depends(get_session)):
+    """Vuelve a corregir una respuesta. Lo que un docente corrigió a mano se
+    conserva salvo `discard_manual=true`, y el cambio queda en el historial."""
     s = await _survey_or_404(sid, ctx.org.id, session)
     if not (s.evaluation or {}).get("enabled"):
         raise HTTPException(status_code=400, detail="Survey is not an assessment")
@@ -137,8 +206,8 @@ async def grade_one(sid: uuid.UUID, rid: uuid.UUID, ctx: OrgContext = Depends(cu
     from app.ai_config import resolve_provider
     from app.ai_usage import track_ai_call
     provider = await resolve_provider(session, ctx.org.id)
-    async with track_ai_call(session, provider, ctx.org.id, "grade", sid, ctx.user.id):
-        await _grade_and_store(s, r, session)
+    async with track_ai_call(session, provider, ctx.org.id, "grade", sid, ctx.user.id, response_id=r.id):
+        await _grade_and_store(s, r, session, actor=ctx.user, discard_manual=discard_manual)
     await session.commit()
     await session.refresh(r)
     # Una corrección individual también puede corregir una nota que ya se
@@ -152,7 +221,10 @@ async def grade_one(sid: uuid.UUID, rid: uuid.UUID, ctx: OrgContext = Depends(cu
 
 
 @router.post("/{sid}/grade-all")
-async def grade_all(sid: uuid.UUID, only_ungraded: bool = True, ctx: OrgContext = Depends(current_context), session: AsyncSession = Depends(get_session)):
+async def grade_all(sid: uuid.UUID, only_ungraded: bool = True, discard_manual: bool = False, ctx: OrgContext = Depends(current_context), session: AsyncSession = Depends(get_session)):
+    """Corrige (o vuelve a corregir) todas las respuestas. Las correcciones
+    manuales se conservan salvo `discard_manual=true`; cada respuesta deja su
+    revisión en el historial y su propio registro de consumo de IA."""
     s = await _survey_or_404(sid, ctx.org.id, session)
     if not (s.evaluation or {}).get("enabled"):
         raise HTTPException(status_code=400, detail="Survey is not an assessment")
@@ -165,16 +237,23 @@ async def grade_all(sid: uuid.UUID, only_ungraded: bool = True, ctx: OrgContext 
     provider = await resolve_provider(session, ctx.org.id)
     graded = 0
     a_notificar: list[uuid.UUID] = []
-    async with track_ai_call(session, provider, ctx.org.id, "grade", sid, ctx.user.id):
-        for r in responses:
-            try:
-                await _grade_and_store(s, r, session)
-                graded += 1
-                if _vino_de_un_lms(r):
-                    a_notificar.append(r.id)
-            except Exception:
-                r.needs_review = True
-                session.add(r)
+    for r in responses:
+        try:
+            async with track_ai_call(session, provider, ctx.org.id, "grade", sid, ctx.user.id, response_id=r.id):
+                await _grade_and_store(s, r, session, actor=ctx.user, discard_manual=discard_manual)
+            graded += 1
+            if _vino_de_un_lms(r):
+                a_notificar.append(r.id)
+        except Exception:
+            r.needs_review = True
+            session.add(r)
+    from app.audit import record_event
+
+    record_event(
+        session, action="grades.regrade_all", org_id=ctx.org.id, actor=ctx.user, survey_id=sid,
+        detail={"graded": graded, "total": len(responses), "only_ungraded": only_ungraded,
+                "discard_manual": discard_manual},
+    )
     await session.commit()
     # Recién después del commit: si se agendara adentro del loop, una
     # entrega en background podría leer la fila antes de que este commit la
@@ -199,8 +278,9 @@ async def review_queue(sid: uuid.UUID, ctx: OrgContext = Depends(current_context
 
 @router.post("/{sid}/responses/{rid}/override", response_model=ResponseItem)
 async def override_grade(sid: uuid.UUID, rid: uuid.UUID, payload: OverrideRequest, ctx: OrgContext = Depends(current_context), session: AsyncSession = Depends(get_session)):
-    await _survey_or_404(sid, ctx.org.id, session)
+    s = await _survey_or_404(sid, ctx.org.id, session)
     r = await _response_or_404(sid, rid, session)
+    anterior = r.grade
     grade = dict(r.grade or {})
     questions = [dict(q) for q in grade.get("questions", [])]
     if payload.feedback is not None:
@@ -221,13 +301,15 @@ async def override_grade(sid: uuid.UUID, rid: uuid.UUID, payload: OverrideReques
                 pts = float(q.get("points", 0) or 0)
                 awarded = max(0.0, min(pts, float(payload.awards[q["name"]])))
                 q["awarded"] = round(awarded, 3)
-                q["verdict"] = "correct" if awarded >= pts and pts > 0 else "incorrect" if awarded <= 0 else "partial"
+                q["verdict"] = _verdict_for(awarded, pts)
                 q["needs_review"] = False
-    total = payload.total if payload.total is not None else sum(float(q.get("awarded", 0) or 0) for q in questions)
-    max_total = float(grade.get("max", 0) or 0)
+                # Marca de "lo puso un humano": recorregir lo respeta (ver
+                # `_conservar_ediciones`).
+                q["manual_award"] = True
     grade["questions"] = questions
-    grade["total"] = round(float(total), 3)
-    grade["percent"] = round(total / max_total * 100.0, 1) if max_total > 0 else 0.0
+    if payload.total is not None:
+        grade["manual_total"] = float(payload.total)
+    _recalcular_totales(grade, s.evaluation)
     grade["needs_review"] = (not payload.clear_review) and grade.get("needs_review", False)
     grade["overridden"] = True
     if payload.note:
@@ -238,6 +320,12 @@ async def override_grade(sid: uuid.UUID, rid: uuid.UUID, payload: OverrideReques
     if r.graded_at is None:
         r.graded_at = _utcnow()
     session.add(r)
+    from app.audit import record_grade_revision
+
+    record_grade_revision(
+        session, r, source="manual", grade_before=anterior, actor=ctx.user,
+        survey_version_id=r.survey_version_id, note=payload.note,
+    )
     await session.commit()
     await session.refresh(r)
     # El override es precisamente el workflow de `needs_review`: un docente

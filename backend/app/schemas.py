@@ -185,15 +185,23 @@ class ResponseItem(BaseModel):
     # Fuera de los resultados sin estar borrada (ver app/hygiene.py).
     excluded: bool = False
     is_test: bool = False
+    # Trazabilidad (ver app/audit.py).
+    survey_version_id: Optional[uuid.UUID] = None
+    # True/False: la huella coincide o no; None: respuesta anterior a la huella.
+    integrity_ok: Optional[bool] = None
 
     @classmethod
     def from_model(cls, r) -> "ResponseItem":
+        from app.audit import verify_response
+
         return cls(
             id=r.id, answers=r.answers or {}, completed=r.completed, meta=r.meta,
             submitted_at=r.submitted_at, score=r.score, max_score=r.max_score,
             needs_review=r.needs_review, grade=r.grade, graded_at=r.graded_at,
             excluded=bool(getattr(r, "excluded", False)),
             is_test=bool(getattr(r, "is_test", False)),
+            survey_version_id=getattr(r, "survey_version_id", None),
+            integrity_ok=verify_response(r) if hasattr(r, "integrity_hash") else None,
         )
 
 

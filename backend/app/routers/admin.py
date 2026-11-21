@@ -17,6 +17,7 @@ from app.db import get_session
 from app.deps import OrgContext, current_context
 from app.email import build_url, send_email
 from app.exporting import CSV_MEDIA, XLSX_MEDIA, export_rows, rows_to_csv, sheets_to_xlsx
+from app.audit import record_event
 from app.hygiene import counted_only
 from app.models import Survey, SurveyInvitee, SurveyResponse, _utcnow
 from app.schemas import (
@@ -68,6 +69,9 @@ async def create_survey(
         language=payload.language, theme=payload.theme, evaluation=payload.evaluation,
     )
     session.add(s)
+    await session.flush()
+    record_event(session, action="survey.created", org_id=ctx.org.id, actor=ctx.user, survey_id=s.id,
+                 detail={"title": s.title})
     await session.commit()
     await session.refresh(s)
     return SurveyDetail.from_model(s)
@@ -158,6 +162,7 @@ async def update_survey(
     data.pop("org_id", None)
     data.pop("created_by", None)
     data.pop("slug", None)
+    cambios = sorted(f for f, v in data.items() if getattr(s, f, None) != v)
     for field, value in data.items():
         setattr(s, field, value)
 
@@ -171,6 +176,15 @@ async def update_survey(
                 detail="La fecha de inicio debe ser anterior a la de cierre.",
             )
 
+    if cambios:
+        # Sólo QUÉ cambió, no el contenido: el contenido que alguien contestó
+        # queda congelado en `survey_versions`. `access_pin` se nombra pero
+        # nunca se copia al registro.
+        detail: dict = {"fields": cambios}
+        if "status" in cambios:
+            detail["status"] = s.status
+        record_event(session, action="survey.updated", org_id=ctx.org.id, actor=ctx.user,
+                     survey_id=s.id, detail=detail)
     session.add(s)
     await session.commit()
     await session.refresh(s)
@@ -196,6 +210,9 @@ async def duplicate_survey(
         status="draft",  # copies start unpublished
     )
     session.add(copy)
+    await session.flush()
+    record_event(session, action="survey.duplicated", org_id=ctx.org.id, actor=ctx.user,
+                 survey_id=copy.id, detail={"from": str(s.id)})
     await session.commit()
     await session.refresh(copy)
     return SurveyDetail.from_model(copy)
@@ -210,6 +227,7 @@ async def publish_survey(
     s = await _survey_or_404(sid, ctx.org.id, session)
     s.status = "published"
     session.add(s)
+    record_event(session, action="survey.published", org_id=ctx.org.id, actor=ctx.user, survey_id=s.id)
     await session.commit()
     await session.refresh(s)
     return SurveyDetail.from_model(s)
@@ -224,6 +242,7 @@ async def close_survey(
     s = await _survey_or_404(sid, ctx.org.id, session)
     s.status = "closed"
     session.add(s)
+    record_event(session, action="survey.closed", org_id=ctx.org.id, actor=ctx.user, survey_id=s.id)
     await session.commit()
     await session.refresh(s)
     return SurveyDetail.from_model(s)
@@ -242,6 +261,7 @@ async def delete_survey(
     s = await _survey_or_404(sid, ctx.org.id, session)
     s.deleted_at = datetime.now(timezone.utc)
     session.add(s)
+    record_event(session, action="survey.trashed", org_id=ctx.org.id, actor=ctx.user, survey_id=s.id)
     await session.commit()
 
 
@@ -292,6 +312,7 @@ async def restore_survey(
     s = await _survey_or_404(sid, ctx.org.id, session, include_deleted=True)
     s.deleted_at = None
     session.add(s)
+    record_event(session, action="survey.restored", org_id=ctx.org.id, actor=ctx.user, survey_id=s.id)
     await session.commit()
     await session.refresh(s)
     return SurveyDetail.from_model(s)
@@ -312,6 +333,17 @@ async def purge_survey(
         raise HTTPException(
             status_code=409, detail="La encuesta debe estar en la papelera para borrarse del todo"
         )
+    # Rastro ANTES de destruir: el `delete()` masivo no deja nada y la cascada
+    # se lleva también `response_deletions`. `audit_events` no tiene FK a la
+    # encuesta justamente para sobrevivir a esto.
+    ids = (
+        await session.scalars(select(SurveyResponse.id).where(SurveyResponse.survey_id == sid))
+    ).all()
+    record_event(
+        session, action="survey.purged", org_id=ctx.org.id, actor=ctx.user, survey_id=sid,
+        detail={"title": s.title, "responses_deleted": len(ids),
+                "response_ids": [str(i) for i in ids[:5000]]},
+    )
     await session.execute(delete(SurveyResponse).where(SurveyResponse.survey_id == sid))
     await session.delete(s)
     await session.commit()
@@ -519,6 +551,13 @@ async def _registrar_borrado(session: AsyncSession, ctx: OrgContext, s, r) -> No
     from app.models import ResponseDeletion
 
     quien, mail = respondent_identity(s.json_schema or {}, r.answers)
+    record_event(
+        session, action="response.deleted", org_id=ctx.org.id, actor=ctx.user,
+        survey_id=s.id, response_id=r.id,
+        detail={"respondent": r.respondent_email or quien or mail,
+                "submitted_at": r.submitted_at.isoformat() if r.submitted_at else None,
+                "integrity_hash": r.integrity_hash},
+    )
     session.add(
         ResponseDeletion(
             survey_id=s.id,
@@ -595,6 +634,8 @@ async def bulk_responses(
         elif payload.action == "untest":
             r.is_test = False
         session.add(r)
+        record_event(session, action=f"response.{payload.action}", org_id=ctx.org.id,
+                     actor=ctx.user, survey_id=sid, response_id=r.id)
 
     await session.commit()
     return {"affected": len(rows)}
@@ -632,6 +673,110 @@ async def list_deletions(
     ]
 
 
+@router.get("/{sid}/audit")
+async def survey_audit(
+    sid: uuid.UUID,
+    limit: int = Query(200, ge=1, le=1000),
+    ctx: OrgContext = Depends(current_context),
+    session: AsyncSession = Depends(get_session),
+):
+    """Registro de actividad de la encuesta: quién hizo qué y cuándo (lo más
+    reciente primero). Solo admins: incluye exportaciones y borrados."""
+    _require_admin(ctx)
+    from app.models import AuditEvent
+
+    await _survey_or_404(sid, ctx.org.id, session)
+    rows = (
+        await session.scalars(
+            select(AuditEvent)
+            .where(AuditEvent.org_id == ctx.org.id, AuditEvent.survey_id == sid)
+            .order_by(AuditEvent.created_at.desc())
+            .limit(limit)
+        )
+    ).all()
+    return [
+        {
+            "id": str(e.id),
+            "action": e.action,
+            "actor_email": e.actor_email,
+            "response_id": str(e.response_id) if e.response_id else None,
+            "detail": e.detail,
+            "created_at": e.created_at.isoformat(),
+        }
+        for e in rows
+    ]
+
+
+@router.get("/{sid}/responses/{rid}/history")
+async def response_history(
+    sid: uuid.UUID,
+    rid: uuid.UUID,
+    ctx: OrgContext = Depends(current_context),
+    session: AsyncSession = Depends(get_session),
+):
+    """Todo lo que le pasó a una respuesta: con qué versión se contestó, cada
+    cambio de nota (de dónde, quién, de cuánto a cuánto) y los eventos sobre
+    ella (exclusiones, marcas). Lo más antiguo primero, como una línea de tiempo."""
+    from app.audit import verify_response
+    from app.models import AuditEvent, GradeRevision, SurveyVersion
+
+    await _survey_or_404(sid, ctx.org.id, session)
+    r = await session.get(SurveyResponse, rid)
+    if not r or r.survey_id != sid:
+        raise HTTPException(status_code=404, detail="Response not found")
+    numeros = {
+        v.id: v.number
+        for v in (
+            await session.scalars(select(SurveyVersion).where(SurveyVersion.survey_id == sid))
+        ).all()
+    }
+    revs = (
+        await session.scalars(
+            select(GradeRevision)
+            .where(GradeRevision.response_id == rid)
+            .order_by(GradeRevision.created_at.asc())
+        )
+    ).all()
+    events = (
+        await session.scalars(
+            select(AuditEvent)
+            .where(AuditEvent.org_id == ctx.org.id, AuditEvent.response_id == rid)
+            .order_by(AuditEvent.created_at.asc())
+        )
+    ).all()
+    return {
+        "response_id": str(r.id),
+        "submitted_at": r.submitted_at.isoformat() if r.submitted_at else None,
+        "answered_version": numeros.get(r.survey_version_id),
+        "integrity": verify_response(r),
+        "grade_revisions": [
+            {
+                "id": str(g.id),
+                "source": g.source,
+                "actor_email": g.actor_email,
+                "score_before": g.score_before,
+                "score_after": g.score_after,
+                "max_score": g.max_score,
+                "graded_with_version": numeros.get(g.survey_version_id),
+                "model": (g.grade_after or {}).get("model"),
+                "prompt_version": (g.grade_after or {}).get("prompt_version"),
+                "note": g.note,
+                "created_at": g.created_at.isoformat(),
+            }
+            for g in revs
+        ],
+        "events": [
+            {
+                "action": e.action,
+                "actor_email": e.actor_email,
+                "detail": e.detail,
+                "created_at": e.created_at.isoformat(),
+            }
+            for e in events
+        ],
+    }
+
+
 @router.get("/{sid}/export")
 async def export_responses(
     sid: uuid.UUID,
@@ -651,20 +796,39 @@ async def export_responses(
             ).order_by(SurveyResponse.submitted_at.asc())
         )
     ).all()
-    rows = export_rows(s, responses)
+    from app.models import SurveyVersion
+
+    versions = {
+        v.id: v.number
+        for v in (
+            await session.scalars(select(SurveyVersion).where(SurveyVersion.survey_id == sid))
+        ).all()
+    }
+    rows = export_rows(s, responses, versions)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d")
     base = s.slug or "encuesta"
-
     if format == "xlsx":
         data = await asyncio.to_thread(sheets_to_xlsx, [("Respuestas", rows)])
-        return StreamingResponse(
-            iter([data]), media_type=XLSX_MEDIA,
-            headers={"Content-Disposition": f'attachment; filename="{base}-{stamp}.xlsx"'},
-        )
-    csv_data = await asyncio.to_thread(rows_to_csv, rows)
+        media, ext = XLSX_MEDIA, "xlsx"
+    else:
+        data = await asyncio.to_thread(rows_to_csv, rows)
+        media, ext = CSV_MEDIA, "csv"
+
+    # Exportar saca datos personales de la plataforma: queda quién y cuándo, con
+    # la huella SHA-256 del archivo exacto que se descargó. La misma huella va
+    # en un header, así quien recibe el archivo puede comprobar que es ése.
+    import hashlib
+
+    raw = data.encode("utf-8") if isinstance(data, str) else data
+    sha = hashlib.sha256(raw).hexdigest()
+    record_event(session, action="responses.exported", org_id=ctx.org.id, actor=ctx.user,
+                 survey_id=sid, detail={"format": format, "rows": len(responses),
+                                        "include_excluded": include_excluded, "sha256": sha})
+    await session.commit()
     return StreamingResponse(
-        iter([csv_data]), media_type=CSV_MEDIA,
-        headers={"Content-Disposition": f'attachment; filename="{base}-{stamp}.csv"'},
+        iter([data]), media_type=media,
+        headers={"Content-Disposition": f'attachment; filename="{base}-{stamp}.{ext}"',
+                 "X-Encuestum-SHA256": sha},
     )
 
 

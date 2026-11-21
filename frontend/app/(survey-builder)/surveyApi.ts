@@ -146,6 +146,41 @@ export interface ResponseDeletion {
   deleted_at: string;
 }
 
+/** Una entrada del registro de actividad de la encuesta (solo admin). */
+export interface AuditEvent {
+  id: string;
+  action: string;
+  actor_email: string | null;
+  response_id: string | null;
+  detail: Record<string, any> | null;
+  created_at: string;
+}
+
+/** Un cambio de nota de una respuesta. */
+export interface GradeRevision {
+  id: string;
+  source: "submit" | "regrade" | "manual" | string;
+  actor_email: string | null;
+  score_before: number | null;
+  score_after: number | null;
+  max_score: number | null;
+  graded_with_version: number | null;
+  model: string | null;
+  prompt_version: string | null;
+  note: string | null;
+  created_at: string;
+}
+
+/** Línea de tiempo de una respuesta: versión contestada, huella y cambios. */
+export interface ResponseHistory {
+  response_id: string;
+  submitted_at: string | null;
+  answered_version: number | null;
+  integrity: boolean | null;
+  grade_revisions: GradeRevision[];
+  events: { action: string; actor_email: string | null; detail: Record<string, any> | null; created_at: string }[];
+}
+
 /** Informe ejecutivo por IA (narrativa sobre los agregados ya calculados). */
 export interface ExecutiveReport {
   headline: string;
@@ -203,6 +238,11 @@ export interface ResponseItem {
    * prueba. No entra en resumen, estadísticas, informe, exportación ni cupo. */
   excluded?: boolean;
   is_test?: boolean;
+  /** Versión de la encuesta (estructura + rúbrica) que contestó. */
+  survey_version_id?: string | null;
+  /** true: la huella coincide; false: la respuesta cambió en la base después
+   *  de enviarse; null: anterior a la huella (no hay con qué comparar). */
+  integrity_ok?: boolean | null;
 }
 
 export interface Analytics {
@@ -417,6 +457,10 @@ export const surveyApi = {
       `/api/v1/survey/surveys/${id}/explain-options`,
       { method: "POST", body: JSON.stringify(body) }
     ),
+  getAudit: (id: string) =>
+    request<AuditEvent[]>(`/api/v1/survey/surveys/${id}/audit`),
+  getResponseHistory: (id: string, rid: string) =>
+    request<ResponseHistory>(`/api/v1/survey/surveys/${id}/responses/${rid}/history`),
   getDeletions: (id: string) =>
     request<ResponseDeletion[]>(`/api/v1/survey/surveys/${id}/deletions`),
   getReport: (id: string) =>

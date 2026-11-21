@@ -14,6 +14,7 @@ from sqlalchemy import (
     Integer,
     String,
     UniqueConstraint,
+    Uuid,
 )
 from sqlmodel import Field, SQLModel
 
@@ -403,6 +404,18 @@ class SurveyResponse(SQLModel, table=True):
         sa_column=Column(Boolean, nullable=False, server_default="0", index=True),
         default=False,
     )
+    # ── Trazabilidad ─────────────────────────────────────────────────────────
+    #
+    # Qué versión de la encuesta (estructura + rúbrica) contestó esta persona.
+    # Sin esto, editar la encuesta después reinterpretaba en silencio todas las
+    # respuestas viejas. NULL en respuestas anteriores a la 0026.
+    survey_version_id: Optional[uuid.UUID] = Field(
+        sa_column=Column(ForeignKey("survey_versions.id", ondelete="SET NULL"), index=True),
+        default=None,
+    )
+    # SHA-256 de lo que llegó (ver `app/audit.py::response_hash`). Permite
+    # comprobar después que las respuestas no se tocaron en la base.
+    integrity_hash: Optional[str] = Field(sa_column=Column(String), default=None)
 
 
 # ── AI providers, usage tracking and editable pricing ────────────────────────
@@ -456,6 +469,12 @@ class AiUsage(SQLModel, table=True):
     )
     survey_id: Optional[uuid.UUID] = Field(
         sa_column=Column(ForeignKey("surveys.id", ondelete="SET NULL"), index=True),
+        default=None,
+    )
+    # Qué respuesta se corrigió con esta llamada (solo en `grade`). SET NULL: el
+    # gasto existió aunque la respuesta se borre después.
+    response_id: Optional[uuid.UUID] = Field(
+        sa_column=Column(ForeignKey("survey_responses.id", ondelete="SET NULL"), index=True),
         default=None,
     )
     operation: str = Field(sa_column=Column(String, nullable=False))  # generate | grade | insights
@@ -582,6 +601,104 @@ class ResponseDeletion(SQLModel, table=True):
     )
     deleted_at: datetime = Field(
         sa_column=Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    )
+
+
+class SurveyVersion(SQLModel, table=True):
+    """Una foto inmutable de la estructura y la rúbrica de una encuesta.
+
+    Se crea de forma perezosa: sólo cuando algo la necesita referenciar (una
+    respuesta que llega, una corrección que se corre). Así el autosave del
+    editor no genera cientos de versiones que nadie contestó. Dos fotos con el
+    mismo contenido son la misma versión (`content_hash`)."""
+
+    __tablename__ = "survey_versions"
+    __table_args__ = (UniqueConstraint("survey_id", "number", name="uq_survey_version_number"),)
+
+    id: uuid.UUID = Field(primary_key=True, default_factory=uuid.uuid4)
+    survey_id: uuid.UUID = Field(
+        sa_column=Column(
+            ForeignKey("surveys.id", ondelete="CASCADE"), index=True, nullable=False
+        )
+    )
+    number: int = Field(sa_column=Column(Integer, nullable=False))
+    json_schema: dict = Field(sa_column=Column(JSON, nullable=False), default_factory=dict)
+    evaluation: Optional[dict] = Field(sa_column=Column(JSON), default=None)
+    content_hash: str = Field(sa_column=Column(String, nullable=False, index=True))
+    created_at: datetime = Field(
+        sa_column=Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    )
+
+
+class GradeRevision(SQLModel, table=True):
+    """Cada cambio de nota de una respuesta: quién, cuándo, de dónde y con qué.
+
+    `source`: `submit` (corrección al enviar), `regrade` (re-corrida individual
+    o masiva), `manual` (un docente la tocó). La nota anterior y la nueva van
+    completas para poder reconstruir cualquier punto de la historia sin
+    depender del orden de las filas.
+
+    CASCADE a la respuesta: si se borra una respuesta (p. ej. por un pedido de
+    baja de datos) sus correcciones se van con ella; el borrado en sí queda en
+    `audit_events`."""
+
+    __tablename__ = "grade_revisions"
+
+    id: uuid.UUID = Field(primary_key=True, default_factory=uuid.uuid4)
+    response_id: uuid.UUID = Field(
+        sa_column=Column(
+            ForeignKey("survey_responses.id", ondelete="CASCADE"), index=True, nullable=False
+        )
+    )
+    survey_id: uuid.UUID = Field(sa_column=Column(ForeignKey("surveys.id", ondelete="CASCADE"), index=True, nullable=False))
+    source: str = Field(sa_column=Column(String, nullable=False))
+    actor_id: Optional[uuid.UUID] = Field(
+        sa_column=Column(ForeignKey("users.id", ondelete="SET NULL"), index=True),
+        default=None,
+    )
+    actor_email: Optional[str] = Field(sa_column=Column(String), default=None)
+    score_before: Optional[float] = Field(sa_column=Column(Float), default=None)
+    score_after: Optional[float] = Field(sa_column=Column(Float), default=None)
+    max_score: Optional[float] = Field(sa_column=Column(Float), default=None)
+    grade_before: Optional[dict] = Field(sa_column=Column(JSON), default=None)
+    grade_after: Optional[dict] = Field(sa_column=Column(JSON), default=None)
+    # Con qué versión de la encuesta se corrigió (puede no ser la que se contestó).
+    survey_version_id: Optional[uuid.UUID] = Field(
+        sa_column=Column(ForeignKey("survey_versions.id", ondelete="SET NULL")),
+        default=None,
+    )
+    note: Optional[str] = Field(sa_column=Column(String), default=None)
+    created_at: datetime = Field(
+        sa_column=Column(DateTime(timezone=True), nullable=False, default=_utcnow, index=True)
+    )
+
+
+class AuditEvent(SQLModel, table=True):
+    """Registro general de auditoría: quién hizo qué, sobre qué, y cuándo.
+
+    `survey_id` y `response_id` NO llevan clave foránea a propósito, igual que
+    `response_deletions.response_id`: el registro tiene que sobrevivir al
+    borrado definitivo de lo que describe. Sólo `org_id` cascadea: si la
+    organización entera desaparece, su auditoría también."""
+
+    __tablename__ = "audit_events"
+
+    id: uuid.UUID = Field(primary_key=True, default_factory=uuid.uuid4)
+    org_id: Optional[uuid.UUID] = Field(
+        sa_column=Column(ForeignKey("organizations.id", ondelete="CASCADE"), index=True),
+        default=None,
+    )
+    survey_id: Optional[uuid.UUID] = Field(sa_column=Column(Uuid, index=True), default=None)
+    response_id: Optional[uuid.UUID] = Field(sa_column=Column(Uuid, index=True), default=None)
+    actor_id: Optional[uuid.UUID] = Field(
+        sa_column=Column(ForeignKey("users.id", ondelete="SET NULL"), index=True),
+        default=None,
+    )
+    actor_email: Optional[str] = Field(sa_column=Column(String), default=None)
+    action: str = Field(sa_column=Column(String, nullable=False, index=True))
+    detail: Optional[dict] = Field(sa_column=Column(JSON), default=None)
+    created_at: datetime = Field(
+        sa_column=Column(DateTime(timezone=True), nullable=False, default=_utcnow, index=True)
     )
 
 

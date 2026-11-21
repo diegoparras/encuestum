@@ -341,14 +341,28 @@ async def grade_response(
         [x for x, on in [("auto", used_auto), ("llm", used_llm)] if on]
     ) or "none"
 
-    model_name = None
+    # Con qué se corrigió. El modelo sale de la llamada en curso (el proveedor
+    # de la organización, y el nombre que el propio proveedor reportó), no de
+    # las variables de entorno: con un proveedor por organización, `_model()`
+    # anotaba un modelo que no era el que había corregido.
+    model_name = provider_kind = prompt_version = None
     if used_llm:
-        try:
-            from app.llm import _model
+        from app import ai_usage
+        from app.llm_calls import grader_prompt_version
 
-            model_name = _model()
-        except Exception:
-            model_name = None
+        acc = ai_usage.current()
+        if acc is not None and acc.model:
+            model_name = acc.model
+            provider_kind = acc.provider.kind if acc.provider else None
+        else:
+            try:
+                from app.llm import _model
+
+                model_name = _model()
+                provider_kind = "env"
+            except Exception:
+                model_name = None
+        prompt_version = grader_prompt_version()
 
     return {
         "total": round(total, 3),
@@ -359,6 +373,8 @@ async def grade_response(
         "needs_review": needs_review,
         "graded_by": graded_by,
         "model": model_name,
+        "provider": provider_kind,
+        "prompt_version": prompt_version,
         "overridden": False,
         "version": 1,
     }

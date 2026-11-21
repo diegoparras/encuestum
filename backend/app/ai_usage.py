@@ -24,7 +24,9 @@ class AiCall:
         operation: str,
         survey_id: Optional[uuid.UUID],
         created_by: Optional[uuid.UUID],
+        response_id: Optional[uuid.UUID] = None,
     ):
+        self.response_id = response_id
         self.provider = provider
         self.org_id = org_id
         self.operation = operation
@@ -67,8 +69,9 @@ async def track_ai_call(
     operation: str,
     survey_id: Optional[uuid.UUID] = None,
     created_by: Optional[uuid.UUID] = None,
+    response_id: Optional[uuid.UUID] = None,
 ):
-    acc = AiCall(provider, org_id, operation, survey_id, created_by)
+    acc = AiCall(provider, org_id, operation, survey_id, created_by, response_id)
     token = _ctx.set(acc)
     try:
         yield acc
@@ -84,6 +87,7 @@ async def track_ai_call(
                     org_id=org_id,
                     provider_id=provider.provider_id if provider else None,
                     survey_id=survey_id,
+                    response_id=response_id,
                     operation=operation,
                     model=acc.model,
                     prompt_tokens=acc.prompt_tokens,

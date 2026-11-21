@@ -1,6 +1,7 @@
 import logging
 import math
 import uuid
+from datetime import timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -496,17 +497,37 @@ async def submit(
                 ),
             )
 
+    # Trazabilidad: qué versión se contestó, metadatos que pone el SERVIDOR (el
+    # navegador sólo aporta un puñado de claves acotadas) y la huella.
+    from app.audit import ensure_survey_version, hash_ip, record_grade_revision, response_hash, sanitize_client_meta
+    from app.ratelimit import _client_ip
+
+    version = await ensure_survey_version(session, s)
+    meta = sanitize_client_meta(payload.meta)
+    ajustes = get_settings()
+    server_meta: dict = {
+        "received_at": _utcnow().isoformat(),
+        "user_agent": (request.headers.get("user-agent") or "")[:512] or None,
+    }
+    if ajustes.store_ip_hash:
+        server_meta["ip_hash"] = hash_ip(_client_ip(request), ajustes.session_secret)
+    meta["server"] = server_meta
+
     r = SurveyResponse(
-        survey_id=s.id, answers=payload.answers or {}, completed=payload.completed, meta=payload.meta,
+        survey_id=s.id, answers=payload.answers or {}, completed=payload.completed, meta=meta,
+        survey_version_id=version.id,
         respondent_email=None if anonimo else resp_email, respondent_code=resp_code,
         lti_link_id=uuid.UUID(link_id) if link_id else None,
         lti_sub=None if anonimo else (lti.get("sub") if lti else None),
         mod_site_id=mod_site_id, mod_cmid=mod_cmid, mod_grademax=mod_grademax,
     )
+    r.id = r.id or uuid.uuid4()
+    r.submitted_at = _utcnow()
+    r.integrity_hash = response_hash(r)
     session.add(r)
 
     # Funnel: si el cliente mandó su visitor_id, cerramos su visita como completa.
-    visitor_id = (payload.meta or {}).get("visitor_id")
+    visitor_id = meta.get("visitor_id")
     if isinstance(visitor_id, str) and visitor_id:
         visit = (
             await session.scalars(
@@ -521,6 +542,12 @@ async def submit(
         visit.completed = True
         visit.last_seen_at = _utcnow()
         session.add(visit)
+        # Duración aproximada: desde que abrió la encuesta por primera vez
+        # hasta que la envió. Incluye lo que tardó en empezar.
+        if visit.created_at is not None:
+            abierta = visit.created_at if visit.created_at.tzinfo else visit.created_at.replace(tzinfo=timezone.utc)
+            server_meta["seconds_since_first_view"] = max(0, int((r.submitted_at - abierta).total_seconds()))
+            r.meta = {**meta, "server": dict(server_meta)}
 
     await session.commit()
 
@@ -531,19 +558,23 @@ async def submit(
             from app.ai_config import resolve_provider
             from app.ai_usage import track_ai_call
             provider = await resolve_provider(session, s.org_id)
-            async with track_ai_call(session, provider, s.org_id, "grade", s.id):
+            async with track_ai_call(session, provider, s.org_id, "grade", s.id, response_id=r.id):
                 grade = await grade_response(
                     evaluation=evaluation, answers=r.answers,
                     question_types=extract_question_types(s.json_schema),
                     question_choices=extract_question_choices(s.json_schema),
                     language=s.language or "es",
                 )
+            grade["graded_with_version"] = version.number
             r.grade = grade
             r.score = grade.get("total")
             r.max_score = grade.get("max")
             r.needs_review = bool(grade.get("needs_review"))
             r.graded_at = _utcnow()
             session.add(r)
+            record_grade_revision(
+                session, r, source="submit", grade_before=None, survey_version_id=version.id
+            )
             await session.commit()
         except Exception as exc:  # noqa: BLE001
             LOGGER.warning("grading failed for %s: %s", r.id, exc)
