@@ -279,6 +279,22 @@ def _public_payload(s: Survey, available: bool, reason: str | None, gated: bool)
     )
 
 
+@router.get("/track/open/{token}.gif", include_in_schema=False)
+async def track_open(token: str, session: AsyncSession = Depends(get_session)):
+    """Píxel de apertura de las invitaciones. Siempre devuelve la imagen (un
+    token vencido o inválido no le muestra un error a nadie)."""
+    from fastapi import Response
+
+    from app.distribution import PIXEL_GIF, mark_opened
+
+    try:
+        await mark_opened(session, token)
+    except Exception as exc:  # noqa: BLE001
+        LOGGER.debug("píxel de apertura: %s", exc)
+    return Response(content=PIXEL_GIF, media_type="image/gif",
+                    headers={"Cache-Control": "no-store, max-age=0"})
+
+
 @router.get("/{slug}", response_model=PublicSurvey)
 async def get_public_survey(
     slug: str,
@@ -548,6 +564,8 @@ async def survey_access(
             raise HTTPException(status_code=403, detail="Email o código inválido")
         if inv.used_at is None:
             inv.used_at = _utcnow()
+            # Si entró con el enlace, lo abrió (aunque su correo bloquee el píxel).
+            inv.opened_at = inv.opened_at or inv.used_at
             session.add(inv)
             await session.commit()
         token_data.update({"email": inv.email, "code": inv.code})
@@ -706,11 +724,16 @@ async def submit(
     version = await ensure_survey_version(session, s, label="respuesta")
     meta = sanitize_client_meta(payload.meta)
     ajustes = get_settings()
-    server_meta: dict = {
-        "received_at": _utcnow().isoformat(),
-        "user_agent": (request.headers.get("user-agent") or "")[:512] or None,
-    }
-    if ajustes.store_ip_hash:
+    # Anonimato garantizado: ni navegador, ni IP, ni visitante, ni email.
+    anonima = bool(getattr(s, "anonymous", False))
+    if anonima:
+        from app.privacy import strip_identity_meta
+
+        meta = strip_identity_meta(meta)
+    server_meta: dict = {"received_at": _utcnow().isoformat()}
+    if not anonima:
+        server_meta["user_agent"] = (request.headers.get("user-agent") or "")[:512] or None
+    if ajustes.store_ip_hash and not anonima:
         server_meta["ip_hash"] = hash_ip(_client_ip(request), ajustes.session_secret)
     if exam_cfg is not None:
         ahora = _utcnow()
@@ -739,9 +762,10 @@ async def submit(
     r = SurveyResponse(
         survey_id=s.id, answers=payload.answers or {}, completed=payload.completed, meta=meta,
         survey_version_id=version.id,
-        respondent_email=None if anonimo else resp_email, respondent_code=resp_code,
+        respondent_email=None if (anonimo or anonima) else resp_email,
+        respondent_code=None if anonima else resp_code,
         lti_link_id=uuid.UUID(link_id) if link_id else None,
-        lti_sub=None if anonimo else (lti.get("sub") if lti else None),
+        lti_sub=None if (anonimo or anonima) else (lti.get("sub") if lti else None),
         mod_site_id=mod_site_id, mod_cmid=mod_cmid, mod_grademax=mod_grademax,
     )
     # Enviada: el borrador (si lo había) ya no tiene razón de existir.
@@ -761,6 +785,12 @@ async def submit(
         intento.submitted_at = r.submitted_at
         intento.response_id = r.id
         session.add(intento)
+
+    # Seguimiento de la invitación: respondió. En una encuesta anónima sólo
+    # se guarda el día (la hora exacta permitiría cruzarla con la respuesta).
+    from app.distribution import mark_responded
+
+    await mark_responded(session, s.id, resp_code, day_only=anonima)
 
     # Funnel: si el cliente mandó su visitor_id, cerramos su visita como completa.
     visitor_id = meta.get("visitor_id")

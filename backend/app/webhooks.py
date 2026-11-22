@@ -32,6 +32,60 @@ def build_payload(survey, resp, event: str = "response.created") -> dict:
     }
 
 
+def chat_kind(url: str) -> str | None:
+    """Slack, Teams o Discord: esos destinos no entienden nuestro JSON, sino su
+    propio formato de mensaje. Se detecta por el host de la URL."""
+    from urllib.parse import urlparse
+
+    host = (urlparse(url).hostname or "").lower()
+    if host == "hooks.slack.com":
+        return "slack"
+    if host.endswith(".webhook.office.com") or host == "outlook.office.com":
+        return "teams"
+    if host.endswith(".logic.azure.com") or host.endswith(".powerplatform.com"):
+        return "teams_workflow"
+    if host in ("discord.com", "discordapp.com") and urlparse(url).path.startswith("/api/webhooks/"):
+        return "discord"
+    return None
+
+
+def chat_text(payload: dict) -> tuple[str, str]:
+    """(título, texto) legible del evento."""
+    from app.email import build_url
+
+    survey = payload.get("survey") or {}
+    titulo = survey.get("title") or "Encuesta"
+    if payload.get("event") == "ping":
+        return "Encuestum", f"Prueba de conexión desde Encuestum para «{titulo}». Funciona."
+    r = payload.get("response") or {}
+    partes = [f"Nueva respuesta en «{titulo}»"]
+    if r.get("score") is not None and r.get("max_score"):
+        partes.append(f"puntaje {r['score']:g}/{r['max_score']:g}"
+                      + (f" ({r['percent']:.0f}%)" if r.get("percent") is not None else ""))
+    if r.get("needs_review"):
+        partes.append("necesita revisión")
+    link = build_url(f"/surveys/{survey.get('id')}") if survey.get("id") else ""
+    return titulo, " · ".join(partes) + (f"\n{link}" if link else "")
+
+
+def chat_body(kind: str, payload: dict) -> dict:
+    titulo, texto = chat_text(payload)
+    if kind == "slack":
+        return {"text": texto}
+    if kind == "discord":
+        return {"content": texto[:2000]}
+    if kind == "teams":
+        return {"@type": "MessageCard", "@context": "https://schema.org/extensions",
+                "summary": titulo, "title": titulo, "text": texto.replace("\n", "  \n")}
+    # Flujos de trabajo de Teams (Power Automate): tarjeta adaptable.
+    return {"type": "message", "attachments": [{
+        "contentType": "application/vnd.microsoft.card.adaptive",
+        "content": {"type": "AdaptiveCard", "version": "1.4",
+                    "$schema": "http://adaptivecards.io/schemas/adaptive-card.json",
+                    "body": [{"type": "TextBlock", "text": t, "wrap": True} for t in texto.split("\n")]},
+    }]}
+
+
 def sign(secret: str, body: bytes) -> str:
     return "sha256=" + hmac.new(secret.encode("utf-8"), body, hashlib.sha256).hexdigest()
 
@@ -52,6 +106,9 @@ async def post_webhook(url: str, secret: str, payload: dict, event: str = "respo
         LOGGER.warning("webhook %s bloqueado por el guard SSRF: %s", url, exc)
         return False
 
+    kind = chat_kind(url)
+    if kind:
+        payload = chat_body(kind, payload)
     body = json.dumps(payload, ensure_ascii=False, default=str).encode("utf-8")
     headers = {
         "Content-Type": "application/json",

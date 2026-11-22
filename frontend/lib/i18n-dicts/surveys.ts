@@ -3,6 +3,12 @@ import type { Lang } from "../i18n";
 // Diccionario de área: surveys (lista de encuestas + detalle).
 export const dict: Record<Lang, Record<string, string>> = {
   en: {
+    "surveys.shareVia": "Share via",
+    "surveys.share.whatsapp": "WhatsApp",
+    "surveys.share.telegram": "Telegram",
+    "surveys.share.sms": "SMS",
+    "surveys.share.email": "Email",
+    "surveys.share.more": "More…",
     "surveys.loading": "Loading…",
     // Lista
     "surveys.title": "Surveys",
@@ -99,6 +105,12 @@ export const dict: Record<Lang, Record<string, string>> = {
     "surveys.back": "Surveys",
   },
   es: {
+    "surveys.shareVia": "Compartir por",
+    "surveys.share.whatsapp": "WhatsApp",
+    "surveys.share.telegram": "Telegram",
+    "surveys.share.sms": "SMS",
+    "surveys.share.email": "Email",
+    "surveys.share.more": "Más…",
     "surveys.loading": "Cargando…",
     "surveys.title": "Encuestas",
     "surveys.subtitle":

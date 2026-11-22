@@ -73,6 +73,13 @@ class Organization(SQLModel, table=True):
         sa_column=Column(String, unique=True, index=True), default=None
     )
     logo: Optional[str] = Field(sa_column=Column(String), default=None)
+    # Tope mensual de gasto en IA (USD). None = sin tope. Al 80% se avisa a los
+    # administradores una vez por mes (`ai_budget_warned` guarda "AAAA-MM").
+    ai_monthly_budget_usd: Optional[float] = Field(sa_column=Column(Float), default=None)
+    ai_budget_warned: Optional[str] = Field(sa_column=Column(String), default=None)
+    # Retención por defecto de la organización (cada encuesta puede pisarla).
+    retention_days: Optional[int] = Field(sa_column=Column(Integer), default=None)
+    retention_action: Optional[str] = Field(sa_column=Column(String), default=None)  # anonymize | delete
     created_at: datetime = Field(
         sa_column=Column(DateTime(timezone=True), nullable=False, default=_utcnow)
     )
@@ -283,6 +290,17 @@ class Survey(SQLModel, table=True):
     insights: Optional[dict] = Field(sa_column=Column(JSON), default=None)
     # Cached AI executive report (narrative over the computed aggregates).
     report: Optional[dict] = Field(sa_column=Column(JSON), default=None)
+    # Anonimato garantizado: el servidor no guarda email, código, IP, navegador
+    # ni identificador de visitante con la respuesta (ver app/privacy.py).
+    anonymous: bool = Field(
+        sa_column=Column(Boolean, nullable=False, server_default="0"), default=False
+    )
+    # Retención: a los N días de enviada, la respuesta se anonimiza o se borra.
+    retention_days: Optional[int] = Field(sa_column=Column(Integer), default=None)
+    retention_action: Optional[str] = Field(sa_column=Column(String), default=None)
+    # Recordatorios a invitados que no respondieron:
+    # {"enabled": true, "every_days": 3, "max": 2}
+    reminders: Optional[dict] = Field(sa_column=Column(JSON), default=None)
     # Papelera (soft-delete): al borrar se marca la fecha en vez de destruir la
     # encuesta y sus respuestas. Una encuesta en la papelera no se lista, no se
     # edita y — crítico — deja de responderse desde su link público. Se puede
@@ -533,8 +551,53 @@ class SurveyInvitee(SQLModel, table=True):
     sent_at: Optional[datetime] = Field(
         sa_column=Column(DateTime(timezone=True)), default=None
     )
+    # Seguimiento: abrió el email (píxel), respondió, recordatorios enviados.
+    # `used_at` es el clic (la primera vez que entró con su enlace).
+    opened_at: Optional[datetime] = Field(
+        sa_column=Column(DateTime(timezone=True)), default=None
+    )
+    responded_at: Optional[datetime] = Field(
+        sa_column=Column(DateTime(timezone=True)), default=None
+    )
+    reminders_sent: int = Field(
+        sa_column=Column(Integer, nullable=False, server_default="0"), default=0
+    )
+    last_reminded_at: Optional[datetime] = Field(
+        sa_column=Column(DateTime(timezone=True)), default=None
+    )
     created_at: datetime = Field(
         sa_column=Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    )
+
+
+class ApiKey(SQLModel, table=True):
+    """Clave de la API pública de una organización. Se guarda sólo el hash: la
+    clave completa se muestra una vez, al crearla."""
+
+    __tablename__ = "api_keys"
+
+    id: uuid.UUID = Field(primary_key=True, default_factory=uuid.uuid4)
+    org_id: uuid.UUID = Field(
+        sa_column=Column(
+            ForeignKey("organizations.id", ondelete="CASCADE"), index=True, nullable=False
+        )
+    )
+    name: str = Field(sa_column=Column(String, nullable=False))
+    prefix: str = Field(sa_column=Column(String, nullable=False, index=True))
+    key_hash: str = Field(sa_column=Column(String, nullable=False, unique=True))
+    # read: consultar; write: además crear encuestas y cargar respuestas.
+    scope: str = Field(sa_column=Column(String, nullable=False, server_default="read"), default="read")
+    created_by: Optional[uuid.UUID] = Field(
+        sa_column=Column(ForeignKey("users.id", ondelete="SET NULL")), default=None
+    )
+    created_at: datetime = Field(
+        sa_column=Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    )
+    last_used_at: Optional[datetime] = Field(
+        sa_column=Column(DateTime(timezone=True)), default=None
+    )
+    revoked_at: Optional[datetime] = Field(
+        sa_column=Column(DateTime(timezone=True)), default=None
     )
 
 

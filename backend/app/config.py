@@ -149,6 +149,11 @@ class Settings:
         self.public_base_url = (os.getenv("ENCUESTUM_PUBLIC_URL") or "").strip().rstrip("/")
         if not self.public_base_url:
             self.public_base_url = (self.cors_origins[0] if self.cors_origins else "http://localhost:8080").rstrip("/")
+        # Dónde se llega a la API desde afuera (píxel de apertura de los emails,
+        # documentación de la API pública). Por defecto, el mismo origen.
+        self.public_api_base_url = (
+            (os.getenv("ENCUESTUM_PUBLIC_API_URL") or "").strip().rstrip("/") or self.public_base_url
+        )
 
         # Email verification. Off by default so nobody gets locked out when SMTP
         # isn't configured; turn on to require a verified email before login.

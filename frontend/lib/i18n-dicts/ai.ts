@@ -3,6 +3,17 @@ import type { Lang } from "../i18n";
 // Diccionario de área: ai (panel de proveedores de IA, consumo y precios).
 export const dict: Record<Lang, Record<string, string>> = {
   en: {
+    "ai.budget.title": "Monthly AI budget",
+    "ai.budget.spent": "Spent in {month}",
+    "ai.budget.limit": "Monthly limit (USD)",
+    "ai.budget.none": "No limit",
+    "ai.budget.save": "Save",
+    "ai.budget.saved": "Budget saved",
+    "ai.budget.error": "Couldn't save the budget",
+    "ai.budget.invalid": "Enter a number (or leave it empty for no limit)",
+    "ai.budget.warn": "Over 80% of the budget: admins were notified by email.",
+    "ai.budget.blocked": "Budget reached: AI generation and grading are paused until next month (pending grading retries on its own).",
+    "ai.budget.hint": "At 80% admins get an email; at 100% AI calls stop until the month ends or the limit is raised.",
     "ai.page.title": "AI",
     "ai.page.subtitle":
       "Configure artificial intelligence providers, track usage, and manage model prices.",
@@ -102,6 +113,17 @@ export const dict: Record<Lang, Record<string, string>> = {
     "ai.confirm.deletePrice": "Delete the price for {model}?",
   },
   es: {
+    "ai.budget.title": "Tope mensual de IA",
+    "ai.budget.spent": "Gastado en {month}",
+    "ai.budget.limit": "Tope mensual (USD)",
+    "ai.budget.none": "Sin tope",
+    "ai.budget.save": "Guardar",
+    "ai.budget.saved": "Tope guardado",
+    "ai.budget.error": "No se pudo guardar el tope",
+    "ai.budget.invalid": "Escribí un número (o dejalo vacío para no tener tope)",
+    "ai.budget.warn": "Más del 80% del tope: se avisó por email a los administradores.",
+    "ai.budget.blocked": "Se alcanzó el tope: la generación y la corrección con IA quedan en pausa hasta el mes que viene (lo pendiente se reintenta solo).",
+    "ai.budget.hint": "Al 80% se avisa por email a los administradores; al 100% se frenan las llamadas a la IA hasta fin de mes o hasta que se suba el tope.",
     "ai.page.title": "IA",
     "ai.page.subtitle":
       "Configurá proveedores de inteligencia artificial, seguí el consumo y administrá los precios de los modelos.",

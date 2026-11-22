@@ -18,6 +18,10 @@ import {
   Code2,
   ChevronDown,
   ChevronRight,
+  MessageCircle,
+  Smartphone,
+  Mail,
+  Share2,
 } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import { toast } from "sonner";
@@ -342,6 +346,9 @@ export default function SurveyDetailPage() {
           </a>
         )}
       </div>
+
+      {/* Compartir por mensajería: el texto ya lleva el link. */}
+      {isPublished && <ShareButtons url={brandedUrl || publicUrl} title={survey.title || ""} />}
 
       {/* Branded (own subdomain) link */}
       {brandedUrl && (
@@ -714,5 +721,46 @@ function BackLink() {
     >
       <ArrowLeft className="w-4 h-4" /> {t("surveys.back")}
     </Link>
+  );
+}
+
+function ShareButtons({ url, title }: { url: string; title: string }) {
+  const { t } = useI18n();
+  const texto = title ? `${title}: ${url}` : url;
+  const enc = encodeURIComponent;
+  const items = [
+    { key: "whatsapp", href: `https://wa.me/?text=${enc(texto)}`, Icon: MessageCircle },
+    { key: "telegram", href: `https://t.me/share/url?url=${enc(url)}&text=${enc(title)}`, Icon: Send },
+    { key: "sms", href: `sms:?&body=${enc(texto)}`, Icon: Smartphone },
+    { key: "email", href: `mailto:?subject=${enc(title)}&body=${enc(texto)}`, Icon: Mail },
+  ];
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs">
+      <span className="mr-1 text-neutral-400 dark:text-neutral-500">{t("surveys.shareVia")}</span>
+      {items.map(({ key, href, Icon }) => (
+        <a
+          key={key}
+          href={href}
+          target={key === "sms" || key === "email" ? undefined : "_blank"}
+          rel="noreferrer"
+          className="inline-flex items-center gap-1 rounded-full border border-neutral-200 px-2.5 py-1 text-neutral-600 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
+        >
+          <Icon className="h-3.5 w-3.5" /> {t(`surveys.share.${key}`)}
+        </a>
+      ))}
+      {(
+        <button
+          type="button"
+          onClick={() => {
+            // Hoja de compartir del sistema (celular); en escritorio, copiar.
+            if (typeof navigator.share === "function") navigator.share({ title, text: title, url }).catch(() => {});
+            else navigator.clipboard?.writeText(url).then(() => toast.success(t("surveys.copied")));
+          }}
+          className="inline-flex items-center gap-1 rounded-full border border-neutral-200 px-2.5 py-1 text-neutral-600 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
+        >
+          <Share2 className="h-3.5 w-3.5" /> {t("surveys.share.more")}
+        </button>
+      )}
+    </div>
   );
 }

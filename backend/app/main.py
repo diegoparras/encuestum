@@ -14,7 +14,7 @@ from app.db import engine
 from app.logging_conf import configure_logging
 from app.routers import (
     admin, ai, assets, auth, bank, evaluation, files, folders, lti, modapi, orgs, panel,
-    public, uploads, webhooks_api,
+    ext_api, privacy_api, public, uploads, webhooks_api,
 )
 
 LOGGER = logging.getLogger("encuestum")
@@ -148,6 +148,46 @@ app.include_router(panel.router, prefix=API)
 app.include_router(ai.router, prefix=API)
 app.include_router(lti.admin_router, prefix=API)
 app.include_router(modapi.admin_router, prefix=API)
+app.include_router(privacy_api.router, prefix=API)
+app.include_router(ext_api.keys_router, prefix=API)
+app.include_router(ext_api.router, prefix=API)
+
+
+# Especificación propia de la API pública: sólo las rutas de /ext, con el
+# esquema de autenticación por clave. La general (/openapi.json) incluye las
+# del panel, que no son un contrato para terceros.
+_EXT_OPENAPI: dict | None = None
+
+
+@app.get(f"{API}/ext/openapi.json", include_in_schema=False)
+async def ext_openapi():
+    global _EXT_OPENAPI
+    if _EXT_OPENAPI is None:
+        from fastapi.openapi.utils import get_openapi
+
+        spec = get_openapi(
+            title="Encuestum — API pública", version="1.0.0",
+            description=(
+                "Leé encuestas, respuestas y resúmenes, y cargá invitados.\n\n"
+                "Autenticación: `Authorization: Bearer enc_…` (o `X-Api-Key`). Las claves se crean "
+                "en Ajustes → API (sólo administradores). Límite: 120 pedidos por minuto por clave."
+            ),
+            routes=ext_api.router.routes,
+            servers=[{"url": f"{settings.public_api_base_url}{API}"}],
+        )
+        spec.setdefault("components", {}).setdefault("securitySchemes", {})["ApiKey"] = {
+            "type": "http", "scheme": "bearer", "bearerFormat": "enc_…",
+        }
+        spec["security"] = [{"ApiKey": []}]
+        _EXT_OPENAPI = spec
+    return _EXT_OPENAPI
+
+
+@app.get(f"{API}/ext/docs", include_in_schema=False)
+async def ext_docs():
+    from fastapi.openapi.docs import get_swagger_ui_html
+
+    return get_swagger_ui_html(openapi_url=f"{API}/ext/openapi.json", title="Encuestum — API pública")
 
 # Archivos subidos, servidos same-origin en /assets (streaming con Range desde
 # disco o el bucket privado; responses/* con control de acceso). Ver routers/files.py.

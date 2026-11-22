@@ -15,7 +15,6 @@ from pydantic import BaseModel, EmailStr, Field
 
 from app.db import get_session
 from app.deps import OrgContext, current_context
-from app.email import build_url, enqueue_email
 from app.exporting import CSV_MEDIA, XLSX_MEDIA, export_rows, rows_to_csv, sheets_to_xlsx
 from app.audit import record_event
 from app.hygiene import counted_only
@@ -180,6 +179,27 @@ async def update_survey(
                     "updated_at": s.updated_at.isoformat() if s.updated_at else None,
                 },
             )
+    # Privacidad y recordatorios: validados antes del loop genérico.
+    if "retention_days" in data or "retention_action" in data:
+        from app.privacy import clean_retention
+
+        try:
+            d, a = clean_retention(
+                data.get("retention_days", s.retention_days),
+                data.get("retention_action", s.retention_action),
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
+        data["retention_days"], data["retention_action"] = d, a
+    if "reminders" in data:
+        from app.distribution import clean_reminders
+
+        try:
+            data["reminders"] = clean_reminders(data["reminders"])
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
+    if data.get("anonymous") is None:
+        data.pop("anonymous", None)
     # org_id / created_by / slug are handled explicitly, never via the generic loop.
     data.pop("org_id", None)
     data.pop("created_by", None)
@@ -347,6 +367,9 @@ async def duplicate_survey(
         access_mode=s.access_mode, access_pin=s.access_pin,
         results_mode=s.results_mode, notify_emails=s.notify_emails,
         require_captcha=getattr(s, "require_captcha", False),
+        anonymous=bool(getattr(s, "anonymous", False)),
+        retention_days=s.retention_days, retention_action=s.retention_action,
+        reminders=s.reminders,
         status="draft",  # copies start unpublished
     )
     session.add(copy)
@@ -1171,12 +1194,18 @@ class InviteeOut(BaseModel):
     code: str
     used_at: datetime | None
     sent_at: datetime | None
+    opened_at: datetime | None = None
+    responded_at: datetime | None = None
+    reminders_sent: int = 0
+    last_reminded_at: datetime | None = None
     created_at: datetime
 
     @classmethod
     def of(cls, i: SurveyInvitee) -> "InviteeOut":
         return cls(id=i.id, email=i.email, name=i.name, code=i.code,
-                   used_at=i.used_at, sent_at=i.sent_at, created_at=i.created_at)
+                   used_at=i.used_at, sent_at=i.sent_at, opened_at=i.opened_at,
+                   responded_at=i.responded_at, reminders_sent=i.reminders_sent or 0,
+                   last_reminded_at=i.last_reminded_at, created_at=i.created_at)
 
 
 @router.get("/{sid}/invitees", response_model=List[InviteeOut])
@@ -1258,28 +1287,68 @@ async def send_invitee_links(
     if only_unsent:
         stmt = stmt.where(SurveyInvitee.sent_at.is_(None))
     rows = (await session.scalars(stmt)).all()
-    title = s.title or "una encuesta"
+    from app.distribution import enqueue_invite
 
-    # Recolectá los emails a enviar y marcá sent_at antes de responder; el envío
-    # SMTP (bloqueante) se dispara fire-and-forget para no colgar el request.
-    outbox: list[tuple[str, str, str]] = []
-    subject = f"Invitación: {title}"
+    # Encolado en la misma transacción que marca `sent_at`: o quedan las dos
+    # cosas o ninguna, y si el SMTP falla la cola reintenta.
+    outbox = []
     for inv in rows:
-        link = build_url(f"/s/{s.slug}", email=inv.email, code=inv.code)
-        text = (
-            f"Hola{(' ' + inv.name) if inv.name else ''},\n\n"
-            f"Fuiste invitado/a a responder «{title}».\n"
-            f"Ingresá con este enlace:\n{link}\n\n"
-            f"Tu código de acceso es: {inv.code}\n"
-        )
-        outbox.append((inv.email, subject, text))
-        # Encolado en la misma transacción que marca `sent_at`: o quedan las dos
-        # cosas o ninguna, y si el SMTP falla la cola reintenta.
-        enqueue_email(session, inv.email, subject, text, org_id=ctx.org.id, survey_id=sid)
+        enqueue_invite(session, s, inv)
+        outbox.append(inv.email)
         inv.sent_at = _utcnow()
         session.add(inv)
+    record_event(session, action="invitees.sent", org_id=ctx.org.id, actor=ctx.user,
+                 survey_id=sid, detail={"count": len(outbox)})
     await session.commit()
     return {"sent": len(outbox), "total": len(rows)}
+
+
+@router.get("/{sid}/invitees/tracking")
+async def invitees_tracking(
+    sid: uuid.UUID,
+    ctx: OrgContext = Depends(current_context),
+    session: AsyncSession = Depends(get_session),
+):
+    """Embudo de las invitaciones: enviadas → abiertas → clic → respondidas."""
+    from app.distribution import clean_reminders, tracking_summary
+
+    s = await _survey_or_404(sid, ctx.org.id, session)
+    rows = (await session.scalars(select(SurveyInvitee).where(SurveyInvitee.survey_id == sid))).all()
+    try:
+        cfg = clean_reminders(s.reminders)
+    except ValueError:
+        cfg = None
+    return {**tracking_summary(list(rows)), "reminders_config": cfg}
+
+
+@router.post("/{sid}/invitees/remind")
+async def remind_invitees(
+    sid: uuid.UUID,
+    ctx: OrgContext = Depends(current_context),
+    session: AsyncSession = Depends(get_session),
+):
+    """Recordatorio YA a quienes recibieron la invitación y no respondieron
+    (además de los automáticos, si están configurados)."""
+    _require_admin(ctx)
+    from app.config import get_settings
+    from app.distribution import enqueue_invite
+
+    s = await _survey_or_404(sid, ctx.org.id, session)
+    if not get_settings().smtp_configured:
+        raise HTTPException(status_code=400, detail="Falta configurar SMTP para enviar emails.")
+    rows = (await session.scalars(select(SurveyInvitee).where(
+        SurveyInvitee.survey_id == sid, SurveyInvitee.sent_at.is_not(None), SurveyInvitee.responded_at.is_(None),
+    ))).all()
+    ahora = _utcnow()
+    for inv in rows:
+        enqueue_invite(session, s, inv, reminder=True)
+        inv.reminders_sent = (inv.reminders_sent or 0) + 1
+        inv.last_reminded_at = ahora
+        session.add(inv)
+    record_event(session, action="invitees.reminded", org_id=ctx.org.id, actor=ctx.user,
+                 survey_id=sid, detail={"count": len(rows), "manual": True})
+    await session.commit()
+    return {"sent": len(rows)}
 
 
 @router.post("/{sid}/release-results", response_model=SurveyDetail)

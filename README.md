@@ -171,6 +171,14 @@ docker compose -f docker-compose.prod.yml exec -T db \
 
 Guardá también el volumen `/app_data` (archivos subidos, si no usás R2/S3) y tu `.env`: sin `ENCUESTUM_SESSION_SECRET` las sesiones se invalidan y los seudónimos de IP dejan de coincidir. **Probá restaurar** al menos una vez: un backup que nunca se restauró no es un backup.
 
+**Mantenimiento automático (cada hora).** El worker de la cola manda los **recordatorios** a invitados que no respondieron (configurables por encuesta: cada N días, hasta M veces) y aplica la **retención** (anonimizar o borrar respuestas a los N días, por encuesta o por defecto de la organización). Todo queda en la auditoría.
+
+**Privacidad.** *Anonimato garantizado* por encuesta: el servidor no guarda email, código, IP, navegador ni visitante. Desde **Integraciones → Privacidad** un admin busca todo lo que hay de un email, lo exporta (JSON) o lo borra/anonimiza (derechos de acceso y supresión).
+
+**API pública.** Claves por organización en **Integraciones → API pública** (lectura o escritura; se guarda sólo el hash). Documentación navegable en `/api/v1/ext/docs` y OpenAPI en `/api/v1/ext/openapi.json`. Límite: 120 pedidos/min por clave.
+
+**Tope de IA.** En la sección **IA** se fija un tope mensual en USD: al 80% se avisa por email a dueños y admins; al 100% se frenan la generación y la corrección con IA (lo pendiente se reintenta solo).
+
 **Integridad.** Cada respuesta guarda una huella SHA-256 (sello "Íntegra"/"Modificada" en el panel), y cada exportación queda en el registro de actividad con la huella del archivo (también en el header `X-Encuestum-SHA256`).
 
 ---
@@ -206,6 +214,7 @@ Todo se configura por env con prefijo `ENCUESTUM_*`. Ver [`.env.example`](.env.e
 | `ENCUESTUM_SESSION_SECRET` | *(efímero)* | **Firma las sesiones. OBLIGATORIO en prod** (`openssl rand -hex 32`). Si no lo fijás, las sesiones se invalidan en cada reinicio. |
 | `DATABASE_URL` | *(SQLite)* | `postgresql://user:pass@host:5432/db` para Postgres. Sin esto usa SQLite en `ENCUESTUM_DATA_DIR`. |
 | `ENCUESTUM_PUBLIC_URL` | *(CORS[0])* | URL base pública (para los links de los emails). En prod, tu dominio. |
+| `ENCUESTUM_PUBLIC_API_URL` | *(PUBLIC_URL)* | Dónde se llega a la API desde afuera: píxel de apertura de las invitaciones y servidor de la API pública (`/api/v1/ext/docs`). Sólo si la API vive en otro dominio. |
 | `ENCUESTUM_COOKIE_SECURE` | `true` | Cookies solo-HTTPS. Poné `false` solo en http local. |
 | `ENCUESTUM_ALLOW_REGISTRATION` | `true` | Auto-registro público. `false` para cerrar el alta. |
 | `ENCUESTUM_REQUIRE_EMAIL_VERIFICATION` | `false` | Exigir verificar el email antes de usar la cuenta. |

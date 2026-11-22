@@ -267,7 +267,8 @@ _MAINTENANCE_EVERY = timedelta(hours=1)
 
 
 async def maintenance() -> dict:
-    """Limpieza periódica: borradores vencidos y tareas terminadas viejas.
+    """Mantenimiento periódico: borradores vencidos, tareas terminadas viejas,
+    recordatorios a invitados y retención de respuestas.
 
     Las tareas FALLIDAS no se borran: son las que alguien tiene que mirar. Las
     terminadas bien se conservan 90 días como registro de entregas."""
@@ -284,7 +285,20 @@ async def maintenance() -> dict:
             delete(Job).where(Job.status == JOB_DONE, Job.finished_at < _now() - DONE_TTL)
         )
         await session.commit()
-    return {"drafts": borradores.rowcount or 0, "jobs": viejas.rowcount or 0}
+    out = {"drafts": borradores.rowcount or 0, "jobs": viejas.rowcount or 0}
+    # Recordatorios a invitados y retención de datos: cada uno en su propia
+    # sesión, para que una falla en uno no frene al otro.
+    from app.distribution import send_due_reminders
+    from app.privacy import apply_retention
+
+    for nombre, fn in (("reminders", send_due_reminders), ("retention", apply_retention)):
+        try:
+            async with _session_maker() as session:
+                out[nombre] = await fn(session)
+        except Exception as exc:  # noqa: BLE001
+            LOGGER.warning("mantenimiento %s falló: %s", nombre, exc)
+            out[nombre] = {"error": str(exc)[:200]}
+    return out
 
 
 async def worker_loop(stop: asyncio.Event) -> None:

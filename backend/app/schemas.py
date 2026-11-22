@@ -53,6 +53,11 @@ class SurveyUpdateRequest(BaseModel):
     grading_message: Optional[str] = None  # texto mientras se procesa/corrige
     redirect_url: Optional[str] = None
     require_captcha: Optional[bool] = None
+    # Privacidad y distribución (ver app/privacy.py y app/distribution.py).
+    anonymous: Optional[bool] = None
+    retention_days: Optional[int] = None  # 0 = sin retención
+    retention_action: Optional[str] = None  # anonymize | delete
+    reminders: Optional[dict[str, Any]] = None
     # Control de concurrencia: el `content_hash` que el editor tenía al cargar o
     # al último guardado. Sin él no se controla (llamadores viejos, API).
     base_content_hash: Optional[str] = None
@@ -105,6 +110,10 @@ class SurveyDetail(BaseModel):
     grading_message: Optional[str] = None
     redirect_url: Optional[str] = None
     require_captcha: bool = False
+    anonymous: bool = False
+    retention_days: Optional[int] = None
+    retention_action: Optional[str] = None
+    reminders: Optional[dict[str, Any]] = None
     created_at: datetime
     updated_at: datetime
     # Huella del contenido editable (preguntas, corrección, diseño, título).
@@ -132,6 +141,10 @@ class SurveyDetail(BaseModel):
             grading_message=getattr(s, "grading_message", None),
             redirect_url=getattr(s, "redirect_url", None),
             require_captcha=bool(getattr(s, "require_captcha", False)),
+            anonymous=bool(getattr(s, "anonymous", False)),
+            retention_days=getattr(s, "retention_days", None),
+            retention_action=getattr(s, "retention_action", None),
+            reminders=getattr(s, "reminders", None),
             created_at=s.created_at, updated_at=s.updated_at,
             content_hash=survey_content_hash(s),
         )

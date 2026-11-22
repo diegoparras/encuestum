@@ -54,6 +54,12 @@ export interface SurveyDetail {
   redirect_url?: string;
   // Anti-bot: exige un desafío proof-of-work antes de aceptar respuestas.
   require_captcha?: boolean;
+  // Privacidad: anonimato garantizado y retención de respuestas.
+  anonymous?: boolean;
+  retention_days?: number | null;
+  retention_action?: RetentionAction | null;
+  // Recordatorios automáticos a invitados que no respondieron.
+  reminders?: ReminderConfig | null;
   created_at: string;
   updated_at: string;
   /** Huella del contenido editable: el editor la devuelve al guardar para que
@@ -348,6 +354,13 @@ export interface QualityReport {
 }
 
 // Invitado (modo lista): cada uno con su código de acceso único.
+export type RetentionAction = "anonymize" | "delete";
+export interface ReminderConfig {
+  enabled: boolean;
+  every_days: number;
+  max: number;
+}
+
 export interface Invitee {
   id: string;
   email: string;
@@ -355,7 +368,22 @@ export interface Invitee {
   code: string;
   used_at: string | null;
   sent_at: string | null;
+  opened_at?: string | null;
+  responded_at?: string | null;
+  reminders_sent?: number;
+  last_reminded_at?: string | null;
   created_at: string;
+}
+
+export interface InviteTracking {
+  total: number;
+  sent: number;
+  opened: number;
+  clicked: number;
+  responded: number;
+  reminders: number;
+  response_rate: number | null;
+  reminders_config: ReminderConfig | null;
 }
 
 export interface ResponseItem {
@@ -630,6 +658,10 @@ export const surveyApi = {
         | "grading_message"
         | "redirect_url"
         | "require_captcha"
+        | "anonymous"
+        | "retention_days"
+        | "retention_action"
+        | "reminders"
       >
     > & { base_content_hash?: string | null; snapshot?: boolean }
   ) =>
@@ -884,6 +916,10 @@ export const surveyApi = {
       `/api/v1/survey/surveys/${id}/invitees/send?only_unsent=true`,
       { method: "POST" }
     ),
+  inviteTracking: (id: string) =>
+    request<InviteTracking>(`/api/v1/survey/surveys/${id}/invitees/tracking`),
+  remindInvitees: (id: string) =>
+    request<{ sent: number }>(`/api/v1/survey/surveys/${id}/invitees/remind`, { method: "POST" }),
   releaseResults: (id: string, released: boolean) =>
     request<SurveyDetail>(
       `/api/v1/survey/surveys/${id}/release-results?released=${released}`,
