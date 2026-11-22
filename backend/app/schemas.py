@@ -165,6 +165,8 @@ class SubmitResponseRequest(BaseModel):
     access_token: Optional[str] = None
     # Solved proof-of-work challenge (only required if the survey opts in).
     captcha: Optional[dict[str, Any]] = None
+    # Intento de examen (ver POST /public/{slug}/start y app/exam.py).
+    attempt_token: Optional[str] = None
 
 
 class SurveyAccessRequest(BaseModel):

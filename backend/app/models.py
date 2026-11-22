@@ -772,6 +772,59 @@ class BankItem(SQLModel, table=True):
     )
 
 
+class SurveyAttempt(SQLModel, table=True):
+    """Un intento de examen: cuándo empezó y qué preguntas le tocaron.
+
+    Lo registra el servidor al empezar (ver `app/exam.py`). Es lo que hace que
+    el tiempo límite no dependa del reloj del navegador y que el sorteo no
+    cambie al recargar. `key` es la identidad de quien rinde (código de
+    invitado, alumno del LMS o, sin identidad, el visitante anónimo)."""
+
+    __tablename__ = "survey_attempts"
+
+    id: uuid.UUID = Field(primary_key=True, default_factory=uuid.uuid4)
+    survey_id: uuid.UUID = Field(
+        sa_column=Column(ForeignKey("surveys.id", ondelete="CASCADE"), index=True, nullable=False)
+    )
+    key: str = Field(sa_column=Column(String, nullable=False, index=True))
+    started_at: datetime = Field(
+        sa_column=Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    )
+    deadline: Optional[datetime] = Field(sa_column=Column(DateTime(timezone=True)), default=None)
+    drawn: Optional[list] = Field(sa_column=Column(JSON), default=None)
+    submitted_at: Optional[datetime] = Field(sa_column=Column(DateTime(timezone=True)), default=None)
+    response_id: Optional[uuid.UUID] = Field(sa_column=Column(Uuid), default=None)
+
+
+class GradeAppeal(SQLModel, table=True):
+    """Reclamo de nota: un alumno pide que se revise UNA pregunta.
+
+    El docente lo acepta (con el puntaje nuevo, que pasa por el historial de
+    notas y vuelve al LMS) o lo rechaza con una respuesta. El alumno ve el
+    estado y la respuesta al consultar su resultado."""
+
+    __tablename__ = "grade_appeals"
+
+    id: uuid.UUID = Field(primary_key=True, default_factory=uuid.uuid4)
+    survey_id: uuid.UUID = Field(
+        sa_column=Column(ForeignKey("surveys.id", ondelete="CASCADE"), index=True, nullable=False)
+    )
+    response_id: uuid.UUID = Field(
+        sa_column=Column(ForeignKey("survey_responses.id", ondelete="CASCADE"), index=True, nullable=False)
+    )
+    question: str = Field(sa_column=Column(String, nullable=False))
+    message: str = Field(sa_column=Column(String, nullable=False))
+    status: str = Field(sa_column=Column(String, nullable=False, index=True, server_default="open"), default="open")
+    reply: Optional[str] = Field(sa_column=Column(String), default=None)
+    award_before: Optional[float] = Field(sa_column=Column(Float), default=None)
+    award_after: Optional[float] = Field(sa_column=Column(Float), default=None)
+    resolved_by_email: Optional[str] = Field(sa_column=Column(String), default=None)
+    created_at: datetime = Field(
+        sa_column=Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    )
+    resolved_at: Optional[datetime] = Field(sa_column=Column(DateTime(timezone=True)), default=None)
+
+
 JOB_PENDING = "pending"
 JOB_RUNNING = "running"
 JOB_DONE = "done"

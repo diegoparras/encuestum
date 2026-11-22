@@ -111,3 +111,130 @@ def test_banco_guardar_filtrar_importar_y_estadisticas():
     otro = new_client(); register(otro)
     assert otro.get(f"{API}/bank").json() == []
     assert otro.delete(f"{API}/bank/{item['id']}").status_code == 404
+
+
+# ── Sorteo, tiempo límite e integridad ───────────────────────────────────────
+
+import asyncio  # noqa: E402
+
+import asyncpg  # noqa: E402
+
+from tests.conftest import TEST_DATABASE_URL  # noqa: E402
+
+
+def _sql(q, *a):
+    async def go():
+        conn = await asyncpg.connect(TEST_DATABASE_URL, timeout=5)
+        try:
+            return await conn.fetch(q, *a)
+        finally:
+            await conn.close()
+    return asyncio.run(go())
+
+
+def _examen(c, *, groups=None, limit=None, signals=False):
+    els = [{"type": "radiogroup", "name": f"g{i}", "title": f"Pregunta {i}", "choices": ["a", "b"],
+            "encGroup": "u1"} for i in range(6)]
+    els.append({"type": "comment", "name": "fija", "title": "Siempre aparece"})
+    qs = {f"g{i}": {"gradable": True, "grader": "auto", "points": 1, "correct": "a"} for i in range(6)}
+    s = c.post(f"{API}/surveys", json={"title": "Parcial", "json_schema": {"pages": [{"name": "p", "elements": els}]},
+                                       "evaluation": {"enabled": True, "questions": qs, "integrity": {
+                                           "groups": groups or {}, "timeLimitSec": limit, "signals": signals,
+                                           "shuffleChoices": True}}}).json()
+    c.post(f"{API}/surveys/{s['id']}/publish")
+    return s
+
+
+def test_sorteo_estable_y_correccion_solo_de_lo_que_toco():
+    c = new_client(); register(c)
+    s = _examen(c, groups={"u1": 3}, limit=1800)
+    alumno = new_client()
+    a = alumno.post(f"{API}/public/{s['slug']}/start", json={"visitor_id": "visitante-0001"}).json()["exam"]
+    nombres = [el["name"] for el in a["json_schema"]["pages"][0]["elements"]]
+    sorteadas = [n for n in nombres if n.startswith("g")]
+    assert len(sorteadas) == 3 and "fija" in nombres
+    assert a["json_schema"]["pages"][0]["elements"][0].get("choicesOrder") == "random"
+    assert 1790 <= a["seconds_left"] <= 1800
+    # Recargar devuelve el mismo intento: mismas preguntas, mismo plazo.
+    b = alumno.post(f"{API}/public/{s['slug']}/start", json={"visitor_id": "visitante-0001"}).json()["exam"]
+    assert b["deadline"] == a["deadline"]
+    assert [el["name"] for el in b["json_schema"]["pages"][0]["elements"]] == nombres
+
+    resp = {n: "a" for n in sorteadas}
+    r = alumno.post(f"{API}/public/{s['slug']}/submit", json={"answers": resp, "attempt_token": a["attempt_token"]})
+    assert r.status_code == 201, r.text
+    item = next(x for x in c.get(f"{API}/surveys/{s['id']}/responses").json() if x["id"] == r.json()["id"])
+    # 3 sorteadas de 1 punto: 3/3, no 3/6.
+    assert item["score"] == 3 and item["max_score"] == 3
+    assert sorted(item["meta"]["drawn"]) == sorted(sorteadas)
+    # Recorregir también respeta el sorteo.
+    rg = c.post(f"{API}/surveys/{s['id']}/responses/{item['id']}/grade").json()
+    assert rg["max_score"] == 3
+    # El intento ya entregado no se puede volver a usar.
+    again = alumno.post(f"{API}/public/{s['slug']}/submit", json={"answers": resp, "attempt_token": a["attempt_token"]})
+    assert again.status_code == 409
+    # Sin intento no se acepta un examen con sorteo.
+    assert new_client().post(f"{API}/public/{s['slug']}/submit", json={"answers": resp}).status_code == 409
+
+
+def test_entrega_fuera_de_tiempo_y_senales_de_integridad():
+    c = new_client(); register(c)
+    s = _examen(c, limit=600, signals=True)
+    alumno = new_client()
+    a = alumno.post(f"{API}/public/{s['slug']}/start", json={"visitor_id": "visitante-0002"}).json()["exam"]
+    _sql("UPDATE survey_attempts SET started_at = now() - interval '20 minutes', "
+         "deadline = now() - interval '10 minutes' WHERE survey_id = $1::uuid", s["id"])
+    r = alumno.post(f"{API}/public/{s['slug']}/submit", json={
+        "answers": {"g0": "a", "fija": "texto"}, "attempt_token": a["attempt_token"],
+        "meta": {"integrity": {"tab_switches": 4, "hidden_seconds": 95, "malicioso": "x",
+                               "pastes": [{"question": "fija", "chars": 640}, {"question": "g0", "chars": 3}]}},
+    })
+    assert r.status_code == 201
+    item = next(x for x in c.get(f"{API}/surveys/{s['id']}/responses").json() if x["id"] == r.json()["id"])
+    codigos = [f["code"] for f in item["meta"]["server"]["flags"]]
+    assert codigos == ["late", "tab_switches", "paste"]
+    assert "Siempre aparece" in item["meta"]["server"]["flags"][2]["detail"]
+    assert item["meta"]["integrity"]["tab_switches"] == 4 and "malicioso" not in item["meta"]["integrity"]
+    assert 1190 <= item["meta"]["server"]["exam_seconds"] <= 1260
+
+
+def test_sin_configuracion_de_examen_no_hay_intento():
+    c = new_client(); register(c)
+    s = c.post(f"{API}/surveys", json={"title": "Encuesta", "json_schema": {"pages": [{"elements": []}]}}).json()
+    c.post(f"{API}/surveys/{s['id']}/publish")
+    assert new_client().post(f"{API}/public/{s['slug']}/start", json={}).json() == {"exam": None}
+
+
+def test_reclamo_de_nota_aceptado_corrige_y_queda_en_el_historial():
+    c = new_client(); register(c)
+    schema = {"pages": [{"name": "p", "elements": [
+        {"type": "radiogroup", "name": "cap", "title": "Capital", "choices": ["París", "Lyon"]}]}]}
+    ev = {"enabled": True, "questions": {"cap": {"gradable": True, "grader": "auto", "points": 2, "correct": "París"}}}
+    s = c.post(f"{API}/surveys", json={"title": "P", "json_schema": schema, "evaluation": ev}).json()
+    c.post(f"{API}/surveys/{s['id']}/publish")
+    c.put(f"{API}/surveys/{s['id']}", json={"access_mode": "list", "results_mode": "immediate"})
+    code = c.post(f"{API}/surveys/{s['id']}/invitees", json={"invitees": [{"email": "ana@escuela.com"}]}).json()[0]["code"]
+    alu = new_client()
+    tok = alu.post(f"{API}/public/{s['slug']}/access", json={"email": "ana@escuela.com", "code": code}).json()["access_token"]
+    alu.post(f"{API}/public/{s['slug']}/submit", json={"answers": {"cap": "Lyon"}, "access_token": tok})
+
+    cred = {"email": "ana@escuela.com", "code": code}
+    r = alu.post(f"{API}/public/{s['slug']}/appeal", json={**cred, "question": "cap", "message": "Lyon también fue capital (de la Galia)."})
+    assert r.status_code == 201
+    assert alu.post(f"{API}/public/{s['slug']}/appeal", json={**cred, "question": "cap", "message": "otra vez"}).status_code == 409
+    assert alu.post(f"{API}/public/{s['slug']}/appeal", json={**cred, "question": "no_existe", "message": "xxxxx"}).status_code == 422
+
+    lista = c.get(f"{API}/surveys/{s['id']}/appeals").json()
+    assert lista[0]["status"] == "open" and lista[0]["answer"] == "Lyon" and lista[0]["awarded"] == 0
+    res = c.post(f"{API}/surveys/{s['id']}/appeals/{lista[0]['id']}/resolve",
+                 json={"decision": "accept", "reply": "Tenés razón, va la mitad.", "award": 1})
+    assert res.status_code == 200 and res.json()["status"] == "accepted"
+    resp = c.get(f"{API}/surveys/{s['id']}/responses").json()[0]
+    assert resp["score"] == 1
+    revs = c.get(f"{API}/surveys/{s['id']}/responses/{resp['id']}/history").json()["grade_revisions"]
+    assert revs[-1]["source"] == "manual" and revs[-1]["note"].startswith("Reclamo aceptado")
+
+    vista = alu.post(f"{API}/public/{s['slug']}/result", json=cred).json()
+    assert vista["appeals"] == [{**vista["appeals"][0], "status": "accepted", "reply": "Tenés razón, va la mitad."}]
+    assert c.post(f"{API}/surveys/{s['id']}/appeals/{lista[0]['id']}/resolve",
+                  json={"decision": "reject", "reply": "no"}).status_code == 409

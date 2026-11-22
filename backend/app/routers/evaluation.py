@@ -119,8 +119,12 @@ async def _grade_and_store(s, r, session, *, source: str = "regrade", actor=None
 
     version = await ensure_survey_version(session, s, label="corrección")
     anterior = r.grade
+    from app.exam import evaluation_for
+
     grade = await grade_response(
-        evaluation=s.evaluation or {}, answers=r.answers or {},
+        # Sólo las preguntas que le tocaron en el sorteo (si hubo).
+        evaluation=evaluation_for(s.evaluation or {}, s.json_schema or {}, (r.meta or {}).get("drawn")),
+        answers=r.answers or {},
         question_types=extract_question_types(s.json_schema),
         question_choices=extract_question_choices(s.json_schema),
         language=s.language or "es",
@@ -1034,6 +1038,78 @@ async def export_questions(
         # Lo que no se pudo exportar, para que el panel lo pueda avisar.
         headers["X-Encuestum-Warnings"] = str(len(avisos))
     return RawResponse(content=body, media_type=f"{media}; charset=utf-8", headers=headers)
+
+
+@router.get("/{sid}/appeals")
+async def list_appeals(sid: uuid.UUID, status: Optional[str] = None, ctx: OrgContext = Depends(current_context), session: AsyncSession = Depends(get_session)):
+    """Reclamos de nota de la encuesta (los abiertos primero)."""
+    from app.identity import respondent_identity
+    from app.models import GradeAppeal
+
+    s = await _survey_or_404(sid, ctx.org.id, session)
+    stmt = select(GradeAppeal).where(GradeAppeal.survey_id == sid)
+    if status:
+        stmt = stmt.where(GradeAppeal.status == status)
+    rows = (await session.scalars(stmt.order_by(GradeAppeal.created_at.desc()))).all()
+    titulos = {el.get("name"): el.get("title") or el.get("name") for el in _elementos(s.json_schema)}
+    out = []
+    for a in rows:
+        r = await session.get(SurveyResponse, a.response_id)
+        q = next((x for x in ((r.grade or {}).get("questions") or []) if x.get("name") == a.question), {}) if r else {}
+        nombre, mail = respondent_identity(s.json_schema or {}, (r.answers if r else {}) or {})
+        out.append({
+            "id": str(a.id), "response_id": str(a.response_id), "question": a.question,
+            "question_title": titulos.get(a.question, a.question),
+            "respondent": (r.respondent_email if r else None) or mail or nombre,
+            "answer": (r.answers or {}).get(a.question) if r else None,
+            "awarded": q.get("awarded"), "points": q.get("points"),
+            "message": a.message, "status": a.status, "reply": a.reply,
+            "award_before": a.award_before, "award_after": a.award_after,
+            "resolved_by_email": a.resolved_by_email,
+            "created_at": a.created_at.isoformat(),
+            "resolved_at": a.resolved_at.isoformat() if a.resolved_at else None,
+        })
+    out.sort(key=lambda x: x["status"] != "open")
+    return out
+
+
+class ResolveAppeal(BaseModel):
+    decision: str = PydField(pattern="^(accept|reject)$")
+    reply: str = PydField(min_length=1, max_length=2000)
+    award: Optional[float] = None
+
+
+@router.post("/{sid}/appeals/{aid}/resolve")
+async def resolve_appeal(sid: uuid.UUID, aid: uuid.UUID, payload: ResolveAppeal, ctx: OrgContext = Depends(current_context), session: AsyncSession = Depends(get_session)):
+    """Responde un reclamo. Aceptarlo con un puntaje nuevo corrige la nota
+    como cualquier corrección manual: queda en el historial (con el reclamo
+    como nota) y vuelve al LMS."""
+    from app.audit import record_event
+    from app.models import GradeAppeal
+
+    await _survey_or_404(sid, ctx.org.id, session)
+    a = await session.get(GradeAppeal, aid)
+    if a is None or a.survey_id != sid:
+        raise HTTPException(status_code=404, detail="Reclamo no encontrado")
+    if a.status != "open":
+        raise HTTPException(status_code=409, detail="Ese reclamo ya fue respondido.")
+    if payload.decision == "accept" and payload.award is not None:
+        await override_grade(
+            sid, a.response_id,
+            OverrideRequest(awards={a.question: payload.award}, note=f"Reclamo aceptado: {a.message[:300]}"),
+            ctx, session,
+        )
+        a = await session.get(GradeAppeal, aid)
+        a.award_after = payload.award
+    a.status = "accepted" if payload.decision == "accept" else "rejected"
+    a.reply = payload.reply.strip()
+    a.resolved_by_email = ctx.user.email
+    a.resolved_at = _utcnow()
+    session.add(a)
+    record_event(session, action=f"appeal.{a.status}", org_id=ctx.org.id, actor=ctx.user, survey_id=sid,
+                 response_id=a.response_id, detail={"question": a.question, "award": payload.award})
+    await session.commit()
+    return {"id": str(a.id), "status": a.status}
 
 
 class ExplainRequest(BaseModel):

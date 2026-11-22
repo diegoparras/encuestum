@@ -7,6 +7,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
 from sqlalchemy import delete as sa_delete
+from sqlalchemy import func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
@@ -337,6 +338,91 @@ async def track_visit(
         await session.rollback()
 
 
+# ── Intentos de examen: tiempo límite y sorteo controlados por el servidor ────
+_ATTEMPT_PURPOSE = "exam_attempt"
+
+
+class StartRequest(BaseModel):
+    access_token: Optional[str] = None
+    visitor_id: Optional[str] = Field(default=None, max_length=64)
+
+
+async def _attempt_key(request: Request, s: Survey, access_token: Optional[str], visitor_id: Optional[str], session) -> str:
+    """Quién rinde. Con identidad (invitado, alumno del LMS) el intento es suyo
+    en cualquier dispositivo; sin identidad, del navegador."""
+    k = await _draft_key(request, s, access_token, session)
+    if k:
+        return k
+    if visitor_id:
+        return f"v:{visitor_id}"
+    import secrets
+
+    return f"anon:{secrets.token_urlsafe(12)}"
+
+
+@router.post("/{slug}/start")
+async def start_attempt(slug: str, payload: StartRequest, request: Request, session: AsyncSession = Depends(get_session)):
+    """Empieza (o retoma) el intento de examen: fija la hora de inicio, el
+    plazo y las preguntas sorteadas, y devuelve el esquema que le toca a esta
+    persona. Retomar devuelve el MISMO intento: recargar la página no reinicia
+    el reloj ni cambia las preguntas."""
+    from app import exam
+    from app.models import SurveyAttempt
+
+    await rate_limit(request, f"start:{slug}", limit=60, window_s=60)
+    s = await _visible(slug, session)
+    available, reason = await _availability(s, session)
+    if not available:
+        raise HTTPException(status_code=403, detail=reason or "Esta encuesta está cerrada.")
+    if (getattr(s, "access_mode", "public") != "public" and not _lti_context(request, s)
+            and not _valid_access(s, payload.access_token)):
+        raise HTTPException(status_code=403, detail="Necesitás acceso para responder esta encuesta.")
+    cfg = exam.settings(s.evaluation)
+    if cfg is None:
+        return {"exam": None}
+
+    key = await _attempt_key(request, s, payload.access_token, payload.visitor_id, session)
+    att = (
+        await session.scalars(
+            select(SurveyAttempt)
+            .where(SurveyAttempt.survey_id == s.id, SurveyAttempt.key == key,
+                   SurveyAttempt.submitted_at.is_(None))
+            .order_by(SurveyAttempt.started_at.desc())
+            .limit(1)
+        )
+    ).first()
+    if att is None:
+        previos = int(await session.scalar(
+            select(func.count(SurveyAttempt.id)).where(SurveyAttempt.survey_id == s.id, SurveyAttempt.key == key)
+        ) or 0)
+        ahora = _utcnow()
+        att = SurveyAttempt(
+            survey_id=s.id, key=key, started_at=ahora,
+            deadline=ahora + timedelta(seconds=cfg["timeLimitSec"]) if cfg["timeLimitSec"] else None,
+            drawn=exam.draw(s.json_schema or {}, cfg["groups"], f"{s.id}:{key}:{previos}") if cfg["groups"] else None,
+        )
+        session.add(att)
+        await session.commit()
+        await session.refresh(att)
+
+    def aware(d):
+        return d if d is None or d.tzinfo else d.replace(tzinfo=timezone.utc)
+
+    deadline = aware(att.deadline)
+    restan = max(0, int((deadline - _utcnow()).total_seconds())) if deadline else None
+    token = create_purpose_token(_ATTEMPT_PURPOSE, {"a": str(att.id), "s": str(s.id)}, ttl_hours=72)
+    return {
+        "exam": {
+            "attempt_token": token,
+            "started_at": aware(att.started_at).isoformat(),
+            "deadline": deadline.isoformat() if deadline else None,
+            "seconds_left": restan,
+            "signals": cfg["signals"],
+            "json_schema": exam.personal_schema(s.json_schema or {}, att.drawn, cfg),
+        }
+    }
+
+
 # ── Borradores en el servidor (retomar desde otro dispositivo) ───────────────
 _MAX_DRAFT_BYTES = 256 * 1024
 
@@ -595,6 +681,23 @@ async def submit(
                 ),
             )
 
+    # Examen: intento, plazo, preguntas sorteadas y senales de integridad.
+    from app import exam as exam_mod
+    from app.models import SurveyAttempt
+
+    exam_cfg = exam_mod.settings(s.evaluation)
+    intento = None
+    if exam_cfg is not None:
+        datos = read_purpose_token(_ATTEMPT_PURPOSE, payload.attempt_token or "") or {}
+        if datos.get("s") == str(s.id):
+            intento = await session.get(SurveyAttempt, uuid.UUID(datos["a"]))
+        if intento is None and exam_cfg["groups"]:
+            # Sin intento no se sabe qué preguntas le tocaron: corregir todo
+            # sería ponerle 0 en las que nunca vio.
+            raise HTTPException(status_code=409, detail="El examen no se inició bien. Recargá la página.")
+        if intento is not None and intento.submitted_at is not None:
+            raise HTTPException(status_code=409, detail="Ese intento ya se entregó.")
+
     # Trazabilidad: qué versión se contestó, metadatos que pone el SERVIDOR (el
     # navegador sólo aporta un puñado de claves acotadas) y la huella.
     from app.audit import ensure_survey_version, hash_ip, record_grade_revision, response_hash, sanitize_client_meta
@@ -609,6 +712,28 @@ async def submit(
     }
     if ajustes.store_ip_hash:
         server_meta["ip_hash"] = hash_ip(_client_ip(request), ajustes.session_secret)
+    if exam_cfg is not None:
+        ahora = _utcnow()
+        late = 0
+        exam_seconds = None
+        if intento is not None:
+            ini = intento.started_at if intento.started_at.tzinfo else intento.started_at.replace(tzinfo=timezone.utc)
+            exam_seconds = max(0, int((ahora - ini).total_seconds()))
+            server_meta["exam_seconds"] = exam_seconds
+            if intento.deadline is not None:
+                dl = intento.deadline if intento.deadline.tzinfo else intento.deadline.replace(tzinfo=timezone.utc)
+                late = max(0, int((ahora - dl).total_seconds()) - exam_mod.GRACE_S)
+            if intento.drawn is not None:
+                meta["drawn"] = list(intento.drawn)
+        else:
+            server_meta["no_attempt"] = True
+        integridad = exam_mod.sanitize_integrity((payload.meta or {}).get("integrity")) if exam_cfg["signals"] else None
+        if integridad:
+            meta["integrity"] = integridad
+        titulos = {el.get("name"): el.get("title") or el.get("name") for el in _elementos_publicos(s.json_schema)}
+        senales = exam_mod.flags(integridad, exam_seconds=exam_seconds, late_seconds=late, titles=titulos)
+        if senales:
+            server_meta["flags"] = senales
     meta["server"] = server_meta
 
     r = SurveyResponse(
@@ -632,6 +757,10 @@ async def submit(
     r.submitted_at = _utcnow()
     r.integrity_hash = response_hash(r)
     session.add(r)
+    if intento is not None:
+        intento.submitted_at = r.submitted_at
+        intento.response_id = r.id
+        session.add(intento)
 
     # Funnel: si el cliente mandó su visitor_id, cerramos su visita como completa.
     visitor_id = meta.get("visitor_id")
@@ -667,7 +796,9 @@ async def submit(
             provider = await resolve_provider(session, s.org_id)
             async with track_ai_call(session, provider, s.org_id, "grade", s.id, response_id=r.id):
                 grade = await grade_response(
-                    evaluation=evaluation, answers=r.answers,
+                    # Sólo las preguntas que le tocaron (sorteo de examen).
+                    evaluation=exam_mod.evaluation_for(evaluation, s.json_schema or {}, meta.get("drawn")),
+                    answers=r.answers,
                     question_types=extract_question_types(s.json_schema),
                     question_choices=extract_question_choices(s.json_schema),
                     language=s.language or "es",
@@ -769,13 +900,82 @@ async def lookup_result(
         raise HTTPException(status_code=404, detail="No encontramos tu respuesta")
     if not r.grade:
         return {"status": "pending", "detail": "Tu respuesta todavía no fue corregida."}
+    from app.models import GradeAppeal
+
+    reclamos = (await session.scalars(
+        select(GradeAppeal).where(GradeAppeal.response_id == r.id).order_by(GradeAppeal.created_at)
+    )).all()
     return {
         "status": "graded",
         "result": _respondent_view(
             r.grade, s.evaluation or {}, s.json_schema or {}, r.answers,
             cerrada=await _ya_cerro(s, session),
         ),
+        # Reclamos de esta persona: estado y respuesta del docente.
+        "appeals": [
+            {"question": a.question, "status": a.status, "reply": a.reply,
+             "created_at": a.created_at.isoformat()}
+            for a in reclamos
+        ],
     }
+
+
+class AppealRequest(BaseModel):
+    email: str = Field(max_length=320)
+    code: str = Field(max_length=64)
+    question: str = Field(max_length=200)
+    message: str = Field(min_length=5, max_length=2000)
+
+
+@router.post("/{slug}/appeal", status_code=201)
+async def create_appeal(slug: str, payload: AppealRequest, request: Request, session: AsyncSession = Depends(get_session)):
+    """Un alumno (con su email y código) pide que se revise la corrección de
+    una pregunta. Uno abierto por pregunta; el docente recibe un aviso."""
+    from app.audit import record_event
+    from app.models import GradeAppeal
+
+    await rate_limit(request, f"appeal:{slug}", limit=10, window_s=600)
+    s = await _visible(slug, session)
+    if getattr(s, "access_mode", "public") != "list":
+        raise HTTPException(status_code=404, detail="Esta encuesta no admite reclamos")
+    inv = await _find_invitee(session, s.id, payload.email, payload.code)
+    if not inv:
+        raise HTTPException(status_code=403, detail="Email o código inválido")
+    modo = getattr(s, "results_mode", "immediate")
+    if modo == "never" or (modo == "on_release" and not getattr(s, "results_released", False)):
+        raise HTTPException(status_code=403, detail="Los resultados todavía no están disponibles.")
+    r = (await session.scalars(
+        select(SurveyResponse)
+        .where(SurveyResponse.survey_id == s.id, SurveyResponse.respondent_code == inv.code)
+        .order_by(SurveyResponse.submitted_at.desc())
+    )).first()
+    if not r or not r.grade:
+        raise HTTPException(status_code=404, detail="No encontramos tu respuesta corregida")
+    pregunta = next((q for q in (r.grade.get("questions") or []) if q.get("name") == payload.question), None)
+    if pregunta is None:
+        raise HTTPException(status_code=422, detail="Esa pregunta no está en tu corrección")
+    abierto = await session.scalar(select(GradeAppeal.id).where(
+        GradeAppeal.response_id == r.id, GradeAppeal.question == payload.question, GradeAppeal.status == "open"))
+    if abierto:
+        raise HTTPException(status_code=409, detail="Ya hay un reclamo abierto sobre esa pregunta.")
+    a = GradeAppeal(survey_id=s.id, response_id=r.id, question=payload.question,
+                    message=payload.message.strip(), award_before=pregunta.get("awarded"))
+    session.add(a)
+    record_event(session, action="appeal.created", org_id=s.org_id, survey_id=s.id, response_id=r.id,
+                 detail={"question": payload.question, "by": inv.email})
+    if getattr(s, "notify_emails", None):
+        from app.email import build_url
+        from app.notify import parse_emails
+        from app import jobs
+
+        for dest in parse_emails(s.notify_emails):
+            jobs.enqueue(session, "email.send", {
+                "to": dest, "subject": f"Reclamo de nota: {s.title or 'examen'}",
+                "text": f"{inv.email} pidió revisar «{pregunta.get('title') or payload.question}».\n\n"
+                        f"«{payload.message.strip()}»\n\nRespondelo acá:\n{build_url(f'/surveys/{s.id}')}\n",
+            }, org_id=s.org_id, survey_id=s.id)
+    await session.commit()
+    return {"id": str(a.id), "status": a.status}
 
 
 @router.post("/{slug}/certificate")
@@ -874,3 +1074,13 @@ async def grade_question(
     except Exception as exc:  # noqa: BLE001
         LOGGER.warning("live grade failed: %s", exc)
         raise HTTPException(status_code=502, detail="No se pudo corregir ahora")
+
+
+def _elementos_publicos(schema: dict) -> list[dict]:
+    return [
+        el
+        for p in (schema or {}).get("pages", []) or []
+        if isinstance(p, dict)
+        for el in p.get("elements", []) or []
+        if isinstance(el, dict)
+    ]
