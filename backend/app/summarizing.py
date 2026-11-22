@@ -8,13 +8,20 @@ Supports two optional lenses on top of the plain aggregation:
     question (cross-tab), e.g. satisfaction split by department.
 Both are pure over (schema, responses), so they're cheap to unit-test."""
 
+from datetime import date, datetime, timezone
 from typing import Any, Optional
+
+from app import stats
 
 
 _SKIP_TYPES = {"image", "html", "expression", "panel"}
 _SINGLE_CHOICE = {"radiogroup", "dropdown", "imagepicker"}
-# Tipos que sirven como dimensión para filtrar / segmentar (categóricos).
-_SEGMENTABLE = _SINGLE_CHOICE | {"boolean"}
+# Tipos que sirven como dimensión para filtrar / segmentar: categóricos, más
+# casillas (una respuesta cae en cada opción que marcó) y escalas (cada valor
+# de la escala es una columna).
+_SEGMENTABLE = _SINGLE_CHOICE | {"boolean", "checkbox", "rating"}
+# Debajo de esto, un segmento es anecdótico: se avisa en vez de comparar.
+SMALL_SEGMENT = 30
 
 
 def _elements(schema: dict) -> list[dict]:
@@ -86,6 +93,9 @@ def _seg_options(el: dict) -> list[dict]:
             {"value": "true", "label": el.get("labelTrue") or "Sí"},
             {"value": "false", "label": el.get("labelFalse") or "No"},
         ]
+    if el.get("type") == "rating":
+        lo, hi = int(el.get("rateMin", 0)), int(el.get("rateMax", 10))
+        return [{"value": str(i), "label": str(i)} for i in range(lo, hi + 1)]
     return [{"value": v, "label": label} for v, label in _choice_pairs(el)]
 
 
@@ -108,13 +118,28 @@ def filterable_questions(schema: dict) -> list[dict]:
 def _seg_key(el: dict, answer_value: Any) -> Optional[str]:
     """La 'columna' de cross-tab a la que cae una respuesta para esta pregunta.
     Devuelve el value normalizado, o None si la respuesta está vacía."""
+    keys = _seg_keys(el, answer_value)
+    return keys[0] if keys else None
+
+
+def _seg_keys(el: dict, answer_value: Any) -> list[str]:
+    """Todas las columnas a las que cae una respuesta: una sola para preguntas
+    de opción única, una por opción marcada en casillas."""
     if answer_value in (None, "", []):
-        return None
+        return []
     if el.get("type") == "boolean":
-        return _bool_key(answer_value)
+        k = _bool_key(answer_value)
+        return [k] if k else []
+    if el.get("type") == "checkbox":
+        return [str(v) for v in _as_list(answer_value)]
+    if el.get("type") == "rating":
+        try:
+            return [str(int(round(float(answer_value))))]
+        except (TypeError, ValueError):
+            return []
     # Single-choice: el value tal cual (el primero si viniera lista).
     v = answer_value[0] if isinstance(answer_value, list) else answer_value
-    return str(v)
+    return [str(v)]
 
 
 def _matches_filters(answers: dict, filters: list[dict], by_name: dict) -> bool:
@@ -124,9 +149,9 @@ def _matches_filters(answers: dict, filters: list[dict], by_name: dict) -> bool:
         el = by_name.get(f.get("name"))
         if not el:
             return False  # filtro sobre una pregunta inexistente → no matchea
-        key = _seg_key(el, answers.get(f["name"]))
+        keys = _seg_keys(el, answers.get(f["name"]))
         wanted = {str(x) for x in (f.get("values") or [])}
-        if key is None or key not in wanted:
+        if not keys or not (set(keys) & wanted):
             return False
     return True
 
@@ -185,15 +210,93 @@ def _aggregate(el: dict, answers: list[dict]) -> dict:
             iv = int(round(n))
             if iv in dist:
                 dist[iv] += 1
-        return {
+        out = {
             **base, "kind": "rating", "min": lo, "max": hi,
             "average": round(sum(nums) / len(nums), 2) if nums else None,
+            "median": stats.median(nums),
+            "stdev": stats.r(stats.stdev(nums)),
             "distribution": [{"value": k, "count": c} for k, c in dist.items()],
+        }
+        # Top-2 / bottom-2 box: el % en los dos valores de cada punta. Es lo que
+        # se reporta en satisfacción: un promedio de 3,5 puede ser "todos tibios"
+        # o "mitad encantados, mitad furiosos", y el promedio no lo distingue.
+        if nums and hi - lo >= 3:
+            out["top2"] = round(100 * sum(1 for n in nums if n >= hi - 1) / len(nums), 1)
+            out["bottom2"] = round(100 * sum(1 for n in nums if n <= lo + 1) / len(nums), 1)
+        if lo == 0 and hi == 10:
+            out["nps"] = _nps_from_distribution(out["distribution"])
+        return out
+
+    if qtype == "matrix":
+        rows = _choice_pairs({"choices": el.get("rows") or []})
+        cols = _choice_pairs({"choices": el.get("columns") or []})
+        cells = {rv: {cv: 0 for cv, _ in cols} for rv, _ in rows}
+        for v in vals:
+            if not isinstance(v, dict):
+                continue
+            for rv, cv in v.items():
+                if str(rv) in cells and str(cv) in cells[str(rv)]:
+                    cells[str(rv)][str(cv)] += 1
+        return {
+            **base, "kind": "matrix",
+            "rows": [{"value": rv, "label": rl} for rv, rl in rows],
+            "columns": [{"value": cv, "label": cl} for cv, cl in cols],
+            "cells": [[cells[rv][cv] for cv, _ in cols] for rv, _ in rows],
+        }
+
+    if qtype == "ranking":
+        pairs = _choice_pairs(el)
+        pos: dict[str, list[int]] = {v: [] for v, _ in pairs}
+        for v in vals:
+            for i, item in enumerate(_as_list(v)):
+                if str(item) in pos:
+                    pos[str(item)].append(i + 1)
+        items = [
+            {"value": v, "label": label, "n": len(pos[v]),
+             "avg_position": stats.r(stats.mean(pos[v])),
+             "first": sum(1 for p in pos[v] if p == 1)}
+            for v, label in pairs
+        ]
+        items.sort(key=lambda it: (it["avg_position"] is None, it["avg_position"] or 0))
+        return {**base, "kind": "ranking", "items": items}
+
+    if qtype in ("text", "number") and el.get("inputType") in ("number", "range") or qtype in ("number", "slider"):
+        nums = []
+        for v in vals:
+            try:
+                nums.append(float(v))
+            except (TypeError, ValueError):
+                continue
+        return {
+            **base, "kind": "numeric", "n": len(nums),
+            "min": min(nums) if nums else None, "max": max(nums) if nums else None,
+            "average": stats.r(stats.mean(nums)), "median": stats.median(nums),
+            "stdev": stats.r(stats.stdev(nums)), "histogram": stats.histogram(nums),
+        }
+
+    if qtype == "text" and el.get("inputType") == "date":
+        dias = sorted(str(v)[:10] for v in vals if isinstance(v, str) and len(v) >= 10)
+        por_mes: dict[str, int] = {}
+        for d in dias:
+            por_mes[d[:7]] = por_mes.get(d[:7], 0) + 1
+        return {
+            **base, "kind": "dates", "n": len(dias),
+            "min": dias[0] if dias else None, "max": dias[-1] if dias else None,
+            "median": dias[len(dias) // 2] if dias else None,
+            "by_month": [{"month": m, "count": c} for m, c in sorted(por_mes.items())],
         }
 
     if qtype in ("comment", "text", "email"):
         texts = [str(v).strip() for v in vals if str(v).strip()]
-        return {**base, "kind": "text", "values": texts}
+        out = {**base, "kind": "text", "values": texts}
+        if qtype != "email" and el.get("inputType") != "email":
+            out["terms"] = stats.top_terms(texts)
+        return out
+
+    if qtype == "signaturepad":
+        # La firma es una imagen en base64: no se lista (pesa y no se lee en un
+        # resumen); se cuenta cuántas personas firmaron.
+        return {**base, "kind": "signature", "signed": len(vals)}
 
     if qtype in ("videoresponse", "file"):
         files = [str(u) for v in vals for u in _as_list(v) if str(u)]
@@ -271,28 +374,110 @@ def _nps_from_distribution(distribution: list[dict]) -> Optional[dict]:
     }
 
 
+def _when(r) -> Optional[datetime]:
+    d = getattr(r, "submitted_at", None)
+    if d is not None and d.tzinfo is None:
+        d = d.replace(tzinfo=timezone.utc)
+    return d
+
+
+def _in_range(r, date_from: Optional[date], date_to: Optional[date]) -> bool:
+    if date_from is None and date_to is None:
+        return True
+    d = _when(r)
+    if d is None:
+        return False
+    day = d.date()
+    return (date_from is None or day >= date_from) and (date_to is None or day <= date_to)
+
+
+def _timeline(responses: list) -> list[dict]:
+    """Respuestas por día (UTC), sin huecos entre el primero y el último."""
+    por_dia: dict[date, int] = {}
+    for r in responses:
+        d = _when(r)
+        if d is not None:
+            por_dia[d.date()] = por_dia.get(d.date(), 0) + 1
+    if not por_dia:
+        return []
+    from datetime import timedelta
+
+    out, dia, fin = [], min(por_dia), max(por_dia)
+    # Tope de dos años de días: más que eso no se lee en un gráfico diario.
+    while dia <= fin and len(out) < 731:
+        out.append({"date": dia.isoformat(), "count": por_dia.get(dia, 0)})
+        dia += timedelta(days=1)
+    return out
+
+
+def _contingency(q: dict, seg_values: list[str]) -> Optional[list[list[int]]]:
+    """Tabla opciones × segmentos de una pregunta ya segmentada, para el chi²."""
+    by = q.get("by_segment") or {}
+    if q["kind"] == "choice":
+        if q.get("multi"):
+            return None  # casillas: cada opción es su propio sí/no; no aplica
+        keys = [o["value"] for o in q["options"]]
+        return [
+            [next((o["count"] for o in (by.get(sv) or {}).get("options", []) if o["value"] == k), 0)
+             for sv in seg_values]
+            for k in keys
+        ]
+    if q["kind"] == "rating":
+        # Una fila por valor de la escala deja casi todas las celdas con menos
+        # de 5 casos esperados y la prueba nunca resulta confiable. Se agrupa en
+        # tramos: detractores/pasivos/promotores en 0-10, tercios en el resto.
+        lo, hi = q["min"], q["max"]
+        if lo == 0 and hi == 10:
+            tramo = lambda v: 0 if v <= 6 else 1 if v <= 8 else 2  # noqa: E731
+            n_tramos = 3
+        else:
+            n_tramos = min(3, hi - lo + 1)
+            ancho = (hi - lo + 1) / n_tramos
+            tramo = lambda v: min(n_tramos - 1, int((v - lo) / ancho))  # noqa: E731
+        table = [[0] * len(seg_values) for _ in range(n_tramos)]
+        for j, sv in enumerate(seg_values):
+            for d in (by.get(sv) or {}).get("distribution", []):
+                table[tramo(d["value"])][j] += d["count"]
+        return table
+    return None
+
+
 def build_summary(
     schema: dict,
     responses: list,
     *,
     filters: Optional[list[dict]] = None,
     segment_by: Optional[str] = None,
+    date_from: Optional[date] = None,
+    date_to: Optional[date] = None,
+    hidden_fields: Optional[list[str]] = None,
 ) -> dict:
     """Resumen por pregunta. Con `filters` restringe el universo de respuestas;
-    con `segment_by` agrega además un desglose por cada valor de esa pregunta."""
+    con `date_from`/`date_to` (inclusive, UTC) lo acota en el tiempo; con
+    `segment_by` agrega además un desglose por cada valor de esa pregunta, con
+    una prueba chi² que dice si la diferencia entre segmentos es real o ruido.
+
+    Los campos ocultos (`hidden_fields`) entran como preguntas `@nombre`, así
+    que se pueden segmentar y filtrar igual que las demás."""
+    from app import fields as fields_mod
+
+    extra = fields_mod.hidden_elements(hidden_fields, responses)
+    if extra:
+        schema = {**(schema or {}), "pages": list((schema or {}).get("pages") or []) + [{"name": "__hidden", "elements": extra}]}
     by_name = {el["name"]: el for el in _elements(schema) if el.get("name")}
     filters = [f for f in (filters or []) if f.get("name") in by_name]
 
-    rows = [r.answers or {} for r in responses]
-    total = len(rows)
+    total = len(responses)
+    universe = [r for r in responses if _in_range(r, date_from, date_to)]
     if filters:
-        rows = [a for a in rows if _matches_filters(a, filters, by_name)]
+        universe = [r for r in universe if _matches_filters(fields_mod.answers_with_hidden(r), filters, by_name)]
+    rows = [fields_mod.answers_with_hidden(r) for r in universe]
+    tiempos = fields_mod.timing_by_question(universe)
 
     seg_el = by_name.get(segment_by) if segment_by else None
     if seg_el is not None and seg_el.get("type") not in _SEGMENTABLE:
-        seg_el = None  # solo categóricas sirven de segmento
+        seg_el = None
 
-    # Columnas del cross-tab: las opciones de la pregunta segmento con >0 respuestas.
     seg_meta = None
     seg_rows: dict[str, list[dict]] = {}
     if seg_el is not None:
@@ -301,21 +486,21 @@ def build_summary(
         counts: dict[str, int] = {}
         buckets: dict[str, list[dict]] = {}
         for a in rows:
-            k = _seg_key(seg_el, a.get(sname))
-            if k is None:
-                continue
-            counts[k] = counts.get(k, 0) + 1
-            buckets.setdefault(k, []).append(a)
-        # Orden estable: primero las opciones definidas, luego cualquier valor libre.
+            for k in _seg_keys(seg_el, a.get(sname)):
+                counts[k] = counts.get(k, 0) + 1
+                buckets.setdefault(k, []).append(a)
         ordered = [o["value"] for o in _seg_options(seg_el) if o["value"] in counts]
         ordered += [k for k in counts if k not in ordered]
         seg_meta = {
             "name": sname,
             "title": seg_el.get("title") or sname,
+            "multi": seg_el.get("type") == "checkbox",
             "values": [
-                {"value": k, "label": str(label_by_val.get(k, k)), "count": counts[k]}
+                {"value": k, "label": str(label_by_val.get(k, k)), "count": counts[k],
+                 "small": counts[k] < SMALL_SEGMENT}
                 for k in ordered
             ],
+            "small_sample": any(counts[k] < SMALL_SEGMENT for k in ordered),
         }
         seg_rows = buckets
 
@@ -326,16 +511,29 @@ def build_summary(
         if not name or qtype in _SKIP_TYPES:
             continue
         q = _aggregate(el, rows)
+        if el.get("encHidden"):
+            q["hidden_field"] = True
+        if name in tiempos:
+            q["timing"] = tiempos[name]
         if seg_meta is not None and name != seg_meta["name"] and q["kind"] in ("choice", "rating"):
             q["by_segment"] = {
                 sv["value"]: _aggregate(el, seg_rows.get(sv["value"], []))
                 for sv in seg_meta["values"]
             }
+            # Con casillas como segmento una persona cae en varias columnas: las
+            # columnas no son independientes y el chi² no aplica.
+            if not seg_meta["multi"]:
+                table = _contingency(q, [sv["value"] for sv in seg_meta["values"]])
+                if table:
+                    q["significance"] = stats.chi2_independence(table)
         questions.append(q)
 
     return {
         "total_responses": total,
         "filtered_responses": len(rows),
+        "date_from": date_from.isoformat() if date_from else None,
+        "date_to": date_to.isoformat() if date_to else None,
+        "timeline": _timeline(universe),
         "filters": [
             {"name": f["name"], "title": by_name[f["name"]].get("title") or f["name"],
              "values": [str(x) for x in (f.get("values") or [])]}
@@ -345,3 +543,38 @@ def build_summary(
         "filterable": filterable_questions(schema),
         "questions": questions,
     }
+
+
+def crosstab_rows(summary: dict) -> list[list]:
+    """El cruce de un resumen segmentado, como planilla: una fila por opción
+    de cada pregunta, una columna de conteo y de % por segmento."""
+    seg = summary.get("segment")
+    if not seg:
+        return []
+    segs = seg["values"]
+    header = ["Pregunta", "Opción"]
+    for sv in segs:
+        header += [f"{sv['label']} (n)", f"{sv['label']} (%)"]
+    header += ["p-valor (chi²)"]
+    out: list[list] = [header]
+    for q in summary["questions"]:
+        by = q.get("by_segment")
+        if not by:
+            continue
+        sig = q.get("significance") or {}
+        if q["kind"] == "choice":
+            keys = [(o["value"], o["label"]) for o in q["options"]]
+            field, vkey = "options", "value"
+        else:
+            keys = [(d["value"], str(d["value"])) for d in q["distribution"]]
+            field, vkey = "distribution", "value"
+        for i, (k, label) in enumerate(keys):
+            row: list = [q["title"] if i == 0 else "", label]
+            for sv in segs:
+                sub = by.get(sv["value"]) or {}
+                n = next((x["count"] for x in sub.get(field, []) if x[vkey] == k), 0)
+                base = sub.get("answered") or 0
+                row += [n, round(100 * n / base, 1) if base else ""]
+            row.append(sig.get("p", "") if i == 0 else "")
+            out.append(row)
+    return out

@@ -14,6 +14,8 @@ import {
   Trash2,
   RotateCcw,
   AlertTriangle,
+  BarChart3,
+  GraduationCap,
 } from "lucide-react";
 import {
   surveyApi,
@@ -30,6 +32,7 @@ import { useAsyncData } from "@/lib/useAsyncData";
 import { FolderTree, SIN_CLASIFICAR, TODAS } from "../FolderTree";
 import { LoadError } from "@/components/LoadError";
 import { useI18n } from "@/lib/i18n";
+import { useMe } from "../MeContext";
 
 const STATUS_STYLE: Record<SurveySummary["status"], string> = {
   draft: "bg-neutral-100 text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300",
@@ -40,6 +43,8 @@ const STATUS_STYLE: Record<SurveySummary["status"], string> = {
 export default function SurveysListPage() {
   const router = useRouter();
   const { t } = useI18n();
+  const me = useMe();
+  const soloLectura = me.orgs.find((o) => o.id === me.active_org_id)?.role === "viewer";
   const {
     data: surveys,
     status,
@@ -155,6 +160,7 @@ export default function SurveysListPage() {
             <Trash2 className="w-4 h-4" />
             {t("surveys.trash")}
           </button>
+          {!soloLectura && (<>
           <button
             onClick={() => setGalleryOpen(true)}
             className="inline-flex items-center gap-2 rounded-lg border border-neutral-300 dark:border-neutral-700 px-4 py-2 text-sm font-medium hover:bg-neutral-50 dark:hover:bg-neutral-800"
@@ -175,6 +181,7 @@ export default function SurveysListPage() {
             )}
             {t("surveys.newSurvey")}
           </button>
+          </>)}
         </div>
       </div>
 
@@ -189,16 +196,12 @@ export default function SurveysListPage() {
       )}
 
       {surveys && surveys.length === 0 && (
-        <div className="rounded-xl border border-dashed border-neutral-300 dark:border-neutral-700 py-16 text-center text-neutral-500 dark:text-neutral-400">
-          {t("surveys.empty.lead")}{" "}
-          <button
-            onClick={() => setGalleryOpen(true)}
-            className="font-medium underline hover:text-neutral-700 dark:hover:text-neutral-300"
-          >
-            {t("surveys.empty.link")}
-          </button>
-          .
-        </div>
+        <Onboarding
+          soloLectura={soloLectura}
+          onTemplate={() => setGalleryOpen(true)}
+          onBlank={createSurvey}
+          onDemo={(s) => router.push(`/surveys/${s.id}`)}
+        />
       )}
 
       {surveys && surveys.length > 0 && (
@@ -522,6 +525,8 @@ function TemplateGallery({
           </button>
         </div>
 
+        <OrgTemplates disabled={!!creatingId} />
+
         <div className="grid grid-cols-1 gap-3 p-6 sm:grid-cols-2">
           {SURVEY_TEMPLATES.map((tpl) => {
             const isLoading = creatingId === tpl.id;
@@ -559,5 +564,123 @@ function TemplateGallery({
         </div>
       </div>
     </div>
+  );
+}
+
+/** Plantillas guardadas por la organización (arriba de las de Encuestum). */
+function OrgTemplates({ disabled }: { disabled: boolean }) {
+  const { t } = useI18n();
+  const router = useRouter();
+  const { data, setData } = useAsyncData(() => surveyApi.listTemplates().catch(() => []), []);
+  const [busy, setBusy] = useState<string | null>(null);
+  if (!data?.length) return null;
+  return (
+    <div className="border-b border-neutral-200 px-6 py-4 dark:border-neutral-800">
+      <h3 className="mb-2 text-sm font-semibold text-neutral-700 dark:text-neutral-300">{t("surveys.orgTemplates")}</h3>
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+        {data.map((tpl) => (
+          <div key={tpl.id} className="flex items-start gap-2 rounded-xl border border-neutral-200 p-3 dark:border-neutral-800">
+            <button
+              type="button"
+              disabled={disabled || !!busy}
+              onClick={async () => {
+                setBusy(tpl.id);
+                try {
+                  const s = await surveyApi.useTemplate(tpl.id);
+                  router.push(`/surveys/${s.id}/edit`);
+                } catch (e) {
+                  toast.error((e as Error)?.message || t("surveys.templateError"));
+                  setBusy(null);
+                }
+              }}
+              className="min-w-0 flex-1 text-left disabled:opacity-50"
+            >
+              <div className="font-medium text-neutral-900 dark:text-neutral-100">{tpl.title}</div>
+              <p className="mt-0.5 text-xs text-neutral-500 dark:text-neutral-400">
+                {tpl.description || t("surveys.templateMeta", { n: tpl.questions, uses: tpl.uses })}
+              </p>
+              {busy === tpl.id && <Loader2 className="mt-1 h-3.5 w-3.5 animate-spin" />}
+            </button>
+            <button
+              type="button"
+              aria-label={t("surveys.deleteTemplate")}
+              title={t("surveys.deleteTemplate")}
+              onClick={async () => {
+                if (!window.confirm(t("surveys.deleteTemplateConfirm", { name: tpl.title }))) return;
+                await surveyApi.deleteTemplate(tpl.id).catch(() => {});
+                setData((cur) => (cur ?? []).filter((x) => x.id !== tpl.id));
+              }}
+              className="text-neutral-300 hover:text-red-600 dark:text-neutral-600"
+            >
+              <Trash2 className="h-4 w-4" />
+            </button>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+/** Bienvenida cuando la organización todavía no tiene encuestas. */
+function Onboarding({
+  soloLectura,
+  onTemplate,
+  onBlank,
+  onDemo,
+}: {
+  soloLectura: boolean;
+  onTemplate: () => void;
+  onBlank: () => void;
+  onDemo: (s: { id: string }) => void;
+}) {
+  const { t } = useI18n();
+  const [cargando, setCargando] = useState<"survey" | "exam" | null>(null);
+  if (soloLectura)
+    return (
+      <div className="rounded-xl border border-dashed border-neutral-300 py-16 text-center text-neutral-500 dark:border-neutral-700 dark:text-neutral-400">
+        {t("onboarding.viewerEmpty")}
+      </div>
+    );
+  async function demo(kind: "survey" | "exam") {
+    setCargando(kind);
+    try {
+      onDemo(await surveyApi.createDemo(kind));
+    } catch (e) {
+      toast.error((e as Error)?.message || t("onboarding.error"));
+      setCargando(null);
+    }
+  }
+  const tarjeta = "flex flex-col items-start gap-2 rounded-xl border border-neutral-200 bg-white p-5 text-left transition hover:border-neutral-300 hover:shadow-sm disabled:opacity-60 dark:border-neutral-800 dark:bg-neutral-900 dark:hover:border-neutral-700";
+  return (
+    <section aria-labelledby="onb-title" className="rounded-2xl border border-neutral-200 bg-neutral-50/60 p-6 dark:border-neutral-800 dark:bg-neutral-900/40">
+      <h2 id="onb-title" className="text-lg font-semibold text-neutral-900 dark:text-neutral-100">{t("onboarding.title")}</h2>
+      <p className="mt-1 text-sm text-neutral-500 dark:text-neutral-400">{t("onboarding.subtitle")}</p>
+      <div className="mt-5 grid gap-3 sm:grid-cols-3">
+        <button type="button" className={tarjeta} onClick={onTemplate}>
+          <LayoutTemplate className="h-5 w-5" style={{ color: SURVEY_ACCENT }} />
+          <span className="font-medium text-neutral-900 dark:text-neutral-100">{t("onboarding.template.title")}</span>
+          <span className="text-sm text-neutral-500 dark:text-neutral-400">{t("onboarding.template.desc")}</span>
+        </button>
+        <button type="button" className={tarjeta} disabled={!!cargando} onClick={() => demo("survey")}>
+          {cargando === "survey" ? <Loader2 className="h-5 w-5 animate-spin" /> : <BarChart3 className="h-5 w-5" style={{ color: SURVEY_ACCENT }} />}
+          <span className="font-medium text-neutral-900 dark:text-neutral-100">{t("onboarding.demoSurvey.title")}</span>
+          <span className="text-sm text-neutral-500 dark:text-neutral-400">{t("onboarding.demoSurvey.desc")}</span>
+        </button>
+        <button type="button" className={tarjeta} disabled={!!cargando} onClick={() => demo("exam")}>
+          {cargando === "exam" ? <Loader2 className="h-5 w-5 animate-spin" /> : <GraduationCap className="h-5 w-5" style={{ color: SURVEY_ACCENT }} />}
+          <span className="font-medium text-neutral-900 dark:text-neutral-100">{t("onboarding.demoExam.title")}</span>
+          <span className="text-sm text-neutral-500 dark:text-neutral-400">{t("onboarding.demoExam.desc")}</span>
+        </button>
+      </div>
+      <p className="mt-4 text-sm text-neutral-500 dark:text-neutral-400">
+        <button type="button" onClick={onBlank} className="font-medium underline hover:text-neutral-700 dark:hover:text-neutral-200">
+          {t("onboarding.blank")}
+        </button>
+        {" · "}
+        <Link href="/members" className="font-medium underline hover:text-neutral-700 dark:hover:text-neutral-200">
+          {t("onboarding.invite")}
+        </Link>
+      </p>
+    </section>
   );
 }

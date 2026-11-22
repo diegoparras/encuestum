@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useRef } from "react";
+import { useDialogA11y } from "@/lib/useDialogA11y";
 import { AlertTriangle, EyeOff, Trash2, X } from "lucide-react";
 
 interface Props {
@@ -23,6 +24,7 @@ interface Props {
  * que el botón rojo queda apartado del resto y nunca toma el foco inicial. */
 export function ConfirmarBorrado({ cantidad, trabajando, onCancelar, onExcluir, onBorrar }: Props) {
   const cancelar = useRef<HTMLButtonElement>(null);
+  const panelRef = useDialogA11y(undefined);
 
   useEffect(() => {
     cancelar.current?.focus();
@@ -44,7 +46,9 @@ export function ConfirmarBorrado({ cantidad, trabajando, onCancelar, onExcluir, 
         role="alertdialog"
         aria-modal="true"
         aria-labelledby="borrado-titulo"
-        className="w-full max-w-md rounded-2xl bg-white shadow-2xl dark:bg-neutral-900"
+        ref={panelRef}
+        tabIndex={-1}
+        className="w-full max-w-md rounded-2xl bg-white shadow-2xl outline-none dark:bg-neutral-900"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-start gap-3 px-5 pb-4 pt-5">

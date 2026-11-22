@@ -18,6 +18,11 @@ import {
   Code2,
   ChevronDown,
   ChevronRight,
+  MessageCircle,
+  Smartphone,
+  Mail,
+  Share2,
+  LayoutTemplate,
 } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import { toast } from "sonner";
@@ -38,6 +43,7 @@ import { InsightsPanel } from "../../InsightsPanel";
 import { FunnelCard, SummaryPanel } from "../../SummaryPanel";
 import { ReportPanel } from "../../ReportPanel";
 import { ResponsesPanel } from "../../ResponsesPanel";
+import { ApprovalBanner, CommentsPanel } from "../../Colaboracion";
 import { themeToAccent } from "../../builder/model";
 
 export default function SurveyDetailPage() {
@@ -167,6 +173,7 @@ export default function SurveyDetailPage() {
   // Borrar respuestas es irreversible: la UI solo lo ofrece a admin/owner (el
   // backend lo exige igual).
   const puedeBorrar = ["admin", "owner"].includes(activeOrg?.role ?? "");
+  const soloLectura = activeOrg?.role === "viewer";
   const brandedUrl =
     survey && activeOrg?.subdomain && me?.base_domain
       ? `https://${activeOrg.subdomain}.${me.base_domain}/s/${survey.slug}`
@@ -204,6 +211,10 @@ export default function SurveyDetailPage() {
           ? await surveyApi.close(id)
           : await surveyApi.publish(id);
       setSurvey(updated);
+      // Con aprobación obligatoria, "publicar" queda como pedido.
+      if (updated.status !== "published" && updated.approval?.state === "pending") {
+        toast.success(t("collab.approval.requested"));
+      }
     } catch (e: any) {
       setActionError(e?.message || t("surveys.detail.statusError"));
     } finally {
@@ -343,6 +354,9 @@ export default function SurveyDetailPage() {
         )}
       </div>
 
+      {/* Compartir por mensajería: el texto ya lleva el link. */}
+      {isPublished && <ShareButtons url={brandedUrl || publicUrl} title={survey.title || ""} />}
+
       {/* Branded (own subdomain) link */}
       {brandedUrl && (
         <div className="mt-2 flex items-center gap-2 rounded-lg border border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 px-3 py-2 text-sm">
@@ -403,6 +417,8 @@ export default function SurveyDetailPage() {
         >
           <Pencil className="w-4 h-4" /> {t("surveys.visualEditor")}
         </Link>
+        {/* Un lector no publica, guarda ni duplica (el backend lo exige igual). */}
+        {!soloLectura && (<>
         <button
           onClick={save}
           disabled={saving || !!parsed.error}
@@ -439,7 +455,20 @@ export default function SurveyDetailPage() {
           )}
           {t("surveys.duplicate")}
         </button>
+        <SaveTemplateButton surveyId={id} />
+        </>)}
       </div>
+
+      <ApprovalBanner survey={survey} isAdmin={puedeBorrar} onChange={setSurvey} />
+
+      <details className="mt-4 rounded-lg border border-neutral-200 bg-white px-4 py-3 dark:border-neutral-800 dark:bg-neutral-900">
+        <summary className="cursor-pointer text-sm font-medium text-neutral-700 dark:text-neutral-300">
+          {t("collab.title")}
+        </summary>
+        <div className="mt-3">
+          <CommentsPanel surveyId={id} />
+        </div>
+      </details>
 
       {notice && <p className="mt-3 text-sm text-green-700">{notice}</p>}
       {actionError && <p className="mt-3 text-sm text-red-700">{actionError}</p>}
@@ -714,5 +743,72 @@ function BackLink() {
     >
       <ArrowLeft className="w-4 h-4" /> {t("surveys.back")}
     </Link>
+  );
+}
+
+function ShareButtons({ url, title }: { url: string; title: string }) {
+  const { t } = useI18n();
+  const texto = title ? `${title}: ${url}` : url;
+  const enc = encodeURIComponent;
+  const items = [
+    { key: "whatsapp", href: `https://wa.me/?text=${enc(texto)}`, Icon: MessageCircle },
+    { key: "telegram", href: `https://t.me/share/url?url=${enc(url)}&text=${enc(title)}`, Icon: Send },
+    { key: "sms", href: `sms:?&body=${enc(texto)}`, Icon: Smartphone },
+    { key: "email", href: `mailto:?subject=${enc(title)}&body=${enc(texto)}`, Icon: Mail },
+  ];
+  return (
+    <div className="mt-2 flex flex-wrap items-center gap-1.5 text-xs">
+      <span className="mr-1 text-neutral-400 dark:text-neutral-500">{t("surveys.shareVia")}</span>
+      {items.map(({ key, href, Icon }) => (
+        <a
+          key={key}
+          href={href}
+          target={key === "sms" || key === "email" ? undefined : "_blank"}
+          rel="noreferrer"
+          className="inline-flex items-center gap-1 rounded-full border border-neutral-200 px-2.5 py-1 text-neutral-600 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
+        >
+          <Icon className="h-3.5 w-3.5" /> {t(`surveys.share.${key}`)}
+        </a>
+      ))}
+      {(
+        <button
+          type="button"
+          onClick={() => {
+            // Hoja de compartir del sistema (celular); en escritorio, copiar.
+            if (typeof navigator.share === "function") navigator.share({ title, text: title, url }).catch(() => {});
+            else navigator.clipboard?.writeText(url).then(() => toast.success(t("surveys.copied")));
+          }}
+          className="inline-flex items-center gap-1 rounded-full border border-neutral-200 px-2.5 py-1 text-neutral-600 hover:bg-neutral-50 dark:border-neutral-700 dark:text-neutral-300 dark:hover:bg-neutral-800"
+        >
+          <Share2 className="h-3.5 w-3.5" /> {t("surveys.share.more")}
+        </button>
+      )}
+    </div>
+  );
+}
+
+function SaveTemplateButton({ surveyId }: { surveyId: string }) {
+  const { t } = useI18n();
+  const [saving, setSaving] = useState(false);
+  return (
+    <button
+      onClick={async () => {
+        setSaving(true);
+        try {
+          await surveyApi.saveTemplate(surveyId);
+          toast.success(t("surveys.templateSaved"));
+        } catch (e) {
+          toast.error((e as Error)?.message || t("surveys.templateError"));
+        } finally {
+          setSaving(false);
+        }
+      }}
+      disabled={saving}
+      className="inline-flex items-center gap-2 rounded-lg border border-neutral-300 px-4 py-2 text-sm font-medium hover:bg-neutral-50 disabled:opacity-60 dark:border-neutral-700 dark:hover:bg-neutral-800"
+      title={t("surveys.saveAsTemplateHint")}
+    >
+      {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <LayoutTemplate className="h-4 w-4" />}
+      {t("surveys.saveAsTemplate")}
+    </button>
   );
 }

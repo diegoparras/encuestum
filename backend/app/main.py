@@ -13,8 +13,8 @@ from app.config import get_settings
 from app.db import engine
 from app.logging_conf import configure_logging
 from app.routers import (
-    admin, ai, assets, auth, evaluation, files, folders, lti, modapi, orgs, panel,
-    public, uploads, webhooks_api,
+    admin, ai, assets, auth, bank, evaluation, files, folders, lti, modapi, orgs, panel,
+    comments_api, ext_api, invitees_api, mcp_api, privacy_api, public, sso_api, templates_api, translate_api, uploads, webhooks_api,
 )
 
 LOGGER = logging.getLogger("encuestum")
@@ -35,7 +35,28 @@ async def lifespan(app: FastAPI):
         LOGGER.info("Aplicando migraciones de base de datos…")
         await run_migrations()
         LOGGER.info("Migraciones al día.")
-    yield
+
+    # Worker de la cola persistente (app/jobs.py), en el mismo proceso: no hay
+    # una pieza más que operar. Con varias réplicas, cada una corre el suyo y
+    # se reparten las tareas; ENCUESTUM_JOBS_WORKER=false lo apaga (p. ej. en
+    # los tests, que vacían la cola a mano para ser determinísticos).
+    import asyncio
+
+    stop = asyncio.Event()
+    worker = None
+    if settings.jobs_worker_enabled:
+        from app.jobs import worker_loop
+
+        worker = asyncio.create_task(worker_loop(stop))
+    try:
+        yield
+    finally:
+        stop.set()
+        if worker is not None:
+            try:
+                await asyncio.wait_for(worker, timeout=10)
+            except (asyncio.TimeoutError, asyncio.CancelledError):
+                worker.cancel()
 
 
 APP_VERSION = "1.1.24"
@@ -52,6 +73,8 @@ if settings.cors_origins:
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
+        # Headers propios que el panel tiene que poder leer en cross-origin.
+        expose_headers=["X-Total-Count", "X-Encuestum-SHA256", "ETag"],
     )
 
 
@@ -125,6 +148,50 @@ app.include_router(panel.router, prefix=API)
 app.include_router(ai.router, prefix=API)
 app.include_router(lti.admin_router, prefix=API)
 app.include_router(modapi.admin_router, prefix=API)
+app.include_router(privacy_api.router, prefix=API)
+app.include_router(sso_api.auth_router, prefix=API)
+app.include_router(sso_api.admin_router, prefix=API)
+app.include_router(comments_api.workflow_router, prefix=API)
+app.include_router(ext_api.keys_router, prefix=API)
+app.include_router(ext_api.router, prefix=API)
+app.include_router(mcp_api.router, prefix=API)
+
+
+# Especificación propia de la API pública: sólo las rutas de /ext, con el
+# esquema de autenticación por clave. La general (/openapi.json) incluye las
+# del panel, que no son un contrato para terceros.
+_EXT_OPENAPI: dict | None = None
+
+
+@app.get(f"{API}/ext/openapi.json", include_in_schema=False)
+async def ext_openapi():
+    global _EXT_OPENAPI
+    if _EXT_OPENAPI is None:
+        from fastapi.openapi.utils import get_openapi
+
+        spec = get_openapi(
+            title="Encuestum — API pública", version="1.0.0",
+            description=(
+                "Leé encuestas, respuestas y resúmenes, y cargá invitados.\n\n"
+                "Autenticación: `Authorization: Bearer enc_…` (o `X-Api-Key`). Las claves se crean "
+                "en Ajustes → API (sólo administradores). Límite: 120 pedidos por minuto por clave."
+            ),
+            routes=ext_api.router.routes,
+            servers=[{"url": f"{settings.public_api_base_url}{API}"}],
+        )
+        spec.setdefault("components", {}).setdefault("securitySchemes", {})["ApiKey"] = {
+            "type": "http", "scheme": "bearer", "bearerFormat": "enc_…",
+        }
+        spec["security"] = [{"ApiKey": []}]
+        _EXT_OPENAPI = spec
+    return _EXT_OPENAPI
+
+
+@app.get(f"{API}/ext/docs", include_in_schema=False)
+async def ext_docs():
+    from fastapi.openapi.docs import get_swagger_ui_html
+
+    return get_swagger_ui_html(openapi_url=f"{API}/ext/openapi.json", title="Encuestum — API pública")
 
 # Archivos subidos, servidos same-origin en /assets (streaming con Range desde
 # disco o el bucket privado; responses/* con control de acceso). Ver routers/files.py.
@@ -142,6 +209,11 @@ app.include_router(public.router, prefix=SURVEY)
 app.include_router(admin.router, prefix=SURVEY)
 app.include_router(evaluation.router, prefix=SURVEY)
 app.include_router(folders.router, prefix=SURVEY)
+app.include_router(bank.router, prefix=SURVEY)
+app.include_router(templates_api.router, prefix=SURVEY)
+app.include_router(translate_api.router, prefix=SURVEY)
+app.include_router(comments_api.router, prefix=SURVEY)
+app.include_router(invitees_api.router, prefix=SURVEY)
 
 
 @app.get("/api/health", tags=["ops"])

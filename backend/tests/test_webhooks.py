@@ -44,7 +44,7 @@ def test_webhook_test_endpoint(monkeypatch):
 
 def test_submit_schedules_delivery(monkeypatch):
     calls = []
-    monkeypatch.setattr(public_router, "schedule_response_delivery", lambda sid, rid: calls.append((sid, rid)))
+    monkeypatch.setattr(public_router, "schedule_response_delivery", lambda sid, rid, **_: calls.append((sid, rid)))
     c = new_client(); register(c)
     sv = c.post("/api/v1/survey/surveys", json={"title": "E", "json_schema": SCHEMA}).json()
     c.post(f"/api/v1/survey/surveys/{sv['id']}/publish")

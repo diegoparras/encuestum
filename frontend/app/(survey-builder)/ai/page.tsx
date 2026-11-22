@@ -40,6 +40,7 @@ import { Button } from "@/components/ui/button";
 import { Input, Label, Select } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { useI18n } from "@/lib/i18n";
+import BudgetSection from "./BudgetSection";
 
 type TFn = (key: string, vars?: Record<string, string | number>) => string;
 
@@ -1068,6 +1069,7 @@ export default function AiPage() {
       </div>
 
       <ProvidersSection isSuperadmin={isSuperadmin} />
+      <BudgetSection />
       <UsageSection isSuperadmin={isSuperadmin} />
       <PricesSection />
     </div>

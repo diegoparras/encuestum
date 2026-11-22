@@ -1,6 +1,10 @@
 fastapi>=0.110
 uvicorn[standard]>=0.29
 sqlmodel>=0.0.16
+# El extra `asyncio` trae `greenlet`, sin el cual el engine async no arranca.
+# SQLAlchemy 2.1 dejó de instalarlo por defecto: sin esta línea, una imagen
+# construida desde cero falla al importar `sqlalchemy.ext.asyncio`.
+sqlalchemy[asyncio]>=2.0
 aiosqlite>=0.19
 httpx>=0.27
 pydantic>=2.6
@@ -18,3 +22,6 @@ redis>=5.0
 python-multipart>=0.0.9
 boto3>=1.34
 openpyxl>=3.1
+# Texto de los PDF que se suben como material para generar preguntas (pura
+# Python, sin dependencias nativas). Ver app/material.py.
+pypdf>=5.0

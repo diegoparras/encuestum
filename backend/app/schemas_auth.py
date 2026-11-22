@@ -58,6 +58,8 @@ class MemberOut(BaseModel):
     name: Optional[str]
     role: str
     joined_at: datetime
+    # Carpetas a las que se limita (None = toda la organización).
+    folder_scope: Optional[List[str]] = None
 
 
 class AddMemberRequest(BaseModel):

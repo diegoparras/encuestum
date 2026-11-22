@@ -4,6 +4,7 @@ import React from "react";
 import { X, Sparkles } from "lucide-react";
 import type { UsageInfo } from "../aiApi";
 import { useI18n } from "@/lib/i18n";
+import { useDialogA11y } from "@/lib/useDialogA11y";
 
 interface Props {
   usage: UsageInfo;
@@ -14,6 +15,7 @@ interface Props {
 export function UsageModal({ usage, onClose }: Props) {
   const { t } = useI18n();
   const hasCost = usage.cost_usd !== null && usage.cost_usd !== undefined;
+  const panelRef = useDialogA11y(onClose);
 
   return (
     <div
@@ -21,7 +23,11 @@ export function UsageModal({ usage, onClose }: Props) {
       onClick={onClose}
     >
       <div
-        className="w-full max-w-sm rounded-2xl bg-white dark:bg-neutral-900 shadow-2xl"
+        ref={panelRef}
+        tabIndex={-1}
+        role="dialog"
+        aria-modal="true"
+        className="w-full max-w-sm rounded-2xl bg-white dark:bg-neutral-900 shadow-2xl outline-none"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between border-b border-neutral-100 dark:border-neutral-800 px-5 py-4">

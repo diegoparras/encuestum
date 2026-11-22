@@ -22,8 +22,11 @@ import {
   Loader2,
 } from "lucide-react";
 import { toast } from "sonner";
-import { surveyApi, SURVEY_ACCENT, type ResponseItem, type ResponseDeletion } from "./surveyApi";
+import { surveyApi, SURVEY_ACCENT, type ResponseItem } from "./surveyApi";
+import { ActivityLog, ResponseHistoryPanel } from "./Trazabilidad";
+import { IntegrityFlags } from "./Examenes";
 import { ConfirmarBorrado } from "./ConfirmarBorrado";
+import { useDialogA11y } from "@/lib/useDialogA11y";
 
 /**
  * Tabla de respuestas: una fila por persona, una columna por pregunta.
@@ -110,6 +113,8 @@ function cellText(value: any): string {
   if (value === undefined || value === null || value === "") return "—";
   // Las preguntas Sí/No llegan como booleano: "true"/"false" no se lee.
   if (typeof value === "boolean") return value ? "Sí" : "No";
+  // Firma: imagen en base64; en una celda de texto va una marca.
+  if (typeof value === "string" && value.startsWith("data:image/")) return "✍ Firmado";
   if (Array.isArray(value)) return value.join(", ");
   if (typeof value === "object") return JSON.stringify(value);
   return String(value);
@@ -757,10 +762,10 @@ export function ResponsesPanel({
         {canDelete && (
           <button
             onClick={() => setShowLog(true)}
-            title="Ver el registro de borrados"
+            title="Ver quién hizo qué: ediciones, exportaciones, exclusiones y borrados"
             className="inline-flex items-center gap-1.5 rounded-lg border border-neutral-200 px-2.5 py-1.5 text-xs font-medium text-neutral-600 hover:bg-neutral-50 dark:border-neutral-800 dark:text-neutral-300 dark:hover:bg-neutral-800"
           >
-            <History className="h-4 w-4" /> Borrados
+            <History className="h-4 w-4" /> Actividad
           </button>
         )}
 
@@ -894,6 +899,7 @@ export function ResponsesPanel({
   const ficha =
     openIdx !== null && rows[openIdx] ? (
       <RespondentCard
+        surveyId={surveyId}
         response={rows[openIdx]}
         columns={allColumns}
         identity={identityOf(rows[openIdx])}
@@ -907,7 +913,7 @@ export function ResponsesPanel({
     ) : null;
 
   const log = showLog ? (
-    <DeletionsLog surveyId={surveyId} accent={accent} onClose={() => setShowLog(false)} />
+    <ActivityLog surveyId={surveyId} accent={accent} onClose={() => setShowLog(false)} />
   ) : null;
 
   const confirmacion = porBorrar ? (
@@ -981,97 +987,9 @@ function AccionFila({
   );
 }
 
-/** Registro de borrados: quién sacó qué respuesta y cuándo. Solo admins. */
-function DeletionsLog({
-  surveyId,
-  accent,
-  onClose,
-}: {
-  surveyId: string;
-  accent: string;
-  onClose: () => void;
-}) {
-  const [rows, setRows] = useState<ResponseDeletion[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    let cancel = false;
-    surveyApi
-      .getDeletions(surveyId)
-      .then((d) => !cancel && setRows(d))
-      .catch((e) => !cancel && setError(e?.message || "No se pudo cargar el registro."));
-    return () => {
-      cancel = true;
-    };
-  }, [surveyId]);
-
-  return (
-    <div
-      className="fixed inset-0 z-50 grid place-items-center bg-neutral-950/50 p-4 backdrop-blur-sm"
-      role="dialog"
-      aria-modal="true"
-      onClick={onClose}
-    >
-      <div
-        className="flex max-h-[80vh] w-full max-w-xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl dark:bg-neutral-900"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <header className="flex items-center gap-3 border-b border-neutral-100 px-5 py-4 dark:border-neutral-800">
-          <div
-            className="grid h-9 w-9 shrink-0 place-items-center rounded-full"
-            style={{ backgroundColor: `${accent}1a`, color: accent }}
-          >
-            <History className="h-4 w-4" />
-          </div>
-          <div className="min-w-0 flex-1">
-            <h2 className="font-semibold text-neutral-900 dark:text-neutral-100">Registro de borrados</h2>
-            <p className="text-xs text-neutral-400">Borrar es irreversible: queda constancia de quién lo hizo.</p>
-          </div>
-          <button
-            onClick={onClose}
-            aria-label="Cerrar"
-            className="rounded-md p-1 text-neutral-400 hover:bg-neutral-100 hover:text-neutral-700 dark:hover:bg-neutral-800"
-          >
-            <X className="h-4 w-4" />
-          </button>
-        </header>
-        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
-          {error ? (
-            <p className="text-sm text-red-600">{error}</p>
-          ) : rows === null ? (
-            <p className="flex items-center gap-2 text-sm text-neutral-400">
-              <Loader2 className="h-4 w-4 animate-spin" /> Cargando…
-            </p>
-          ) : rows.length === 0 ? (
-            <p className="py-8 text-center text-sm text-neutral-400">
-              Todavía no se borró ninguna respuesta de esta encuesta.
-            </p>
-          ) : (
-            <ul className="divide-y divide-neutral-100 dark:divide-neutral-800">
-              {rows.map((d) => (
-                <li key={d.id} className="py-2.5">
-                  <p className="text-sm text-neutral-800 dark:text-neutral-200">
-                    {d.respondent || "Anónimo"}
-                  </p>
-                  <p className="text-xs text-neutral-400">
-                    Borrada por {d.deleted_by_email || "—"} ·{" "}
-                    {new Date(d.deleted_at).toLocaleString()}
-                    {d.submitted_at
-                      ? ` · respondida el ${new Date(d.submitted_at).toLocaleDateString()}`
-                      : ""}
-                  </p>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 /** Ficha de una persona: todas sus respuestas, con navegación entre respondentes. */
 function RespondentCard({
+  surveyId,
   response,
   columns,
   identity,
@@ -1082,6 +1000,7 @@ function RespondentCard({
   onPrev,
   onNext,
 }: {
+  surveyId: string;
   response: ResponseItem;
   columns: Column[];
   identity: { name: string; email: string };
@@ -1097,6 +1016,7 @@ function RespondentCard({
     if (q?.name) byQuestion[q.name] = q;
   }
   const percent = (response.grade as any)?.percent;
+  const panelRef = useDialogA11y(onClose);
 
   return (
     <div
@@ -1106,7 +1026,9 @@ function RespondentCard({
       onClick={onClose}
     >
       <div
-        className="flex max-h-[88vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl dark:bg-neutral-900"
+        ref={panelRef}
+        tabIndex={-1}
+        className="flex max-h-[88vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl outline-none dark:bg-neutral-900"
         onClick={(e) => e.stopPropagation()}
       >
         <header className="flex items-start gap-3 border-b border-neutral-100 px-5 py-4 dark:border-neutral-800">
@@ -1151,9 +1073,19 @@ function RespondentCard({
                 <p className="text-xs font-medium uppercase tracking-wide text-neutral-400">
                   {c.title}
                 </p>
-                <p className="mt-1 whitespace-pre-wrap text-sm text-neutral-800 dark:text-neutral-200">
-                  {cellText(response.answers?.[c.name])}
-                </p>
+                {typeof response.answers?.[c.name] === "string" &&
+                response.answers[c.name].startsWith("data:image/") ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={response.answers[c.name]}
+                    alt="Firma"
+                    className="mt-1 max-h-32 rounded border border-neutral-200 bg-white dark:border-neutral-700"
+                  />
+                ) : (
+                  <p className="mt-1 whitespace-pre-wrap text-sm text-neutral-800 dark:text-neutral-200">
+                    {cellText(response.answers?.[c.name])}
+                  </p>
+                )}
                 {g && (
                   <p className="mt-1 text-xs text-neutral-400">
                     {g.awarded} / {g.points} pts
@@ -1163,6 +1095,8 @@ function RespondentCard({
               </div>
             );
           })}
+          <IntegrityFlags meta={response.meta} />
+          <ResponseHistoryPanel key={response.id} surveyId={surveyId} responseId={response.id} />
         </div>
 
         <footer className="flex items-center justify-between gap-3 border-t border-neutral-100 px-5 py-3 dark:border-neutral-800">

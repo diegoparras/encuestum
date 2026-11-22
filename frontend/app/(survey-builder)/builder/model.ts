@@ -18,6 +18,11 @@ export type QuestionType =
   | "ranking"
   | "date"
   | "fileupload"
+  | "number" // número (text inputType=number) con mínimo/máximo/paso
+  | "slider" // control deslizante nativo de SurveyJS
+  | "phone" // teléfono (text inputType=tel) con validación
+  | "signature" // firma dibujada (signaturepad de SurveyJS)
+  | "consent" // casilla de consentimiento obligatoria (boolean como checkbox)
   | "section"; // separador con título: agrupa las preguntas que le siguen
 
 export interface Choice {
@@ -57,6 +62,8 @@ export interface BuilderQuestion {
   // deterministic (grader = auto)
   correctText?: string[]; // radiogroup/dropdown/text/email/comment: acceptable values
   correctChoices?: string[]; // checkbox: correct option texts
+  correctOrder?: string[]; // ranking: orden correcto (textos)
+  correctMatrix?: Record<string, string>; // matrix: fila → columna correcta
   correctBool?: boolean; // boolean
   correctNumber?: number; // rating
   tolerance?: number; // rating
@@ -94,6 +101,17 @@ export interface BuilderQuestion {
   // ---- date (fecha) ----
   dateMin?: string; // fecha mínima permitida (YYYY-MM-DD), opcional
   dateMax?: string; // fecha máxima permitida (YYYY-MM-DD), opcional
+
+  // Grupo de sorteo del examen (encGroup): de las preguntas del mismo grupo
+  // se muestran N al azar a cada persona (ver evaluation.integrity.groups).
+  group?: string;
+  // Viene del banco de preguntas (encBankId): junta sus estadísticas.
+  bankId?: string;
+
+  // ---- number / slider ----
+  numMin?: number;
+  numMax?: number;
+  numStep?: number;
 
   // ---- fileupload (subir archivo genérico) ----
   fileMultiple?: boolean; // permitir subir varios archivos
@@ -196,6 +214,12 @@ export interface EvaluationSettings {
     shuffleChoices: boolean;
     timeLimitSec: number | null;
     maxAttempts: number;
+    // Sorteo: de cada grupo (encGroup de las preguntas), cuántas se muestran.
+    groups?: Record<string, number>;
+    // Registrar señales de integridad (pestaña, pegado, fuera de tiempo).
+    signals?: boolean;
+    // Formas fijas (A, B, …): 0 = orden al azar por persona.
+    forms?: number;
   };
 }
 
@@ -615,6 +639,11 @@ export const QUESTION_TYPES: QuestionTypeMeta[] = [
   { type: "ranking", label: "Ranking", hint: "Ordenar opciones", hasChoices: true },
   { type: "date", label: "Fecha", hint: "Selector de fecha", hasChoices: false },
   { type: "fileupload", label: "Subir archivo", hint: "Adjuntar archivo", hasChoices: false },
+  { type: "number", label: "Número", hint: "Con mínimo y máximo", hasChoices: false },
+  { type: "slider", label: "Deslizador", hint: "Elegir un valor", hasChoices: false },
+  { type: "phone", label: "Teléfono", hint: "Con validación", hasChoices: false },
+  { type: "signature", label: "Firma", hint: "Dibujar a mano", hasChoices: false },
+  { type: "consent", label: "Consentimiento", hint: "Casilla obligatoria", hasChoices: false },
   { type: "section", label: "Sección", hint: "Agrupa preguntas", hasChoices: false },
 ];
 
@@ -755,6 +784,14 @@ export function createQuestion(type: QuestionType, index: number): BuilderQuesti
   if (type === "ranking") {
     base.choices = [newChoice("Opción 1"), newChoice("Opción 2"), newChoice("Opción 3")];
   }
+  if (type === "slider") {
+    base.numMin = 0;
+    base.numMax = 100;
+    base.numStep = 1;
+  }
+  if (type === "consent") {
+    base.isRequired = true;
+  }
   if (type === "fileupload") {
     base.fileMultiple = false;
     base.fileAccept = "";
@@ -767,7 +804,7 @@ export function createQuestion(type: QuestionType, index: number): BuilderQuesti
 export function generatedToQuestion(gen: any, index: number): BuilderQuestion {
   const rawType = String(gen?.type || "comment");
   const type: QuestionType = (
-    ["radiogroup", "checkbox", "comment", "text", "boolean", "rating"].includes(rawType)
+    ["radiogroup", "checkbox", "dropdown", "comment", "text", "boolean", "rating", "ranking", "matrix"].includes(rawType)
       ? rawType
       : "comment"
   ) as QuestionType;
@@ -786,7 +823,27 @@ export function generatedToQuestion(gen: any, index: number): BuilderQuestion {
     ? gen.correctIndices
     : [];
 
-  if (type === "radiogroup" || type === "dropdown") {
+  if (type === "ranking") {
+    // La IA devuelve los elementos en el orden correcto: se muestran
+    // corridos (rotación) para no regalar la respuesta, y el orden correcto
+    // queda en la clave.
+    q.grader = "auto";
+    q.correctOrder = [...choiceTexts];
+    const k = choiceTexts.length > 1 ? 1 + (index % (choiceTexts.length - 1)) : 0;
+    q.choices = [...choiceTexts.slice(k), ...choiceTexts.slice(0, k)].map((x) => newChoice(x));
+    q.partialCredit = true;
+  } else if (type === "matrix") {
+    const filas: string[] = Array.isArray(gen?.rows) ? gen.rows.map(String) : [];
+    const cols: string[] = Array.isArray(gen?.columns) ? gen.columns.map(String) : [];
+    const idx: number[] = Array.isArray(gen?.correctColumns) ? gen.correctColumns : [];
+    q.matrixRows = filas.map((x) => newChoice(x));
+    q.matrixColumns = cols.map((x) => newChoice(x));
+    q.grader = "auto";
+    q.partialCredit = true;
+    q.correctMatrix = Object.fromEntries(
+      filas.map((f, i) => [f, cols[idx[i]]]).filter(([, c]) => c !== undefined)
+    );
+  } else if (type === "radiogroup" || type === "dropdown") {
     q.grader = "auto";
     q.correctText = correctIdx.length ? [choiceTexts[correctIdx[0]]].filter(Boolean) : [];
   } else if (type === "checkbox") {
@@ -798,6 +855,10 @@ export function generatedToQuestion(gen: any, index: number): BuilderQuestion {
   } else if (type === "rating") {
     q.grader = "auto";
     q.correctNumber = Number(gen?.modelAnswer) || undefined;
+  } else if (type === "text" && Array.isArray(gen?.acceptableAnswers) && gen.acceptableAnswers.length) {
+    // Respuesta corta: corrección automática contra las formas aceptables.
+    q.grader = "auto";
+    q.correctText = gen.acceptableAnswers.map(String).filter((s: string) => s.trim() !== "");
   } else {
     q.grader = "llm";
     q.modelAnswer = gen?.modelAnswer || "";
@@ -805,6 +866,13 @@ export function generatedToQuestion(gen: any, index: number): BuilderQuestion {
     q.rubric = Array.isArray(gen?.rubric)
       ? gen.rubric.map((r: any) => newRubricItem(r.label ?? "", Number(r.points) || 0))
       : [];
+  }
+  // Por qué cada distractor es incorrecto, generado en la misma llamada.
+  if (Array.isArray(gen?.explanations) && gen.explanations.length) {
+    const expl: { option?: unknown; why_wrong?: unknown }[] = gen.explanations;
+    q.explanations = Object.fromEntries(
+      expl.filter((e) => e?.option && e?.why_wrong).map((e) => [String(e.option), String(e.why_wrong)])
+    );
   }
   return q;
 }
@@ -841,6 +909,16 @@ function defaultTitle(type: QuestionType): string {
       return "Elegí una fecha";
     case "fileupload":
       return "Subí un archivo";
+    case "number":
+      return "Ingresá un número";
+    case "slider":
+      return "Elegí un valor";
+    case "phone":
+      return "Tu teléfono";
+    case "signature":
+      return "Firmá acá";
+    case "consent":
+      return "Leí y acepto los términos y condiciones";
     default:
       return "Pregunta";
   }
@@ -914,11 +992,15 @@ function questionToElement(q: BuilderQuestion): Record<string, any> {
   // email y date se serializan como un "text" de SurveyJS con inputType propio;
   // fileupload es el "file" nativo de SurveyJS.
   const surveyType =
-    q.type === "email" || q.type === "date"
+    q.type === "email" || q.type === "date" || q.type === "number" || q.type === "phone"
       ? "text"
       : q.type === "fileupload"
         ? "file"
-        : q.type;
+        : q.type === "signature"
+          ? "signaturepad"
+          : q.type === "consent"
+            ? "boolean"
+            : q.type;
   const el: Record<string, any> = {
     type: surveyType,
     name: q.name,
@@ -955,6 +1037,8 @@ function questionToElement(q: BuilderQuestion): Record<string, any> {
   if (q.branching && q.branching.length) {
     el.encBranching = q.branching;
   }
+  if (q.group && q.group.trim()) el.encGroup = q.group.trim();
+  if (q.bankId) el.encBankId = q.bankId;
   if (q.type === "imagepicker") {
     el.choices = (q.choices ?? [])
       .map((c) => ({ value: c.text, text: c.text, imageLink: c.imageUrl || undefined }))
@@ -985,6 +1069,46 @@ function questionToElement(q: BuilderQuestion): Record<string, any> {
     el.columns = (q.matrixColumns ?? [])
       .map((c) => ({ value: c.text, text: c.text }))
       .filter((c) => c.text.trim() !== "");
+  }
+  if (q.type === "number") {
+    el.inputType = "number";
+    if (typeof q.numMin === "number") el.min = q.numMin;
+    if (typeof q.numMax === "number") el.max = q.numMax;
+    if (typeof q.numStep === "number" && q.numStep > 0) el.step = q.numStep;
+  }
+  if (q.type === "slider") {
+    el.min = q.numMin ?? 0;
+    el.max = q.numMax ?? 100;
+    el.step = q.numStep && q.numStep > 0 ? q.numStep : 1;
+    el.sliderType = "single";
+  }
+  if (q.type === "phone") {
+    el.inputType = "tel";
+    el.autocomplete = "tel";
+    // Dígitos, espacios, guiones, paréntesis y un "+" inicial; 7 a 20 caracteres.
+    el.validators = [
+      { type: "regex", regex: "^\\+?[0-9 ()\\-]{7,20}$", text: "Ingresá un teléfono válido." },
+    ];
+    el.encType = "phone";
+  }
+  if (q.type === "signature") {
+    el.signatureWidth = 500;
+    el.signatureHeight = 180;
+    el.penColor = "#111827";
+    el.dataFormat = "png";
+  }
+  if (q.type === "consent") {
+    // Consentimiento = boolean como casilla y obligatorio: no se puede enviar
+    // sin marcarla. Qué texto aceptó la persona queda en la versión de la
+    // encuesta que contestó (ver backend: survey_versions).
+    // SurveyJS sólo muestra el texto junto a la casilla con el título oculto:
+    // la frase del título ("Leí y acepto…") pasa a ser el texto de la casilla.
+    el.renderAs = "checkbox";
+    el.titleLocation = "hidden";
+    el.label = q.title;
+    el.isRequired = true;
+    el.requiredErrorText = "Tenés que aceptar para continuar.";
+    el.encConsent = true;
   }
   if (q.type === "date") {
     // Fecha: text de SurveyJS con inputType date (+ min/max opcionales).
@@ -1183,6 +1307,9 @@ function elementToQuestion(el: Record<string, any>, index: number): BuilderQuest
     (el?._encVideo === true ||
       (typeof el?.acceptedTypes === "string" && el.acceptedTypes.includes("video")));
   const isFileUpload = rawType === "file" && !isLegacyVideo;
+  const isNumber = rawType === "text" && el?.inputType === "number";
+  const isPhone = rawType === "text" && (el?.inputType === "tel" || el?.encType === "phone");
+  const isConsent = rawType === "boolean" && (el?.encConsent === true || el?.renderAs === "checkbox");
   const type: QuestionType = (
     rawType === "videoresponse" || isLegacyVideo
       ? "videoresponse"
@@ -1192,7 +1319,15 @@ function elementToQuestion(el: Record<string, any>, index: number): BuilderQuest
           ? "email"
           : isDate
             ? "date"
-            : rawType
+            : isNumber
+              ? "number"
+              : isPhone
+                ? "phone"
+                : isConsent
+                  ? "consent"
+                  : rawType === "signaturepad"
+                    ? "signature"
+                    : rawType
   ) as QuestionType;
 
   const supported: QuestionType[] = [
@@ -1210,6 +1345,11 @@ function elementToQuestion(el: Record<string, any>, index: number): BuilderQuest
     "ranking",
     "date",
     "fileupload",
+    "number",
+    "slider",
+    "phone",
+    "signature",
+    "consent",
   ];
   if (!supported.includes(type)) return null;
 
@@ -1226,6 +1366,8 @@ function elementToQuestion(el: Record<string, any>, index: number): BuilderQuest
     boxOpacity:
       typeof el.encBoxOpacity === "number" ? el.encBoxOpacity : undefined,
     align: el.encAlign === "left" || el.encAlign === "center" ? el.encAlign : undefined,
+    group: typeof el.encGroup === "string" && el.encGroup ? el.encGroup : undefined,
+    bankId: typeof el.encBankId === "string" && el.encBankId ? el.encBankId : undefined,
   };
 
   if (el.encVisibility && typeof el.encVisibility === "object" && el.encVisibility.questionName) {
@@ -1277,6 +1419,14 @@ function elementToQuestion(el: Record<string, any>, index: number): BuilderQuest
   if (type === "fileupload") {
     q.fileMultiple = !!el.allowMultiple;
     q.fileAccept = typeof el.acceptedTypes === "string" ? el.acceptedTypes : "";
+  }
+  if (type === "number" || type === "slider") {
+    q.numMin = typeof el.min === "number" ? el.min : undefined;
+    q.numMax = typeof el.max === "number" ? el.max : undefined;
+    q.numStep = typeof el.step === "number" ? el.step : undefined;
+  }
+  if (type === "consent") {
+    q.isRequired = true;
   }
   return q;
 }
@@ -1403,6 +1553,9 @@ function hydrateEvaluationSettings(
       shuffleChoices: !!evaluation.integrity?.shuffleChoices,
       timeLimitSec: evaluation.integrity?.timeLimitSec ?? null,
       maxAttempts: evaluation.integrity?.maxAttempts ?? 1,
+      groups: evaluation.integrity?.groups ?? {},
+      signals: !!evaluation.integrity?.signals,
+      forms: Number(evaluation.integrity?.forms) || 0,
     },
   };
 }
@@ -1430,10 +1583,18 @@ function hydrateGrading(
       q.partialCredit = !!c.partialCredit;
     } else if (q.type === "checkbox") {
       q.correctChoices = Array.isArray(correct) ? correct.map(String) : [];
+    } else if (q.type === "ranking") {
+      q.correctOrder = Array.isArray(correct) ? correct.map(String) : [];
+    } else if (q.type === "matrix") {
+      q.correctMatrix =
+        correct && typeof correct === "object" && !Array.isArray(correct)
+          ? Object.fromEntries(Object.entries(correct).map(([k, v]) => [k, String(v)]))
+          : {};
     } else if (q.type === "boolean") {
       q.correctBool = !!correct;
-    } else if (q.type === "rating") {
+    } else if (q.type === "rating" || q.type === "number" || q.type === "slider") {
       q.correctNumber = typeof correct === "number" ? correct : undefined;
+      q.tolerance = typeof c.tolerance === "number" ? c.tolerance : undefined;
     } else {
       q.correctText = Array.isArray(correct)
         ? correct.map(String)
@@ -1450,6 +1611,15 @@ function hydrateGrading(
       ? c.rubric.map((r: any) => newRubricItem(r.label ?? "", Number(r.points) || 0))
       : [];
   }
+}
+
+/** El orden correcto de un ranking: el configurado, limitado a las opciones
+ *  que existen (una opción borrada no puede seguir siendo parte de la clave) y
+ *  completado con las nuevas al final. */
+export function rankingCorrectOrder(q: BuilderQuestion): string[] {
+  const textos = (q.choices ?? []).map((c) => c.text).filter((x) => x.trim());
+  const base = (q.correctOrder ?? []).filter((x) => textos.includes(x));
+  return [...base, ...textos.filter((x) => !base.includes(x))];
 }
 
 // Build the server-side evaluation payload (answer keys + rubrics + settings).
@@ -1486,9 +1656,15 @@ export function builderToEvaluation(
       } else if (q.type === "checkbox") {
         cfg.correct = q.correctChoices ?? [];
         cfg.partialCredit = !!q.partialCredit;
+      } else if (q.type === "ranking") {
+        cfg.correct = rankingCorrectOrder(q);
+        cfg.partialCredit = !!q.partialCredit;
+      } else if (q.type === "matrix") {
+        cfg.correct = q.correctMatrix ?? {};
+        cfg.partialCredit = !!q.partialCredit;
       } else if (q.type === "boolean") {
         cfg.correct = !!q.correctBool;
-      } else if (q.type === "rating") {
+      } else if (q.type === "rating" || q.type === "number" || q.type === "slider") {
         cfg.correct = q.correctNumber ?? null;
         cfg.tolerance = q.tolerance ?? 0;
       } else {

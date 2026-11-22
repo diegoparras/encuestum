@@ -1,32 +1,13 @@
 "use client";
 
 import React, { useState } from "react";
-import {
-  BarChart3,
-  Star,
-  MessageSquareText,
-  FileText,
-  ExternalLink,
-  Eye,
-  Filter,
-  ChevronDown,
-  Layers,
-  X,
-  Plus,
-} from "lucide-react";
-import {
-  surveyApi,
-  type SummaryQuestion,
-  type SummaryOption,
-  type SummaryFilter,
-  type FilterableQuestion,
-  type SummarySegment,
-  type Funnel,
-} from "./surveyApi";
+import { BarChart3, Star, MessageSquareText, FileText, Eye, Filter, ChevronDown, Layers, X, Plus, Grid3x3, ListOrdered, Hash, CalendarDays, Download, Printer, AlertTriangle, ShieldAlert, Loader2, Sparkles, Send, PenLine } from "lucide-react";
+import { surveyApi, type SummaryQuestion, type SummaryFilter, type FilterableQuestion, type SummarySegment, type Funnel, type QualityReport, type DataAnswer } from "./surveyApi";
 import { useI18n } from "@/lib/i18n";
 import { useAsyncData } from "@/lib/useAsyncData";
 import { LoadError, LoadSpinner } from "@/components/LoadError";
-import { resolveAssetUrl } from "./builder/design";
+
+import { formatSeconds, ChoiceChart, RatingChart, TextList, FilesList, EmptyHint, SignificanceBadge, Timeline, Stat, RatingStats, NpsBlock, MatrixChart, RankingChart, NumericChart, DatesChart } from "./SummaryCharts";
 
 /**
  * Panel de resultados estilo "Resumen" de Google Forms.
@@ -43,11 +24,14 @@ export function SummaryPanel({
   const { t } = useI18n();
   const [segmentBy, setSegmentBy] = useState<string | null>(null);
   const [filters, setFilters] = useState<SummaryFilter[]>([]);
+  const [dateFrom, setDateFrom] = useState<string>("");
+  const [dateTo, setDateTo] = useState<string>("");
   const filtersKey = JSON.stringify(filters);
+  const opts = { segmentBy, filters, dateFrom: dateFrom || null, dateTo: dateTo || null };
 
   const { data, status, error, reload } = useAsyncData(
-    () => surveyApi.getSummary(surveyId, { segmentBy, filters }),
-    [surveyId, segmentBy, filtersKey]
+    () => surveyApi.getSummary(surveyId, opts),
+    [surveyId, segmentBy, filtersKey, dateFrom, dateTo]
   );
 
   // La primera carga no tiene datos aún; los cambios de filtro conservan el
@@ -61,7 +45,7 @@ export function SummaryPanel({
   const loading = status === "loading";
 
   return (
-    <div className="space-y-4">
+    <div className="enc-print-region space-y-4">
       {hasResponses && (
         <SummaryControls
           filterable={data.filterable}
@@ -73,6 +57,61 @@ export function SummaryPanel({
           onFiltersChange={setFilters}
         />
       )}
+
+      {hasResponses && (
+        <div className="flex flex-wrap items-center gap-2 text-xs print:hidden">
+          <CalendarDays className="h-3.5 w-3.5 text-neutral-400" />
+          <span className="font-medium text-neutral-500 dark:text-neutral-400">Período</span>
+          <input
+            type="date"
+            value={dateFrom}
+            max={dateTo || undefined}
+            onChange={(e) => setDateFrom(e.target.value)}
+            aria-label="Desde"
+            className="rounded-lg border border-neutral-300 bg-white px-2 py-1 dark:border-neutral-700 dark:bg-neutral-800"
+          />
+          <span className="text-neutral-400">a</span>
+          <input
+            type="date"
+            value={dateTo}
+            min={dateFrom || undefined}
+            onChange={(e) => setDateTo(e.target.value)}
+            aria-label="Hasta"
+            className="rounded-lg border border-neutral-300 bg-white px-2 py-1 dark:border-neutral-700 dark:bg-neutral-800"
+          />
+          {(dateFrom || dateTo) && (
+            <button
+              onClick={() => {
+                setDateFrom("");
+                setDateTo("");
+              }}
+              className="text-neutral-500 underline hover:text-neutral-800 dark:text-neutral-400"
+            >
+              Todo el período
+            </button>
+          )}
+          <span className="ml-auto flex items-center gap-2">
+            {segmentBy && (
+              <a
+                href={surveyApi.crosstabUrl(surveyId, opts, "xlsx")}
+                className="inline-flex items-center gap-1 rounded-lg border border-neutral-200 px-2.5 py-1 font-medium text-neutral-600 hover:bg-neutral-50 dark:border-neutral-800 dark:text-neutral-300 dark:hover:bg-neutral-800"
+              >
+                <Download className="h-3.5 w-3.5" /> Exportar cruce
+              </a>
+            )}
+            <button
+              onClick={imprimir}
+              className="inline-flex items-center gap-1 rounded-lg border border-neutral-200 px-2.5 py-1 font-medium text-neutral-600 hover:bg-neutral-50 dark:border-neutral-800 dark:text-neutral-300 dark:hover:bg-neutral-800"
+            >
+              <Printer className="h-3.5 w-3.5" /> Imprimir / PDF
+            </button>
+          </span>
+        </div>
+      )}
+
+      {hasResponses && <QualityCard surveyId={surveyId} onExcluded={reload} />}
+
+      {hasResponses && <AskCard surveyId={surveyId} segmentBy={segmentBy} accent={accent} />}
 
       {!hasResponses ? (
         <div className="rounded-xl border border-dashed border-neutral-300 py-14 text-center dark:border-neutral-700">
@@ -103,6 +142,23 @@ export function SummaryPanel({
               </>
             )}
           </p>
+          {data.segment?.small_sample && (
+            <div className="flex items-start gap-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
+              <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+              <span>
+                Algunos grupos tienen menos de 30 respuestas (
+                {data.segment.values
+                  .filter((v) => v.small)
+                  .map((v) => `${v.label}: ${v.count}`)
+                  .join(", ")}
+                ). Las diferencias entre grupos tan chicos pueden ser casualidad: mirá la marca de
+                significancia de cada pregunta antes de sacar conclusiones.
+              </span>
+            </div>
+          )}
+          {(data.timeline?.length ?? 0) > 1 && (
+            <Timeline points={data.timeline!} accent={accent} />
+          )}
           <div className={loading ? "opacity-50 transition-opacity" : "transition-opacity"}>
             {data.filtered_responses === 0 ? (
               <EmptyHint text={t("summary.noneMatch")} />
@@ -173,7 +229,7 @@ function SummaryControls({
   };
 
   return (
-    <div className="rounded-xl border border-neutral-200 bg-neutral-50 p-3 dark:border-neutral-800 dark:bg-neutral-900/50">
+    <div className="rounded-xl border border-neutral-200 bg-neutral-50 p-3 print:hidden dark:border-neutral-800 dark:bg-neutral-900/50">
       <div className="flex flex-wrap items-center gap-2">
         {/* Segmentar por */}
         <label className="inline-flex items-center gap-1.5 text-xs font-medium text-neutral-500 dark:text-neutral-400">
@@ -355,6 +411,7 @@ export function FunnelCard({
       ) : (
         <FunnelSteps funnel={data} accent={accent} />
       )}
+      <FunnelExtras funnel={data} />
       {data.dropoff.length > 0 && <DropoffList items={data.dropoff} />}
     </div>
   );
@@ -477,15 +534,24 @@ function QuestionCard({
       <div className="mb-4 flex items-start justify-between gap-3">
         <div className="min-w-0">
           <h3 className="font-medium text-neutral-900 dark:text-neutral-100">
+            {q.hidden_field && (
+              <span className="mr-1.5 rounded bg-neutral-100 px-1.5 py-0.5 font-mono text-[10px] font-normal text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400">
+                {t("summary.hiddenField")}
+              </span>
+            )}
             {q.title || q.name}
           </h3>
           <p className="mt-0.5 text-xs text-neutral-400 dark:text-neutral-500">
             {t("summary.answeredCount", { n: q.answered })}
+            {q.timing ? ` · ${t("summary.medianTime", { s: formatSeconds(q.timing.median_seconds) })}` : ""}
             {q.kind === "choice" && q.multi ? ` · ${t("summary.multi")}` : ""}
             {segmented ? ` · ${t("summary.byLabel", { seg: segment!.title })}` : ""}
           </p>
         </div>
-        <KindBadge kind={q.kind} accent={accent} />
+        <div className="flex shrink-0 flex-col items-end gap-1">
+          <KindBadge kind={q.kind} accent={accent} />
+          {segmented && q.significance && <SignificanceBadge sig={q.significance} />}
+        </div>
       </div>
       {segmented ? (
         <SegmentedChart q={q} segment={segment!} accent={accent} />
@@ -609,6 +675,11 @@ function KindBadge({
     rating: { icon: Star, label: "Puntuación" },
     text: { icon: MessageSquareText, label: "Texto" },
     files: { icon: FileText, label: "Archivos" },
+    matrix: { icon: Grid3x3, label: "Matriz" },
+    ranking: { icon: ListOrdered, label: "Ranking" },
+    numeric: { icon: Hash, label: "Número" },
+    dates: { icon: CalendarDays, label: "Fecha" },
+    signature: { icon: PenLine, label: "Firma" },
   };
   const { icon: Icon, label } = map[kind];
   return (
@@ -633,243 +704,245 @@ function QuestionChart({
       return <ChoiceChart options={q.options} accent={accent} />;
     case "rating":
       return (
-        <RatingChart
-          min={q.min}
-          max={q.max}
-          average={q.average}
-          distribution={q.distribution}
-          accent={accent}
-        />
+        <>
+          {q.nps && <NpsBlock nps={q.nps} />}
+          <RatingChart
+            min={q.min}
+            max={q.max}
+            average={q.average}
+            distribution={q.distribution}
+            accent={accent}
+          />
+          <RatingStats q={q} />
+        </>
       );
     case "text":
-      return <TextList values={q.values} />;
+      return <TextList values={q.values} terms={q.terms} accent={accent} />;
     case "files":
       return <FilesList values={q.values} accent={accent} />;
+    case "matrix":
+      return <MatrixChart q={q} accent={accent} />;
+    case "ranking":
+      return <RankingChart q={q} accent={accent} />;
+    case "numeric":
+      return <NumericChart q={q} accent={accent} />;
+    case "dates":
+      return <DatesChart q={q} accent={accent} />;
+    case "signature":
+      return (
+        <p className="text-sm text-neutral-600 dark:text-neutral-300">
+          <span className="text-2xl font-semibold tabular-nums" style={{ color: accent }}>
+            {q.signed}
+          </span>{" "}
+          {q.signed === 1 ? "persona firmó" : "personas firmaron"}. Las firmas se ven en la ficha de cada respuesta.
+        </p>
+      );
     default:
       return null;
   }
 }
 
-/** Barras horizontales por opción, proporcionales al count (n y %). */
-function ChoiceChart({
-  options,
-  accent,
-}: {
-  options: SummaryOption[];
-  accent: string;
-}) {
-  if (options.length === 0) {
-    return <EmptyHint text="Sin opciones registradas." />;
-  }
-  const total = options.reduce((sum, o) => sum + o.count, 0);
-  const maxCount = Math.max(1, ...options.map((o) => o.count));
-  return (
-    <div className="space-y-3">
-      {options.map((o, i) => {
-        const pct = total > 0 ? Math.round((o.count / total) * 100) : 0;
-        const width = (o.count / maxCount) * 100;
-        return (
-          <div key={i}>
-            <div className="mb-1 flex items-baseline justify-between gap-3 text-sm">
-              <span className="min-w-0 truncate text-neutral-700 dark:text-neutral-300">
-                {o.label}
-              </span>
-              <span className="shrink-0 tabular-nums text-neutral-500 dark:text-neutral-400">
-                {o.count} · {pct}%
-              </span>
-            </div>
-            <div className="h-2.5 w-full overflow-hidden rounded-full bg-neutral-100 dark:bg-neutral-800">
-              <div
-                className="h-full rounded-full transition-all"
-                style={{
-                  width: `${width}%`,
-                  backgroundColor: accent,
-                }}
-              />
-            </div>
-          </div>
-        );
-      })}
-    </div>
-  );
+/** Imprime sólo el resumen (misma técnica que el informe ejecutivo: ver
+ *  `.enc-printing` en globals.css). El navegador ofrece "Guardar como PDF". */
+function imprimir() {
+  document.body.classList.add("enc-printing");
+  const fin = () => {
+    document.body.classList.remove("enc-printing");
+    window.removeEventListener("afterprint", fin);
+  };
+  window.addEventListener("afterprint", fin);
+  window.print();
 }
 
-/** Histograma de barras verticales por valor min..max + promedio grande. */
-function RatingChart({
-  min,
-  max,
-  average,
-  distribution,
-  accent,
-}: {
-  min: number;
-  max: number;
-  average: number | null;
-  distribution: { value: number; count: number }[];
-  accent: string;
-}) {
-  // Arma todos los valores min..max, rellenando con count 0 los que falten.
-  const byValue = new Map(distribution.map((d) => [d.value, d.count]));
-  const values: { value: number; count: number }[] = [];
-  for (let v = min; v <= max; v++) {
-    values.push({ value: v, count: byValue.get(v) ?? 0 });
+const MOTIVOS: Record<string, string> = {
+  speeder: "Apurada",
+  straight_line: "En línea recta",
+  duplicate: "Duplicada",
+};
+
+/** Respuestas con señales de baja calidad, con la opción de excluirlas
+ *  (reversible: se pueden volver a incluir desde la tabla de respuestas). */
+function QualityCard({ surveyId, onExcluded }: { surveyId: string; onExcluded: () => void }) {
+  const { data, reload } = useAsyncData(() => surveyApi.getQuality(surveyId), [surveyId]);
+  const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  if (!data || data.flagged.length === 0) return null;
+  const porMotivo: Record<string, number> = {};
+  for (const f of data.flagged) for (const r of f.reasons) porMotivo[r.code] = (porMotivo[r.code] ?? 0) + 1;
+
+  async function excluir(d: QualityReport) {
+    if (!window.confirm(`¿Excluir ${d.flagged.length} respuestas de los resultados? Se pueden volver a incluir.`))
+      return;
+    setBusy(true);
+    try {
+      await surveyApi.bulkResponses(surveyId, d.flagged.map((f) => f.response_id), "exclude");
+      reload();
+      onExcluded();
+    } finally {
+      setBusy(false);
+    }
   }
-  const maxCount = Math.max(1, ...values.map((v) => v.count));
 
   return (
-    <div>
-      <div className="mb-4 flex items-end gap-2">
-        <span
-          className="text-4xl font-semibold leading-none"
-          style={{ color: accent }}
-        >
-          {average != null ? average.toFixed(1) : "—"}
+    <div className="rounded-xl border border-amber-200 bg-amber-50/60 p-3 text-sm dark:border-amber-900/60 dark:bg-amber-950/20 print:hidden">
+      <div className="flex flex-wrap items-center gap-2">
+        <ShieldAlert className="h-4 w-4 text-amber-600" />
+        <span className="font-medium text-amber-900 dark:text-amber-200">
+          {data.flagged.length} {data.flagged.length === 1 ? "respuesta" : "respuestas"} con señales de baja calidad
         </span>
-        <span className="mb-0.5 text-sm text-neutral-400 dark:text-neutral-500">
-          promedio (de {min} a {max})
+        <span className="text-xs text-amber-800/80 dark:text-amber-300/80">
+          {Object.entries(porMotivo)
+            .map(([k, n]) => `${MOTIVOS[k] ?? k}: ${n}`)
+            .join(" · ")}
         </span>
-      </div>
-      <div className="flex items-end gap-1.5" style={{ height: 128 }}>
-        {values.map((v) => {
-          const h = (v.count / maxCount) * 100;
-          return (
-            <div
-              key={v.value}
-              className="flex min-w-0 flex-1 flex-col items-center justify-end gap-1"
-            >
-              <span className="text-[11px] tabular-nums text-neutral-400 dark:text-neutral-500">
-                {v.count}
-              </span>
-              <div
-                className="w-full rounded-t transition-all"
-                style={{
-                  height: `${Math.max(h, v.count > 0 ? 4 : 0)}%`,
-                  backgroundColor: v.count > 0 ? accent : "transparent",
-                  minHeight: v.count > 0 ? 4 : 0,
-                }}
-                title={`${v.value}: ${v.count}`}
-              />
-              <span className="text-xs font-medium text-neutral-500 dark:text-neutral-400">
-                {v.value}
-              </span>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-/** Lista scrolleable de respuestas abiertas (máx ~50 visibles). */
-function TextList({ values }: { values: string[] }) {
-  const [showAll, setShowAll] = useState(false);
-  const nonEmpty = values.filter((v) => v && v.trim().length > 0);
-  if (nonEmpty.length === 0) {
-    return <EmptyHint text="Sin respuestas de texto." />;
-  }
-  const LIMIT = 50;
-  const visible = showAll ? nonEmpty : nonEmpty.slice(0, LIMIT);
-  const hidden = nonEmpty.length - visible.length;
-
-  return (
-    <div>
-      <div className="max-h-80 space-y-2 overflow-y-auto pr-1">
-        {visible.map((v, i) => (
-          <div
-            key={i}
-            className="rounded-lg border border-neutral-100 bg-neutral-50 px-3 py-2 text-sm text-neutral-700 dark:border-neutral-800 dark:bg-neutral-950 dark:text-neutral-300"
-          >
-            {v}
-          </div>
-        ))}
-      </div>
-      <div className="mt-2 flex items-center justify-between text-xs text-neutral-400 dark:text-neutral-500">
-        <span>
-          {nonEmpty.length}{" "}
-          {nonEmpty.length === 1 ? "respuesta" : "respuestas"}
-        </span>
-        {hidden > 0 && (
-          <button
-            type="button"
-            onClick={() => setShowAll(true)}
-            className="font-medium text-neutral-600 underline hover:text-neutral-900 dark:text-neutral-300 dark:hover:text-neutral-100"
-          >
-            Ver todas ({hidden} más)
+        <span className="ml-auto flex gap-2">
+          <button onClick={() => setOpen((o) => !o)} className="text-xs font-medium text-amber-900 underline dark:text-amber-200">
+            {open ? "Ocultar" : "Ver detalle"}
           </button>
-        )}
-      </div>
-    </div>
-  );
-}
-
-const VIDEO_RE = /\.(mp4|webm|ogg|ogv|mov|m4v)(\?|#|$)/i;
-
-/** Lista de enlaces a archivos; mini-preview para videos. */
-function FilesList({
-  values,
-  accent,
-}: {
-  values: string[];
-  accent: string;
-}) {
-  const urls = values.filter((v) => v && v.trim().length > 0);
-  if (urls.length === 0) {
-    return <EmptyHint text="Sin archivos adjuntos." />;
-  }
-  return (
-    <div className="space-y-3">
-      {urls.map((raw, i) => {
-        const url = resolveAssetUrl(raw);
-        const isVideo = VIDEO_RE.test(raw);
-        const name = fileName(raw);
-        if (isVideo) {
-          return (
-            <div key={i} className="space-y-1">
-              <video
-                src={url}
-                controls
-                preload="metadata"
-                className="max-h-64 w-full rounded-lg border border-neutral-200 bg-black dark:border-neutral-800"
-              />
-              <a
-                href={url}
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex items-center gap-1 text-xs text-neutral-500 hover:text-neutral-900 dark:text-neutral-400 dark:hover:text-neutral-100"
-              >
-                {name} <ExternalLink className="h-3 w-3" />
-              </a>
-            </div>
-          );
-        }
-        return (
-          <a
-            key={i}
-            href={url}
-            target="_blank"
-            rel="noreferrer"
-            className="flex items-center gap-2 rounded-lg border border-neutral-200 px-3 py-2 text-sm text-neutral-700 hover:bg-neutral-50 dark:border-neutral-800 dark:text-neutral-300 dark:hover:bg-neutral-800"
+          <button
+            onClick={() => excluir(data)}
+            disabled={busy}
+            className="inline-flex items-center gap-1 rounded-md bg-amber-600 px-2 py-1 text-xs font-medium text-white hover:bg-amber-700 disabled:opacity-60"
           >
-            <FileText className="h-4 w-4 shrink-0" style={{ color: accent }} />
-            <span className="min-w-0 flex-1 truncate">{name}</span>
-            <ExternalLink className="h-3.5 w-3.5 shrink-0 text-neutral-400 dark:text-neutral-500" />
-          </a>
-        );
-      })}
+            {busy && <Loader2 className="h-3 w-3 animate-spin" />} Excluirlas
+          </button>
+        </span>
+      </div>
+      {open && (
+        <ul className="mt-2 max-h-56 space-y-1 overflow-y-auto text-xs text-amber-900 dark:text-amber-200">
+          {data.flagged.map((f) => (
+            <li key={f.response_id}>
+              <span className="font-mono opacity-60">{f.response_id.slice(0, 8)}</span> ·{" "}
+              {f.reasons.map((r) => `${MOTIVOS[r.code] ?? r.code} (${r.detail})`).join("; ")}
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }
 
-function fileName(url: string): string {
-  try {
-    const clean = url.split("?")[0].split("#")[0];
-    const parts = clean.split("/");
-    return decodeURIComponent(parts[parts.length - 1] || url);
-  } catch {
-    return url;
-  }
+const DISPOSITIVOS: Record<string, string> = { mobile: "Celular", desktop: "Computadora", tablet: "Tableta" };
+
+function duracion(sec: number | null | undefined): string {
+  if (sec == null) return "—";
+  if (sec < 90) return `${Math.round(sec)} s`;
+  if (sec < 5400) return `${Math.round(sec / 60)} min`;
+  return `${(sec / 3600).toFixed(1).replace(".", ",")} h`;
 }
 
-function EmptyHint({ text }: { text: string }) {
-  return <p className="text-sm text-neutral-400 dark:text-neutral-500">{text}</p>;
+/** Tiempo de completado, dispositivos y personas con una respuesta en curso. */
+function FunnelExtras({ funnel }: { funnel: Funnel }) {
+  const t = funnel.completion_seconds;
+  const devs = Object.entries(funnel.devices ?? {});
+  const totalDev = devs.reduce((a, [, n]) => a + n, 0);
+  if (!t?.n && !totalDev && !funnel.in_progress) return null;
+  return (
+    <div className="mt-5 grid grid-cols-1 gap-2 border-t border-neutral-100 pt-4 sm:grid-cols-3 dark:border-neutral-800">
+      {t && t.n > 0 && (
+        <Stat
+          label="Tiempo para completar"
+          value={
+            <span title={`Desde que abrió la encuesta hasta que la envió. Mitad central: ${duracion(t.p25)} a ${duracion(t.p75)}.`}>
+              {duracion(t.median)} <span className="text-xs font-normal text-neutral-400">mediana</span>
+            </span>
+          }
+        />
+      )}
+      {totalDev > 0 && (
+        <Stat
+          label="Dispositivo"
+          value={devs
+            .sort((a, b) => b[1] - a[1])
+            .map(([k, n]) => `${DISPOSITIVOS[k] ?? k} ${Math.round((n / totalDev) * 100)}%`)
+            .join(" · ")}
+        />
+      )}
+      {!!funnel.in_progress && (
+        <Stat
+          label="En curso"
+          value={
+            <span title="Personas identificadas (invitados o alumnos desde Moodle) con una respuesta a medio hacer guardada.">
+              {funnel.in_progress} {funnel.in_progress === 1 ? "persona" : "personas"}
+            </span>
+          }
+        />
+      )}
+    </div>
+  );
+}
+
+/** "Preguntale a tus datos": la IA responde con los números que calcula el
+ *  servidor (no inventa). Si hay un segmento activo, el cruce va en el
+ *  contexto, con su prueba de significancia. */
+function AskCard({ surveyId, segmentBy, accent }: { surveyId: string; segmentBy: string | null; accent: string }) {
+  const [q, setQ] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [res, setRes] = useState<DataAnswer | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+
+  async function preguntar(e: React.FormEvent) {
+    e.preventDefault();
+    if (q.trim().length < 3) return;
+    setBusy(true);
+    setErr(null);
+    try {
+      setRes(await surveyApi.ask(surveyId, q.trim(), segmentBy));
+    } catch (x) {
+      setErr(x instanceof Error ? x.message : String(x));
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="rounded-xl border border-neutral-200 bg-white p-4 dark:border-neutral-800 dark:bg-neutral-900 print:hidden">
+      <form onSubmit={preguntar} className="flex items-center gap-2">
+        <Sparkles className="h-4 w-4 shrink-0" style={{ color: accent }} />
+        <input
+          value={q}
+          onChange={(e) => setQ(e.target.value)}
+          maxLength={500}
+          placeholder={
+            segmentBy
+              ? "Preguntale a tus datos (con el cruce activo): ¿qué grupo está más conforme?"
+              : "Preguntale a tus datos: ¿qué es lo que más se critica?"
+          }
+          className="min-w-0 flex-1 bg-transparent text-sm outline-none"
+        />
+        <button
+          type="submit"
+          disabled={busy || q.trim().length < 3}
+          className="inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-xs font-medium text-white disabled:opacity-50"
+          style={{ backgroundColor: accent }}
+        >
+          {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Send className="h-3.5 w-3.5" />} Preguntar
+        </button>
+      </form>
+      {err && <p className="mt-2 text-sm text-red-600">{err}</p>}
+      {res && (
+        <div className="mt-3 border-t border-neutral-100 pt-3 text-sm dark:border-neutral-800">
+          <p className={res.answerable ? "text-neutral-800 dark:text-neutral-100" : "text-neutral-500"}>{res.answer}</p>
+          {res.figures.length > 0 && (
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              {res.figures.map((f, i) => (
+                <span key={i} className="rounded-md bg-neutral-100 px-2 py-0.5 text-xs dark:bg-neutral-800">
+                  <span className="text-neutral-500">{f.label}:</span>{" "}
+                  <span className="font-semibold tabular-nums">{f.value}</span>
+                </span>
+              ))}
+            </div>
+          )}
+          {res.caveats.map((c, i) => (
+            <p key={i} className="mt-1.5 flex items-start gap-1 text-xs text-amber-700 dark:text-amber-400">
+              <AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" /> {c}
+            </p>
+          ))}
+          <p className="mt-2 text-[11px] text-neutral-400">
+            Las cifras salen de los datos calculados por Encuestum, no de la IA. Verificalas en los gráficos.
+          </p>
+        </div>
+      )}
+    </div>
+  );
 }

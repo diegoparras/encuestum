@@ -17,11 +17,12 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
+from app import scopes
 from app.db import get_session
 from app.deps import OrgContext, current_context
 from app.models import Survey, SurveyFolder
 
-router = APIRouter(prefix="/folders", tags=["folders"])
+router = APIRouter(prefix="/folders", tags=["folders"], dependencies=[Depends(scopes.guard)])
 
 _COLOR = r"^#[0-9a-fA-F]{6}$"
 
@@ -97,6 +98,9 @@ async def list_folders(
         )
     ).all()
     conteo = {r[0]: r[1] for r in filas}
+    permitidas = await scopes.allowed_folders(session, ctx)
+    if permitidas is not None:
+        carpetas = [f for f in carpetas if f.id in permitidas]
     return [
         FolderOut(
             id=f.id, parent_id=f.parent_id, name=f.name, color=f.color,
@@ -221,6 +225,12 @@ async def move_surveys(
             )
         )
     ).all()
+    permitidas = await scopes.allowed_folders(session, ctx)
+    if permitidas is not None:
+        # Sólo entre carpetas propias, y sólo encuestas que ve.
+        if payload.folder_id not in permitidas:
+            raise HTTPException(status_code=403, detail="Esa carpeta está fuera de tu alcance.")
+        encuestas = [s for s in encuestas if scopes.can_see(s, permitidas)]
     for s in encuestas:
         s.folder_id = payload.folder_id
         session.add(s)

@@ -36,6 +36,10 @@ os.environ["ENCUESTUM_ENABLE_HSTS"] = "false"
 os.environ["ENCUESTUM_RATE_LIMIT_ENABLED"] = "false"
 os.environ["ENCUESTUM_SUPERADMIN_EMAIL"] = "super@example.com"
 os.environ["ENCUESTUM_WEBHOOKS_ENABLED"] = "false"
+# La cola se vacía a mano (`app.jobs.drain()`) para que los tests sean
+# determinísticos: con el worker corriendo, una entrega podría ocurrir en
+# cualquier momento de otro test.
+os.environ["ENCUESTUM_JOBS_WORKER"] = "false"
 os.environ["ENCUESTUM_BASE_DOMAIN"] = "encuestum.example"
 # Los tests no deben depender de DNS; el guard SSRF se prueba aparte por unidad.
 os.environ["ENCUESTUM_ALLOW_PRIVATE_OUTBOUND"] = "true"
@@ -66,7 +70,7 @@ async def _fake_sum(*, question_title, language, answers):
             "key_takeaways": ["a", "b"]}
 
 
-async def _fake_gen(*, topic, count, types, language, difficulty, context=None):
+async def _fake_gen(*, topic, count, types, language, difficulty, context=None, **kw):
     return {"questions": [{"type": "radiogroup", "title": f"P {topic}", "choices": ["A", "B"],
                            "correctIndices": [1], "modelAnswer": "", "keyConcepts": [],
                            "rubric": [], "points": 1.0}]}

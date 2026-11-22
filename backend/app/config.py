@@ -73,6 +73,12 @@ class Settings:
         # Only trust X-Forwarded-For when behind a proxy you control (nginx). Off
         # by default so clients can't spoof their IP to evade rate limits.
         self.trust_proxy = _bool("ENCUESTUM_TRUST_PROXY", False)
+        # Guardar un seudónimo (HMAC) de la IP de cada respuesta. No la IP: sirve
+        # para detectar envíos repetidos desde una misma conexión sin retener un
+        # dato personal en claro. Se apaga para encuestas sin rastro de red.
+        self.store_ip_hash = _bool("ENCUESTUM_STORE_IP_HASH", True)
+        # Worker de la cola de tareas en segundo plano (app/jobs.py).
+        self.jobs_worker_enabled = _bool("ENCUESTUM_JOBS_WORKER", True)
         # Guard anti-SSRF: bloquea requests salientes (webhooks, base URL del LLM
         # y también LTI -- JWKS de la plataforma, token endpoint de AGS, y los
         # fetches del registro dinámico) hacia direcciones privadas/internas.
@@ -143,6 +149,11 @@ class Settings:
         self.public_base_url = (os.getenv("ENCUESTUM_PUBLIC_URL") or "").strip().rstrip("/")
         if not self.public_base_url:
             self.public_base_url = (self.cors_origins[0] if self.cors_origins else "http://localhost:8080").rstrip("/")
+        # Dónde se llega a la API desde afuera (píxel de apertura de los emails,
+        # documentación de la API pública). Por defecto, el mismo origen.
+        self.public_api_base_url = (
+            (os.getenv("ENCUESTUM_PUBLIC_API_URL") or "").strip().rstrip("/") or self.public_base_url
+        )
 
         # Email verification. Off by default so nobody gets locked out when SMTP
         # isn't configured; turn on to require a verified email before login.

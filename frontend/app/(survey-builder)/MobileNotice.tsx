@@ -11,7 +11,8 @@ import { useI18n } from "@/lib/i18n";
 // sesión y SOLO dentro del shell autenticado (AppShell) — nunca al responder una
 // encuesta pública, que no monta este componente.
 const SESSION_KEY = "encuestum.mobileNotice.seen";
-const MOBILE_QUERY = "(max-width: 820px)";
+// Sólo teléfonos: en tablet el editor pasa a pestañas y se usa bien.
+const MOBILE_QUERY = "(max-width: 640px)";
 
 export function MobileNotice() {
   const { t } = useI18n();

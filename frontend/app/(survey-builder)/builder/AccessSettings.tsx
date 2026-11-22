@@ -10,6 +10,8 @@ import {
 } from "../surveyApi";
 import { readableForeground } from "./model";
 import { InviteesManager } from "./InviteesManager";
+import { PrivacySettings } from "./PrivacySettings";
+import { DistributionSettings } from "./DistributionSettings";
 import { useI18n } from "@/lib/i18n";
 
 interface Props {
@@ -345,6 +347,10 @@ export function AccessSettings({
           </span>
         </label>
       </div>
+
+      <DistributionSettings surveyId={surveyId} />
+
+      <PrivacySettings surveyId={surveyId} />
 
       <InviteesManager
         open={inviteesOpen}

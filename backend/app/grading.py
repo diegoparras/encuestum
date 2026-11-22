@@ -92,6 +92,10 @@ def extract_question_types(json_schema: Optional[dict]) -> Dict[str, str]:
             t = el.get("type")
             if t == "text" and el.get("inputType") == "email":
                 t = "email"
+            elif t == "text" and el.get("inputType") == "number":
+                t = "number"
+            elif t == "slider":
+                t = "number"
             types[name] = t or "text"
     return types
 
@@ -124,7 +128,7 @@ def grade_deterministic(
 ) -> dict:
     """Grade a single deterministic question. Returns a per-question result."""
     points = float(qcfg.get("points", 1) or 0)
-    blank = answer is None or (isinstance(answer, (list, str)) and len(answer) == 0)
+    blank = answer is None or (isinstance(answer, (list, str, dict)) and len(answer) == 0)
 
     # Image-choice questions grade exactly like their text counterparts (choice
     # values are the option labels): multi-select → checkbox, single → radiogroup.
@@ -167,6 +171,30 @@ def grade_deterministic(
             awarded = points if abs(answer_n - correct_n) <= tol else 0.0
     elif qtype == "boolean":
         awarded = points if bool(answer) == bool(qcfg.get("correct")) else 0.0
+    elif qtype == "ranking":
+        # Orden correcto: la lista configurada. Con crédito parcial, la
+        # proporción de elementos que quedaron en su lugar.
+        correct = [str(x) for x in (qcfg.get("correct") or [])]
+        dado = [str(x) for x in (answer if isinstance(answer, list) else [])]
+        if correct:
+            en_lugar = sum(1 for a, b in zip(dado, correct) if a == b)
+            if qcfg.get("partialCredit"):
+                awarded = points * en_lugar / len(correct)
+                detail = f"{en_lugar} de {len(correct)} en su lugar."
+            else:
+                awarded = points if dado == correct else 0.0
+    elif qtype == "matrix":
+        # Una columna correcta por fila: {"fila": "columna"}.
+        correct = {str(k): str(v) for k, v in (qcfg.get("correct") or {}).items()} \
+            if isinstance(qcfg.get("correct"), dict) else {}
+        dado = {str(k): str(v) for k, v in answer.items()} if isinstance(answer, dict) else {}
+        if correct:
+            bien = sum(1 for fila, col in correct.items() if dado.get(fila) == col)
+            if qcfg.get("partialCredit"):
+                awarded = points * bien / len(correct)
+                detail = f"{bien} de {len(correct)} filas correctas."
+            else:
+                awarded = points if bien == len(correct) else 0.0
     else:
         # Unknown deterministic type — defer to a human rather than guess.
         return {
@@ -341,14 +369,28 @@ async def grade_response(
         [x for x, on in [("auto", used_auto), ("llm", used_llm)] if on]
     ) or "none"
 
-    model_name = None
+    # Con qué se corrigió. El modelo sale de la llamada en curso (el proveedor
+    # de la organización, y el nombre que el propio proveedor reportó), no de
+    # las variables de entorno: con un proveedor por organización, `_model()`
+    # anotaba un modelo que no era el que había corregido.
+    model_name = provider_kind = prompt_version = None
     if used_llm:
-        try:
-            from app.llm import _model
+        from app import ai_usage
+        from app.llm_calls import grader_prompt_version
 
-            model_name = _model()
-        except Exception:
-            model_name = None
+        acc = ai_usage.current()
+        if acc is not None and acc.model:
+            model_name = acc.model
+            provider_kind = acc.provider.kind if acc.provider else None
+        else:
+            try:
+                from app.llm import _model
+
+                model_name = _model()
+                provider_kind = "env"
+            except Exception:
+                model_name = None
+        prompt_version = grader_prompt_version()
 
     return {
         "total": round(total, 3),
@@ -359,6 +401,8 @@ async def grade_response(
         "needs_review": needs_review,
         "graded_by": graded_by,
         "model": model_name,
+        "provider": provider_kind,
+        "prompt_version": prompt_version,
         "overridden": False,
         "version": 1,
     }

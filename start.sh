@@ -7,6 +7,17 @@ set -uo pipefail
 DATA_DIR="${ENCUESTUM_DATA_DIR:-/app_data}"
 mkdir -p "$DATA_DIR"
 
+# La app corre como `encuestum` (sin privilegios). El volumen de datos puede
+# venir de una versión anterior, escrita por root: se le pasa la propiedad
+# sólo a lo que no la tenga (barato aunque haya muchos archivos ya bien).
+APP_USER="encuestum"
+if id "$APP_USER" >/dev/null 2>&1; then
+  find "$DATA_DIR" ! -user "$APP_USER" -exec chown "$APP_USER:$APP_USER" {} + 2>/dev/null || true
+  como_app() { exec setpriv --reuid="$APP_USER" --regid="$APP_USER" --init-groups --no-new-privs -- "$@"; }
+else
+  como_app() { exec "$@"; }
+fi
+
 # Integraciones con Moodle (LTI 1.3 y el módulo nativo `mod_encuestum`): decide
 # en runtime (no en `next build`, que ya pasó y quedó congelado en el frontend)
 # si /lti-select y /s/ se sirven enmarcables.
@@ -130,12 +141,16 @@ fi
 # pone quien despliega, mismo nivel de confianza que el resto de este script.
 sed -i "s|__ANCESTROS__|${ANCESTROS}|g" "$LTI_SNIPPET"
 
-# Backend (FastAPI) on :8000
-( cd /app/backend && exec uvicorn app.main:app --host 127.0.0.1 --port 8000 ) &
+# Backend (FastAPI) on :8000. ENCUESTUM_WORKERS procesos (1 por defecto). Con
+# Postgres se puede subir (p. ej. 2-4); con SQLite dejalo en 1: varios procesos
+# escribiendo el mismo archivo terminan en "database is locked". Cada proceso
+# corre su propio worker de la cola y se reparten las tareas sin pisarse.
+WORKERS="${ENCUESTUM_WORKERS:-1}"
+( cd /app/backend && como_app uvicorn app.main:app --host 127.0.0.1 --port 8000 --workers "$WORKERS" ) &
 BACKEND=$!
 
 # Frontend (Next.js standalone) on :3000
-( cd /app/frontend && PORT=3000 HOSTNAME=127.0.0.1 exec node server.js ) &
+( cd /app/frontend && PORT=3000 HOSTNAME=127.0.0.1 como_app node server.js ) &
 FRONTEND=$!
 
 # Reverse proxy (nginx) on :80

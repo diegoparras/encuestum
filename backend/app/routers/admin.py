@@ -2,29 +2,30 @@ import asyncio
 import logging
 import re
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, Response
 from fastapi.responses import StreamingResponse
 from sqlalchemy import delete, func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, Field
 
+from app import scopes
 from app.db import get_session
 from app.deps import OrgContext, current_context
-from app.email import build_url, send_email
 from app.exporting import CSV_MEDIA, XLSX_MEDIA, export_rows, rows_to_csv, sheets_to_xlsx
+from app.audit import record_event
 from app.hygiene import counted_only
-from app.models import Survey, SurveyInvitee, SurveyResponse, _utcnow
+from app.models import Survey, SurveyResponse, _utcnow
 from app.schemas import (
     VALID_STATUSES, ResponseItem, SurveyCreateRequest, SurveyDetail,
     SurveySummary, SurveyUpdateRequest,
 )
 
-router = APIRouter(prefix="/surveys", tags=["surveys"])
+router = APIRouter(prefix="/surveys", tags=["surveys"], dependencies=[Depends(scopes.guard)])
 
 LOGGER = logging.getLogger(__name__)
 
@@ -67,9 +68,37 @@ async def create_survey(
         title=payload.title, json_schema=payload.json_schema or {},
         language=payload.language, theme=payload.theme, evaluation=payload.evaluation,
     )
+    # Alguien limitado a ciertas carpetas crea adentro de una de ellas (si no,
+    # no podría volver a ver lo que creó).
+    permitidas = await scopes.allowed_folders(session, ctx)
+    if permitidas is not None:
+        if not permitidas:
+            raise HTTPException(status_code=403, detail="No tenés carpetas asignadas para crear encuestas.")
+        s.folder_id = sorted(permitidas, key=str)[0]
     session.add(s)
+    await session.flush()
+    record_event(session, action="survey.created", org_id=ctx.org.id, actor=ctx.user, survey_id=s.id,
+                 detail={"title": s.title})
     await session.commit()
     await session.refresh(s)
+    return SurveyDetail.from_model(s)
+
+
+@router.post("/demo", response_model=SurveyDetail, status_code=201)
+async def create_demo_survey(
+    kind: str = Query("survey", pattern="^(survey|exam)$"),
+    ctx: OrgContext = Depends(current_context),
+    session: AsyncSession = Depends(get_session),
+):
+    """Una encuesta o examen de ejemplo con respuestas simuladas (onboarding)."""
+    from app.demo import create_demo
+
+    if await scopes.allowed_folders(session, ctx) is not None:
+        raise HTTPException(status_code=403, detail="La demo la crea alguien con acceso a toda la organización.")
+    s = await create_demo(session, org_id=ctx.org.id, user_id=ctx.user.id, kind=kind)
+    record_event(session, action="survey.created", org_id=ctx.org.id, actor=ctx.user, survey_id=s.id,
+                 detail={"demo": kind})
+    await session.commit()
     return SurveyDetail.from_model(s)
 
 
@@ -85,6 +114,8 @@ async def list_surveys(
             .order_by(Survey.updated_at.desc())
         )
     ).all()
+    permitidas = await scopes.allowed_folders(session, ctx)
+    surveys = [s for s in surveys if scopes.can_see(s, permitidas)]
     ids = [s.id for s in surveys]
     counts: dict = {}
     if ids:
@@ -154,10 +185,77 @@ async def update_survey(
             s.slug = norm
 
     data = payload.model_dump(exclude_unset=True)
+    # Control de concurrencia optimista. Antes ganaba el último que guardaba:
+    # dos pestañas (o dos docentes) con el autosave prendido se pisaban sin
+    # aviso. Sólo se controla cuando el pedido trae contenido editable, así que
+    # cambiar el link o el acceso desde otra pantalla no bloquea al editor.
+    base = data.pop("base_content_hash", None)
+    snapshot = bool(data.pop("snapshot", None))
+    toca_contenido = bool({"json_schema", "evaluation", "theme", "title"} & set(data))
+    if base and toca_contenido:
+        from app.audit import survey_content_hash
+
+        actual = survey_content_hash(s)
+        if base != actual:
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "survey_conflict",
+                    "message": "Otra pestaña u otra persona cambió esta encuesta mientras la "
+                               "editabas. Recargá para ver la última versión.",
+                    "content_hash": actual,
+                    "updated_at": s.updated_at.isoformat() if s.updated_at else None,
+                },
+            )
+    # Privacidad y recordatorios: validados antes del loop genérico.
+    if "retention_days" in data or "retention_action" in data:
+        from app.privacy import clean_retention
+
+        try:
+            d, a = clean_retention(
+                data.get("retention_days", s.retention_days),
+                data.get("retention_action", s.retention_action),
+            )
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
+        data["retention_days"], data["retention_action"] = d, a
+    if "reminders" in data:
+        from app.distribution import clean_reminders
+
+        try:
+            data["reminders"] = clean_reminders(data["reminders"])
+        except ValueError as exc:
+            raise HTTPException(status_code=422, detail=str(exc))
+    if data.get("anonymous") is None:
+        data.pop("anonymous", None)
+    from app import fields as fields_mod
+
+    try:
+        if "hidden_fields" in data:
+            data["hidden_fields"] = fields_mod.clean_hidden_fields(data["hidden_fields"])
+        if "quotas" in data:
+            esquema = data.get("json_schema") or s.json_schema or {}
+            ocultos = data.get("hidden_fields", s.hidden_fields) or []
+            nombres = {el.get("name") for p in esquema.get("pages", []) or [] if isinstance(p, dict)
+                       for el in p.get("elements", []) or [] if isinstance(el, dict) and el.get("name")}
+            nombres |= {fields_mod.HIDDEN_PREFIX + n for n in ocultos}
+            data["quotas"] = fields_mod.clean_quotas(data["quotas"], valid_names=nombres)
+        if "public_results" in data:
+            data["public_results"] = fields_mod.clean_public_results(data["public_results"], s.public_results)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    if (data.get("status") == "published" and s.status != "published"
+            and getattr(ctx.org, "require_publish_approval", False) and not scopes.is_admin(ctx)):
+        raise HTTPException(status_code=403, detail="Publicar requiere aprobación: usá «Pedir publicación».")
+    if "folder_id" in data:
+        permitidas = await scopes.allowed_folders(session, ctx)
+        if permitidas is not None and data["folder_id"] not in permitidas:
+            raise HTTPException(status_code=403, detail="Esa carpeta está fuera de tu alcance.")
     # org_id / created_by / slug are handled explicitly, never via the generic loop.
     data.pop("org_id", None)
     data.pop("created_by", None)
     data.pop("slug", None)
+    cambios = sorted(f for f, v in data.items() if getattr(s, f, None) != v)
     for field, value in data.items():
         setattr(s, field, value)
 
@@ -171,7 +269,134 @@ async def update_survey(
                 detail="La fecha de inicio debe ser anterior a la de cierre.",
             )
 
+    if cambios:
+        # Sólo QUÉ cambió, no el contenido: el contenido que alguien contestó
+        # queda congelado en `survey_versions`. `access_pin` se nombra pero
+        # nunca se copia al registro.
+        detail: dict = {"fields": cambios}
+        if "status" in cambios:
+            detail["status"] = s.status
+        record_event(session, action="survey.updated", org_id=ctx.org.id, actor=ctx.user,
+                     survey_id=s.id, detail=detail)
+    if {"json_schema", "evaluation"} & set(cambios):
+        await _snapshot_editor(session, s, ctx, manual=snapshot)
     session.add(s)
+    await session.commit()
+    await session.refresh(s)
+    return SurveyDetail.from_model(s)
+
+
+_AUTOSNAPSHOT_EVERY_S = 15 * 60
+
+
+async def _snapshot_editor(session, s, ctx, *, manual: bool) -> None:
+    """Versión para el historial del editor. Con guardado manual, siempre (si
+    el contenido es nuevo); con autoguardado, sólo si la última versión tiene
+    más de 15 minutos: el historial no se llena de cada tecla."""
+    from app.audit import ensure_survey_version
+    from app.models import SurveyVersion
+
+    if not manual:
+        ultima = await session.scalar(
+            select(SurveyVersion.created_at)
+            .where(SurveyVersion.survey_id == s.id)
+            .order_by(SurveyVersion.created_at.desc())
+            .limit(1)
+        )
+        if ultima is not None:
+            ultima = ultima if ultima.tzinfo else ultima.replace(tzinfo=timezone.utc)
+            if (datetime.now(timezone.utc) - ultima).total_seconds() < _AUTOSNAPSHOT_EVERY_S:
+                return
+    await ensure_survey_version(session, s, label="guardado" if manual else "autoguardado", actor=ctx.user)
+
+
+def _resumen_version(schema: dict) -> int:
+    from app.summarizing import count_questions
+
+    return count_questions(schema or {})
+
+
+@router.get("/{sid}/versions")
+async def list_versions(
+    sid: uuid.UUID,
+    ctx: OrgContext = Depends(current_context),
+    session: AsyncSession = Depends(get_session),
+):
+    """Historial de versiones (estructura + corrección), la más nueva primero,
+    con cuántas respuestas se dieron sobre cada una."""
+    from app.models import SurveyVersion
+
+    await _survey_or_404(sid, ctx.org.id, session)
+    versiones = (
+        await session.scalars(
+            select(SurveyVersion).where(SurveyVersion.survey_id == sid).order_by(SurveyVersion.number.desc())
+        )
+    ).all()
+    conteo = dict(
+        (
+            await session.execute(
+                select(SurveyResponse.survey_version_id, func.count(SurveyResponse.id))
+                .where(SurveyResponse.survey_id == sid)
+                .group_by(SurveyResponse.survey_version_id)
+            )
+        ).all()
+    )
+    return [
+        {
+            "id": str(v.id),
+            "number": v.number,
+            "label": v.label,
+            "created_by_email": v.created_by_email,
+            "created_at": v.created_at.isoformat(),
+            "questions": _resumen_version(v.json_schema),
+            "responses": int(conteo.get(v.id, 0)),
+        }
+        for v in versiones
+    ]
+
+
+@router.get("/{sid}/versions/{vid}")
+async def get_version(
+    sid: uuid.UUID,
+    vid: uuid.UUID,
+    ctx: OrgContext = Depends(current_context),
+    session: AsyncSession = Depends(get_session),
+):
+    from app.models import SurveyVersion
+
+    await _survey_or_404(sid, ctx.org.id, session)
+    v = await session.get(SurveyVersion, vid)
+    if v is None or v.survey_id != sid:
+        raise HTTPException(status_code=404, detail="Versión no encontrada")
+    return {"id": str(v.id), "number": v.number, "label": v.label, "json_schema": v.json_schema,
+            "evaluation": v.evaluation, "created_at": v.created_at.isoformat()}
+
+
+@router.post("/{sid}/versions/{vid}/restore", response_model=SurveyDetail)
+async def restore_version(
+    sid: uuid.UUID,
+    vid: uuid.UUID,
+    ctx: OrgContext = Depends(current_context),
+    session: AsyncSession = Depends(get_session),
+):
+    """Vuelve las preguntas y la corrección a las de una versión anterior. Lo
+    que había antes queda guardado como versión, así que restaurar también se
+    puede deshacer. Título, diseño y configuración no cambian."""
+    import copy
+
+    from app.audit import ensure_survey_version
+    from app.models import SurveyVersion
+
+    s = await _survey_or_404(sid, ctx.org.id, session)
+    v = await session.get(SurveyVersion, vid)
+    if v is None or v.survey_id != sid:
+        raise HTTPException(status_code=404, detail="Versión no encontrada")
+    antes = await ensure_survey_version(session, s, label="antes de restaurar", actor=ctx.user)
+    s.json_schema = copy.deepcopy(v.json_schema or {})
+    s.evaluation = copy.deepcopy(v.evaluation) if v.evaluation else None
+    session.add(s)
+    record_event(session, action="survey.version_restored", org_id=ctx.org.id, actor=ctx.user,
+                 survey_id=sid, detail={"restored": v.number, "previous": antes.number})
     await session.commit()
     await session.refresh(s)
     return SurveyDetail.from_model(s)
@@ -193,9 +418,16 @@ async def duplicate_survey(
         access_mode=s.access_mode, access_pin=s.access_pin,
         results_mode=s.results_mode, notify_emails=s.notify_emails,
         require_captcha=getattr(s, "require_captcha", False),
+        anonymous=bool(getattr(s, "anonymous", False)),
+        retention_days=s.retention_days, retention_action=s.retention_action,
+        reminders=s.reminders,
+        hidden_fields=s.hidden_fields, quotas=s.quotas,
         status="draft",  # copies start unpublished
     )
     session.add(copy)
+    await session.flush()
+    record_event(session, action="survey.duplicated", org_id=ctx.org.id, actor=ctx.user,
+                 survey_id=copy.id, detail={"from": str(s.id)})
     await session.commit()
     await session.refresh(copy)
     return SurveyDetail.from_model(copy)
@@ -208,8 +440,76 @@ async def publish_survey(
     session: AsyncSession = Depends(get_session),
 ):
     s = await _survey_or_404(sid, ctx.org.id, session)
+    # Flujo de aprobación: un miembro no publica, pide; un admin aprueba.
+    if getattr(ctx.org, "require_publish_approval", False) and not scopes.is_admin(ctx) and s.status != "published":
+        return await _pedir_aprobacion(s, ctx, session)
     s.status = "published"
+    s.approval = None
+    from app.audit import ensure_survey_version
+
+    await ensure_survey_version(session, s, label="publicada", actor=ctx.user)
     session.add(s)
+    record_event(session, action="survey.published", org_id=ctx.org.id, actor=ctx.user, survey_id=s.id)
+    await session.commit()
+    await session.refresh(s)
+    return SurveyDetail.from_model(s)
+
+
+async def _pedir_aprobacion(s: Survey, ctx: OrgContext, session: AsyncSession) -> SurveyDetail:
+    from app.email import build_url, enqueue_email
+    from app.models import ROLE_ADMIN, ROLE_OWNER, Membership, User
+
+    s.approval = {"state": "pending", "by": ctx.user.email, "at": _utcnow().isoformat(), "note": None}
+    session.add(s)
+    record_event(session, action="survey.approval_requested", org_id=ctx.org.id, actor=ctx.user, survey_id=s.id)
+    admins = (await session.scalars(
+        select(User).join(Membership, Membership.user_id == User.id).where(
+            Membership.org_id == ctx.org.id, Membership.role.in_((ROLE_OWNER, ROLE_ADMIN)))
+    )).all()
+    for u in admins:
+        enqueue_email(session, u.email, f"Pedido de publicación: {s.title or 'encuesta'}",
+                      f"{ctx.user.email} pidió publicar «{s.title or 'una encuesta'}».\n\n"
+                      f"Revisala y aprobala acá:\n{build_url(f'/surveys/{s.id}')}\n",
+                      org_id=ctx.org.id, survey_id=s.id)
+    await session.commit()
+    await session.refresh(s)
+    return SurveyDetail.from_model(s)
+
+
+class ApprovalDecision(BaseModel):
+    note: Optional[str] = Field(default=None, max_length=1000)
+
+
+@router.post("/{sid}/approval/approve", response_model=SurveyDetail)
+async def approve_survey(sid: uuid.UUID, payload: ApprovalDecision, ctx: OrgContext = Depends(current_context),
+                         session: AsyncSession = Depends(get_session)):
+    _require_admin(ctx)
+    s = await _survey_or_404(sid, ctx.org.id, session)
+    from app.audit import ensure_survey_version
+
+    pedido = s.approval or {}
+    s.status, s.approval = "published", None
+    await ensure_survey_version(session, s, label="publicada", actor=ctx.user)
+    session.add(s)
+    record_event(session, action="survey.approved", org_id=ctx.org.id, actor=ctx.user, survey_id=s.id,
+                 detail={"requested_by": pedido.get("by"), "note": payload.note})
+    await session.commit()
+    await session.refresh(s)
+    return SurveyDetail.from_model(s)
+
+
+@router.post("/{sid}/approval/reject", response_model=SurveyDetail)
+async def reject_survey(sid: uuid.UUID, payload: ApprovalDecision, ctx: OrgContext = Depends(current_context),
+                        session: AsyncSession = Depends(get_session)):
+    _require_admin(ctx)
+    s = await _survey_or_404(sid, ctx.org.id, session)
+    if not s.approval:
+        raise HTTPException(status_code=409, detail="No hay un pedido de publicación.")
+    s.approval = {**s.approval, "state": "rejected", "note": (payload.note or "").strip() or None,
+                  "decided_by": ctx.user.email, "decided_at": _utcnow().isoformat()}
+    session.add(s)
+    record_event(session, action="survey.rejected", org_id=ctx.org.id, actor=ctx.user, survey_id=s.id,
+                 detail={"note": payload.note})
     await session.commit()
     await session.refresh(s)
     return SurveyDetail.from_model(s)
@@ -224,6 +524,7 @@ async def close_survey(
     s = await _survey_or_404(sid, ctx.org.id, session)
     s.status = "closed"
     session.add(s)
+    record_event(session, action="survey.closed", org_id=ctx.org.id, actor=ctx.user, survey_id=s.id)
     await session.commit()
     await session.refresh(s)
     return SurveyDetail.from_model(s)
@@ -242,6 +543,7 @@ async def delete_survey(
     s = await _survey_or_404(sid, ctx.org.id, session)
     s.deleted_at = datetime.now(timezone.utc)
     session.add(s)
+    record_event(session, action="survey.trashed", org_id=ctx.org.id, actor=ctx.user, survey_id=s.id)
     await session.commit()
 
 
@@ -292,6 +594,7 @@ async def restore_survey(
     s = await _survey_or_404(sid, ctx.org.id, session, include_deleted=True)
     s.deleted_at = None
     session.add(s)
+    record_event(session, action="survey.restored", org_id=ctx.org.id, actor=ctx.user, survey_id=s.id)
     await session.commit()
     await session.refresh(s)
     return SurveyDetail.from_model(s)
@@ -312,6 +615,17 @@ async def purge_survey(
         raise HTTPException(
             status_code=409, detail="La encuesta debe estar en la papelera para borrarse del todo"
         )
+    # Rastro ANTES de destruir: el `delete()` masivo no deja nada y la cascada
+    # se lleva también `response_deletions`. `audit_events` no tiene FK a la
+    # encuesta justamente para sobrevivir a esto.
+    ids = (
+        await session.scalars(select(SurveyResponse.id).where(SurveyResponse.survey_id == sid))
+    ).all()
+    record_event(
+        session, action="survey.purged", org_id=ctx.org.id, actor=ctx.user, survey_id=sid,
+        detail={"title": s.title, "responses_deleted": len(ids),
+                "response_ids": [str(i) for i in ids[:5000]]},
+    )
     await session.execute(delete(SurveyResponse).where(SurveyResponse.survey_id == sid))
     await session.delete(s)
     await session.commit()
@@ -320,17 +634,45 @@ async def purge_survey(
 @router.get("/{sid}/responses", response_model=List[ResponseItem])
 async def list_responses(
     sid: uuid.UUID,
+    response: Response,
+    limit: Optional[int] = Query(None, ge=1, le=1000, description="Tamaño de página; sin él, todas"),
+    offset: int = Query(0, ge=0),
+    filter: str = Query("all", pattern="^(all|counted|needs_review|excluded|graded|ungraded)$"),
+    q: Optional[str] = Query(None, max_length=200, description="Busca en el email o código de quien respondió"),
     ctx: OrgContext = Depends(current_context),
     session: AsyncSession = Depends(get_session),
 ):
+    """Respuestas de la encuesta, las más nuevas primero.
+
+    Paginada con `limit`/`offset` (el total va en el header `X-Total-Count`),
+    filtrable del lado del servidor. Sin `limit` devuelve todas, como antes:
+    los llamadores viejos siguen funcionando, pero una encuesta con miles de
+    respuestas tiene que pedirlas de a páginas."""
+    from sqlalchemy import or_
+
     await _survey_or_404(sid, ctx.org.id, session)
-    responses = (
-        await session.scalars(
-            select(SurveyResponse)
-            .where(SurveyResponse.survey_id == sid)
-            .order_by(SurveyResponse.submitted_at.desc())
-        )
-    ).all()
+    cond = [SurveyResponse.survey_id == sid]
+    if filter == "needs_review":
+        cond.append(SurveyResponse.needs_review == True)  # noqa: E712
+    elif filter == "excluded":
+        cond.append(or_(SurveyResponse.excluded == True, SurveyResponse.is_test == True))  # noqa: E712
+    elif filter == "graded":
+        cond.append(SurveyResponse.graded_at.is_not(None))
+    elif filter == "ungraded":
+        cond.append(SurveyResponse.graded_at.is_(None))
+    if q and q.strip():
+        like = f"%{q.strip().lower()}%"
+        cond.append(or_(func.lower(SurveyResponse.respondent_email).like(like),
+                        func.lower(SurveyResponse.respondent_code).like(like)))
+    base = select(SurveyResponse).where(*cond)
+    if filter == "counted":
+        base = counted_only(base)
+    total = int(await session.scalar(select(func.count()).select_from(base.subquery())) or 0)
+    response.headers["X-Total-Count"] = str(total)
+    stmt = base.order_by(SurveyResponse.submitted_at.desc(), SurveyResponse.id)
+    if limit is not None:
+        stmt = stmt.offset(offset).limit(limit)
+    responses = (await session.scalars(stmt)).all()
     return [ResponseItem.from_model(r) for r in responses]
 
 
@@ -414,7 +756,32 @@ async def _funnel_data(sid: uuid.UUID, s, session: AsyncSession) -> dict:
         )
         or 0
     )
+    # Personas identificadas (invitados, alumnos desde Moodle) con una
+    # respuesta a medio hacer guardada: empezaron y todavía pueden terminar.
+    from app.models import SurveyDraft
+
+    in_progress = int(
+        await session.scalar(select(func.count(SurveyDraft.id)).where(SurveyDraft.survey_id == sid))
+        or 0
+    )
+    # Tiempo de completado y dispositivo, de los metadatos que pone el
+    # servidor al recibir (respuestas desde la 0026 en adelante).
+    from app.quality import completion_seconds, device_of
+
+    recibidas = (
+        await session.scalars(
+            counted_only(select(SurveyResponse).where(SurveyResponse.survey_id == sid))
+        )
+    ).all()
+    dispositivos: dict[str, int] = {}
+    for r in recibidas:
+        d = device_of(r)
+        if d:
+            dispositivos[d] = dispositivos.get(d, 0) + 1
     return {
+        "in_progress": in_progress,
+        "completion_seconds": completion_seconds(recibidas),
+        "devices": dispositivos,
         "views": views,
         "starts": starts,
         "completions": completions,
@@ -431,6 +798,45 @@ async def _funnel_data(sid: uuid.UUID, s, session: AsyncSession) -> dict:
     }
 
 
+def _parse_summary_filters(filters: Optional[str]) -> list[dict]:
+    import json
+
+    if not filters:
+        return []
+    try:
+        raw = json.loads(filters)
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=422, detail="filtros inválidos")
+    if not isinstance(raw, list):
+        return []
+    try:
+        return [
+            {"name": str(f["name"]), "values": list(f.get("values") or [])}
+            for f in raw
+            if isinstance(f, dict) and f.get("name")
+        ]
+    except (TypeError, KeyError):
+        raise HTTPException(status_code=422, detail="filtros inválidos")
+
+
+async def _summary_for(sid, ctx, session, *, segment_by, filters, date_from, date_to):
+    from app.summarizing import build_summary
+
+    if date_from and date_to and date_from > date_to:
+        raise HTTPException(status_code=422, detail="El rango de fechas está invertido.")
+    s = await _survey_or_404(sid, ctx.org.id, session)
+    responses = (
+        await session.scalars(
+            counted_only(select(SurveyResponse).where(SurveyResponse.survey_id == sid))
+        )
+    ).all()
+    return s, build_summary(
+        s.json_schema or {}, responses, filters=_parse_summary_filters(filters),
+        segment_by=segment_by, date_from=date_from, date_to=date_to,
+        hidden_fields=s.hidden_fields,
+    )
+
+
 @router.get("/{sid}/summary")
 async def response_summary(
     sid: uuid.UUID,
@@ -438,35 +844,66 @@ async def response_summary(
     session: AsyncSession = Depends(get_session),
     segment_by: Optional[str] = Query(None),
     filters: Optional[str] = Query(None, description="JSON: [{name, values:[...]}]"),
+    date_from: Optional[date] = Query(None, description="Desde (inclusive, UTC)"),
+    date_to: Optional[date] = Query(None, description="Hasta (inclusive, UTC)"),
 ):
     """Per-question, chart-ready aggregation of all responses (the Resumen view).
-    Con `segment_by` cruza cada pregunta por otra (cross-tab); con `filters`
-    (JSON) restringe el universo a quienes respondieron ciertos valores."""
-    import json
+    Con `segment_by` cruza cada pregunta por otra (cross-tab, con prueba chi²);
+    con `filters` (JSON) restringe el universo a quienes respondieron ciertos
+    valores; con `date_from`/`date_to`, a un rango de fechas."""
+    _s, summary = await _summary_for(sid, ctx, session, segment_by=segment_by, filters=filters,
+                                     date_from=date_from, date_to=date_to)
+    return summary
 
-    from app.summarizing import build_summary
+
+@router.get("/{sid}/quality")
+async def response_quality(
+    sid: uuid.UUID,
+    ctx: OrgContext = Depends(current_context),
+    session: AsyncSession = Depends(get_session),
+):
+    """Respuestas con señales de baja calidad (apuradas, en línea recta,
+    duplicadas) entre las que hoy cuentan. No excluye nada: lo decide quien
+    analiza, con la exclusión reversible de siempre."""
+    from app.quality import assess
 
     s = await _survey_or_404(sid, ctx.org.id, session)
-    parsed_filters: list[dict] = []
-    if filters:
-        try:
-            raw = json.loads(filters)
-            if isinstance(raw, list):
-                parsed_filters = [
-                    {"name": str(f["name"]), "values": list(f.get("values") or [])}
-                    for f in raw
-                    if isinstance(f, dict) and f.get("name")
-                ]
-        except (ValueError, TypeError, KeyError):
-            raise HTTPException(status_code=422, detail="filtros inválidos")
     responses = (
         await session.scalars(
             counted_only(select(SurveyResponse).where(SurveyResponse.survey_id == sid))
         )
     ).all()
-    return build_summary(
-        s.json_schema or {}, responses, filters=parsed_filters, segment_by=segment_by
-    )
+    return assess(s.json_schema or {}, responses)
+
+
+@router.get("/{sid}/summary/crosstab")
+async def export_crosstab(
+    sid: uuid.UUID,
+    segment_by: str = Query(...),
+    format: str = Query("csv", pattern="^(csv|xlsx)$"),
+    filters: Optional[str] = Query(None),
+    date_from: Optional[date] = Query(None),
+    date_to: Optional[date] = Query(None),
+    ctx: OrgContext = Depends(current_context),
+    session: AsyncSession = Depends(get_session),
+):
+    """El cruce del resumen como planilla (conteos, % y p-valor por pregunta).
+    Son agregados, no respuestas individuales: no requiere rol admin."""
+    from app.summarizing import crosstab_rows
+
+    s, summary = await _summary_for(sid, ctx, session, segment_by=segment_by, filters=filters,
+                                    date_from=date_from, date_to=date_to)
+    rows = crosstab_rows(summary)
+    if not rows:
+        raise HTTPException(status_code=422, detail="Esa pregunta no sirve para segmentar.")
+    base = f"{s.slug or 'encuesta'}-cruce"
+    if format == "xlsx":
+        data = await asyncio.to_thread(sheets_to_xlsx, [("Cruce", rows)])
+        return StreamingResponse(iter([data]), media_type=XLSX_MEDIA,
+                                 headers={"Content-Disposition": f'attachment; filename="{base}.xlsx"'})
+    data = await asyncio.to_thread(rows_to_csv, rows)
+    return StreamingResponse(iter([data]), media_type=CSV_MEDIA,
+                             headers={"Content-Disposition": f'attachment; filename="{base}.csv"'})
 
 
 @router.get("/{sid}/report")
@@ -519,6 +956,13 @@ async def _registrar_borrado(session: AsyncSession, ctx: OrgContext, s, r) -> No
     from app.models import ResponseDeletion
 
     quien, mail = respondent_identity(s.json_schema or {}, r.answers)
+    record_event(
+        session, action="response.deleted", org_id=ctx.org.id, actor=ctx.user,
+        survey_id=s.id, response_id=r.id,
+        detail={"respondent": r.respondent_email or quien or mail,
+                "submitted_at": r.submitted_at.isoformat() if r.submitted_at else None,
+                "integrity_hash": r.integrity_hash},
+    )
     session.add(
         ResponseDeletion(
             survey_id=s.id,
@@ -595,6 +1039,8 @@ async def bulk_responses(
         elif payload.action == "untest":
             r.is_test = False
         session.add(r)
+        record_event(session, action=f"response.{payload.action}", org_id=ctx.org.id,
+                     actor=ctx.user, survey_id=sid, response_id=r.id)
 
     await session.commit()
     return {"affected": len(rows)}
@@ -632,6 +1078,167 @@ async def list_deletions(
     ]
 
 
+@router.get("/{sid}/audit")
+async def survey_audit(
+    sid: uuid.UUID,
+    limit: int = Query(200, ge=1, le=1000),
+    ctx: OrgContext = Depends(current_context),
+    session: AsyncSession = Depends(get_session),
+):
+    """Registro de actividad de la encuesta: quién hizo qué y cuándo (lo más
+    reciente primero). Solo admins: incluye exportaciones y borrados."""
+    _require_admin(ctx)
+    from app.models import AuditEvent
+
+    await _survey_or_404(sid, ctx.org.id, session)
+    rows = (
+        await session.scalars(
+            select(AuditEvent)
+            .where(AuditEvent.org_id == ctx.org.id, AuditEvent.survey_id == sid)
+            .order_by(AuditEvent.created_at.desc())
+            .limit(limit)
+        )
+    ).all()
+    return [
+        {
+            "id": str(e.id),
+            "action": e.action,
+            "actor_email": e.actor_email,
+            "response_id": str(e.response_id) if e.response_id else None,
+            "detail": e.detail,
+            "created_at": e.created_at.isoformat(),
+        }
+        for e in rows
+    ]
+
+
+@router.get("/{sid}/responses/{rid}/history")
+async def response_history(
+    sid: uuid.UUID,
+    rid: uuid.UUID,
+    ctx: OrgContext = Depends(current_context),
+    session: AsyncSession = Depends(get_session),
+):
+    """Todo lo que le pasó a una respuesta: con qué versión se contestó, cada
+    cambio de nota (de dónde, quién, de cuánto a cuánto) y los eventos sobre
+    ella (exclusiones, marcas). Lo más antiguo primero, como una línea de tiempo."""
+    from app.audit import verify_response
+    from app.models import AuditEvent, GradeRevision, SurveyVersion
+
+    await _survey_or_404(sid, ctx.org.id, session)
+    r = await session.get(SurveyResponse, rid)
+    if not r or r.survey_id != sid:
+        raise HTTPException(status_code=404, detail="Response not found")
+    numeros = {
+        v.id: v.number
+        for v in (
+            await session.scalars(select(SurveyVersion).where(SurveyVersion.survey_id == sid))
+        ).all()
+    }
+    revs = (
+        await session.scalars(
+            select(GradeRevision)
+            .where(GradeRevision.response_id == rid)
+            .order_by(GradeRevision.created_at.asc())
+        )
+    ).all()
+    events = (
+        await session.scalars(
+            select(AuditEvent)
+            .where(AuditEvent.org_id == ctx.org.id, AuditEvent.response_id == rid)
+            .order_by(AuditEvent.created_at.asc())
+        )
+    ).all()
+    from app.jobs import job_view
+    from app.models import Job
+
+    entregas = (
+        await session.scalars(
+            select(Job)
+            .where(Job.response_id == rid, Job.kind.in_(("lms.grade", "webhook.deliver", "grade.response")))
+            .order_by(Job.created_at.asc())
+        )
+    ).all()
+    return {
+        "response_id": str(r.id),
+        "submitted_at": r.submitted_at.isoformat() if r.submitted_at else None,
+        "deliveries": [job_view(j) for j in entregas],
+        "answered_version": numeros.get(r.survey_version_id),
+        "integrity": verify_response(r),
+        "grade_revisions": [
+            {
+                "id": str(g.id),
+                "source": g.source,
+                "actor_email": g.actor_email,
+                "score_before": g.score_before,
+                "score_after": g.score_after,
+                "max_score": g.max_score,
+                "graded_with_version": numeros.get(g.survey_version_id),
+                "model": (g.grade_after or {}).get("model"),
+                "prompt_version": (g.grade_after or {}).get("prompt_version"),
+                "note": g.note,
+                "created_at": g.created_at.isoformat(),
+            }
+            for g in revs
+        ],
+        "events": [
+            {
+                "action": e.action,
+                "actor_email": e.actor_email,
+                "detail": e.detail,
+                "created_at": e.created_at.isoformat(),
+            }
+            for e in events
+        ],
+    }
+
+
+@router.get("/{sid}/deliveries")
+async def survey_deliveries(
+    sid: uuid.UUID,
+    status: Optional[str] = Query(None, pattern="^(pending|running|done|failed)$"),
+    limit: int = Query(200, ge=1, le=1000),
+    ctx: OrgContext = Depends(current_context),
+    session: AsyncSession = Depends(get_session),
+):
+    """Entregas y tareas de esta encuesta (notas al LMS, webhooks, emails,
+    recorrecciones), las más recientes primero. Con `status=failed`, lo que se
+    rindió y necesita atención."""
+    from app.jobs import job_view
+    from app.models import Job
+
+    await _survey_or_404(sid, ctx.org.id, session)
+    stmt = select(Job).where(Job.survey_id == sid, Job.org_id.is_(None) | (Job.org_id == ctx.org.id))
+    if status:
+        stmt = stmt.where(Job.status == status)
+    rows = (await session.scalars(stmt.order_by(Job.created_at.desc()).limit(limit))).all()
+    return [job_view(j) for j in rows]
+
+
+@router.post("/{sid}/deliveries/{job_id}/retry")
+async def retry_delivery(
+    sid: uuid.UUID,
+    job_id: uuid.UUID,
+    ctx: OrgContext = Depends(current_context),
+    session: AsyncSession = Depends(get_session),
+):
+    """Reintenta ya una entrega fallida (o que espera su próximo intento)."""
+    from app.jobs import job_view, retry_now
+    from app.models import JOB_DONE, JOB_RUNNING, Job
+
+    await _survey_or_404(sid, ctx.org.id, session)
+    j = await session.get(Job, job_id)
+    if j is None or j.survey_id != sid or (j.org_id is not None and j.org_id != ctx.org.id):
+        raise HTTPException(status_code=404, detail="Entrega no encontrada")
+    if j.status in (JOB_DONE, JOB_RUNNING):
+        raise HTTPException(status_code=409, detail="Esa entrega no está pendiente ni fallida")
+    await retry_now(session, j)
+    record_event(session, action="delivery.retried", org_id=ctx.org.id, actor=ctx.user,
+                 survey_id=sid, response_id=j.response_id, detail={"kind": j.kind})
+    await session.commit()
+    return job_view(j)
+
+
 @router.get("/{sid}/export")
 async def export_responses(
     sid: uuid.UUID,
@@ -651,163 +1258,43 @@ async def export_responses(
             ).order_by(SurveyResponse.submitted_at.asc())
         )
     ).all()
-    rows = export_rows(s, responses)
+    from app.models import SurveyVersion
+
+    versions = {
+        v.id: v.number
+        for v in (
+            await session.scalars(select(SurveyVersion).where(SurveyVersion.survey_id == sid))
+        ).all()
+    }
+    rows = export_rows(s, responses, versions)
     stamp = datetime.now(timezone.utc).strftime("%Y%m%d")
     base = s.slug or "encuesta"
-
     if format == "xlsx":
         data = await asyncio.to_thread(sheets_to_xlsx, [("Respuestas", rows)])
-        return StreamingResponse(
-            iter([data]), media_type=XLSX_MEDIA,
-            headers={"Content-Disposition": f'attachment; filename="{base}-{stamp}.xlsx"'},
-        )
-    csv_data = await asyncio.to_thread(rows_to_csv, rows)
+        media, ext = XLSX_MEDIA, "xlsx"
+    else:
+        data = await asyncio.to_thread(rows_to_csv, rows)
+        media, ext = CSV_MEDIA, "csv"
+
+    # Exportar saca datos personales de la plataforma: queda quién y cuándo, con
+    # la huella SHA-256 del archivo exacto que se descargó. La misma huella va
+    # en un header, así quien recibe el archivo puede comprobar que es ése.
+    import hashlib
+
+    raw = data.encode("utf-8") if isinstance(data, str) else data
+    sha = hashlib.sha256(raw).hexdigest()
+    record_event(session, action="responses.exported", org_id=ctx.org.id, actor=ctx.user,
+                 survey_id=sid, detail={"format": format, "rows": len(responses),
+                                        "include_excluded": include_excluded, "sha256": sha})
+    await session.commit()
     return StreamingResponse(
-        iter([csv_data]), media_type=CSV_MEDIA,
-        headers={"Content-Disposition": f'attachment; filename="{base}-{stamp}.csv"'},
+        iter([data]), media_type=media,
+        headers={"Content-Disposition": f'attachment; filename="{base}-{stamp}.{ext}"',
+                 "X-Encuestum-SHA256": sha},
     )
 
 
-# ── Access control: invitees (email allowlist) and results release ───────────
-class InviteeIn(BaseModel):
-    email: EmailStr
-    name: str | None = None
-
-
-class InviteesBulkRequest(BaseModel):
-    invitees: List[InviteeIn] = Field(max_length=5000)
-
-
-class InviteeOut(BaseModel):
-    id: uuid.UUID
-    email: str
-    name: str | None
-    code: str
-    used_at: datetime | None
-    sent_at: datetime | None
-    created_at: datetime
-
-    @classmethod
-    def of(cls, i: SurveyInvitee) -> "InviteeOut":
-        return cls(id=i.id, email=i.email, name=i.name, code=i.code,
-                   used_at=i.used_at, sent_at=i.sent_at, created_at=i.created_at)
-
-
-@router.get("/{sid}/invitees", response_model=List[InviteeOut])
-async def list_invitees(
-    sid: uuid.UUID,
-    ctx: OrgContext = Depends(current_context),
-    session: AsyncSession = Depends(get_session),
-):
-    await _survey_or_404(sid, ctx.org.id, session)
-    rows = (
-        await session.scalars(
-            select(SurveyInvitee).where(SurveyInvitee.survey_id == sid)
-            .order_by(SurveyInvitee.created_at.asc())
-        )
-    ).all()
-    return [InviteeOut.of(i) for i in rows]
-
-
-@router.post("/{sid}/invitees", response_model=List[InviteeOut])
-async def add_invitees(
-    sid: uuid.UUID,
-    payload: InviteesBulkRequest,
-    ctx: OrgContext = Depends(current_context),
-    session: AsyncSession = Depends(get_session),
-):
-    _require_admin(ctx)
-    await _survey_or_404(sid, ctx.org.id, session)
-    existing = {
-        i.email
-        for i in (
-            await session.scalars(select(SurveyInvitee).where(SurveyInvitee.survey_id == sid))
-        ).all()
-    }
-    created: List[SurveyInvitee] = []
-    for item in payload.invitees:
-        email = item.email.strip().lower()
-        if not email or email in existing:
-            continue
-        existing.add(email)
-        inv = SurveyInvitee(survey_id=sid, email=email, name=(item.name or None))
-        session.add(inv)
-        created.append(inv)
-    await session.commit()
-    for inv in created:
-        await session.refresh(inv)
-    return [InviteeOut.of(i) for i in created]
-
-
-@router.delete("/{sid}/invitees/{iid}")
-async def delete_invitee(
-    sid: uuid.UUID,
-    iid: uuid.UUID,
-    ctx: OrgContext = Depends(current_context),
-    session: AsyncSession = Depends(get_session),
-):
-    _require_admin(ctx)
-    await _survey_or_404(sid, ctx.org.id, session)
-    inv = await session.get(SurveyInvitee, iid)
-    if inv and inv.survey_id == sid:
-        await session.delete(inv)
-        await session.commit()
-    return {"detail": "Invitado eliminado"}
-
-
-@router.post("/{sid}/invitees/send")
-async def send_invitee_links(
-    sid: uuid.UUID,
-    only_unsent: bool = Query(True),
-    ctx: OrgContext = Depends(current_context),
-    session: AsyncSession = Depends(get_session),
-):
-    """Email each invitee a magic link (survey URL with their email+code)."""
-    _require_admin(ctx)
-    from app.config import get_settings
-    s = await _survey_or_404(sid, ctx.org.id, session)
-    if not get_settings().smtp_configured:
-        raise HTTPException(status_code=400, detail="Falta configurar SMTP para enviar emails.")
-    stmt = select(SurveyInvitee).where(SurveyInvitee.survey_id == sid)
-    if only_unsent:
-        stmt = stmt.where(SurveyInvitee.sent_at.is_(None))
-    rows = (await session.scalars(stmt)).all()
-    title = s.title or "una encuesta"
-
-    # Recolectá los emails a enviar y marcá sent_at antes de responder; el envío
-    # SMTP (bloqueante) se dispara fire-and-forget para no colgar el request.
-    outbox: list[tuple[str, str, str]] = []
-    subject = f"Invitación: {title}"
-    for inv in rows:
-        link = build_url(f"/s/{s.slug}", email=inv.email, code=inv.code)
-        text = (
-            f"Hola{(' ' + inv.name) if inv.name else ''},\n\n"
-            f"Fuiste invitado/a a responder «{title}».\n"
-            f"Ingresá con este enlace:\n{link}\n\n"
-            f"Tu código de acceso es: {inv.code}\n"
-        )
-        outbox.append((inv.email, subject, text))
-        inv.sent_at = _utcnow()
-        session.add(inv)
-    await session.commit()
-
-    if outbox:
-        try:
-            asyncio.get_running_loop().create_task(_dispatch_invitee_emails(outbox))
-        except RuntimeError:
-            pass
-    return {"sent": len(outbox), "total": len(rows)}
-
-
-async def _dispatch_invitee_emails(outbox: list[tuple[str, str, str]]) -> None:
-    """Send queued invitee emails in the background (no DB access here)."""
-    for email, subject, text in outbox:
-        try:
-            await send_email(email, subject, text)
-        except Exception as exc:  # noqa: BLE001
-            LOGGER.warning("envío de invitación a %s falló: %s", email, exc)
-
-
+# ── Publicación de resultados ─────────────────────────────────────────────────
 @router.post("/{sid}/release-results", response_model=SurveyDetail)
 async def release_results(
     sid: uuid.UUID,

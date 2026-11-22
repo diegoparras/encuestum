@@ -7,38 +7,37 @@ import "@/lib/surveyjs";
 import { Survey } from "survey-react-ui";
 import "survey-core/survey-core.min.css";
 import "survey-core/i18n/spanish";
+// Textos propios de SurveyJS (botones, errores) en los idiomas a los que se
+// puede traducir una encuesta.
+import "survey-core/i18n/portuguese";
+import "survey-core/i18n/french";
+import "survey-core/i18n/italian";
+import "survey-core/i18n/german";
+import "survey-core/i18n/simplified-chinese";
+import "survey-core/i18n/japanese";
+import "survey-core/i18n/catalan";
+import "survey-core/i18n/basque";
+import "survey-core/i18n/dutch";
+import "survey-core/i18n/polish";
+import "survey-core/i18n/russian";
+import "survey-core/i18n/arabic";
+import "survey-core/i18n/korean";
 import { toast } from "sonner";
-import { Award, Check, Music, Volume2, VolumeX } from "lucide-react";
-import {
-  perQuestionStyleCss,
-  themeToDesign,
-  type AudioSettings,
-  type StateScreenConfig,
-} from "../../../(survey-builder)/builder/model";
-import {
-  absolutizeAssets,
-  alignOverrideCss,
-  buttonOverrideCss,
-  cardsCss,
-  ENC_ALIGN_CSS,
-  fontsCss,
-  loadFont,
-  resolveAssetUrl,
-} from "../../../(survey-builder)/builder/design";
+import { perQuestionStyleCss, themeToDesign } from "../../../(survey-builder)/builder/model";
+import { absolutizeAssets, alignOverrideCss, buttonOverrideCss, cardsCss, ENC_ALIGN_CSS, fontsCss, loadFont, resolveAssetUrl } from "../../../(survey-builder)/builder/design";
 import { orgBranding } from "@/utils/auth";
 import { useI18n } from "@/lib/i18n";
 import { uploadRespondentFile } from "./uploadFile";
 import { registerVideoResponseQuestion } from "./VideoResponseQuestion";
-import {
-  AccessGate,
-  PostSubmitScreen,
-  useMagicLinkParams,
-} from "./AccessGate";
-import { Certificate } from "./Certificate";
+import { AccessGate, PostSubmitScreen, useMagicLinkParams } from "./AccessGate";
+
 import { ChatSurveyView } from "./ChatSurveyView";
 import { ThankYouView } from "./ThankYouView";
 import { getCaptchaSolution } from "./captcha";
 import FullscreenButton from "./FullscreenButton";
+import { safeRedirectUrl, apiBase, getVisitorId, ahora, INTEGRIDAD, reiniciarTiempos, marcarPagina, registrarRespuesta, tiemposRedondeados, camposOcultos, idiomaInicial, fijarIdiomaOriginal, encolar, nuevoIdDeEnvio, vaciarBandeja, registrarServiceWorker, trackVisit } from "./runtime";
+import { AudioPlayer, ResultsScreen, Centered, StateScreen, LanguagePicker } from "./PublicScreens";
+import type { GradedResult } from "./PublicScreens";
 
 // Register the custom "videoresponse" question (webcam recorder) before any
 // Survey model parses JSON that uses it.
@@ -54,6 +53,8 @@ interface EvaluationMeta {
     shuffleChoices?: boolean;
     timeLimitSec?: number | null;
     maxAttempts?: number;
+    groups?: Record<string, number>;
+    signals?: boolean;
   };
 }
 
@@ -74,75 +75,11 @@ interface PublicSurvey {
   redirect_url?: string | null;
   // Anti-bot: exige resolver un proof-of-work antes de enviar.
   require_captcha?: boolean;
-}
-
-// Sólo permitimos redirigir a URLs http(s) absolutas; cualquier otra cosa se
-// ignora para evitar esquemas peligrosos (javascript:, data:, etc.).
-function safeRedirectUrl(url?: string | null): string | null {
-  if (!url) return null;
-  const trimmed = url.trim();
-  return /^https?:\/\//i.test(trimmed) ? trimmed : null;
-}
-
-interface GradedResult {
-  total?: number;
-  max?: number;
-  percent?: number;
-  passed?: boolean | null;
-  needs_review?: boolean;
-  questions: {
-    title: string;
-    verdict: string;
-    awarded: number;
-    points: number;
-    feedback: string;
-    /** Lo que respondió esta persona (siempre viene). */
-    answer?: string;
-    /** La correcta: sólo si el autor habilitó revelarla en esta pregunta. */
-    correct_answer?: string;
-    /** Por qué no era correcta (del autor o de la IA). */
-    explanation?: string;
-  }[];
+  hidden_fields?: string[];
+  languages?: string[];
 }
 
 type Status = "loading" | "ready" | "notfound" | "error";
-
-function apiBase(): string {
-  if (typeof window !== "undefined") {
-    const param = new URLSearchParams(window.location.search).get("fastapiUrl");
-    if (param) return param;
-  }
-  return process.env.NEXT_PUBLIC_API_URL || "";
-}
-
-// Anonymous visitor id (localStorage) for funnel analytics — no personal data.
-function getVisitorId(): string | null {
-  try {
-    const k = "enc_visitor";
-    let v = window.localStorage.getItem(k);
-    if (!v) {
-      v = crypto.randomUUID();
-      window.localStorage.setItem(k, v);
-    }
-    return v;
-  } catch {
-    return null;
-  }
-}
-
-// Fire-and-forget funnel ping (view | progress). Never blocks nor throws.
-function trackVisit(slug: string, event: "view" | "progress", question?: string) {
-  const vid = getVisitorId();
-  if (!vid) return;
-  fetch(`${apiBase()}/api/v1/survey/public/${encodeURIComponent(slug)}/track`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ visitor_id: vid, event, question }),
-    keepalive: true,
-  }).catch(() => {
-    /* analytics es best-effort */
-  });
-}
 
 export default function SurveyView({ slug }: { slug: string }) {
   const { t } = useI18n();
@@ -164,6 +101,21 @@ export default function SurveyView({ slug }: { slug: string }) {
   const [completed, setCompleted] = useState(false);
   // Redirección al terminar: mostramos "Redirigiendo…" antes de navegar.
   const [redirecting, setRedirecting] = useState(false);
+  const [rejected, setRejected] = useState<string | null>(null);
+  const [offline, setOffline] = useState(false);
+
+  // Respuestas guardadas sin conexión: se mandan al abrir y al volver la red.
+  useEffect(() => {
+    registrarServiceWorker();
+    const enviar = () => {
+      vaciarBandeja(apiBase()).then((n) => {
+        if (n > 0) toast.success(t("public.offline.sent", { n }));
+      });
+    };
+    enviar();
+    window.addEventListener("online", enviar);
+    return () => window.removeEventListener("online", enviar);
+  }, [t]);
   // Access token for gated (pin/list) surveys; set once the access gate passes.
   const [accessToken, setAccessToken] = useState<string | null>(null);
   // Post-submit screen for list-mode surveys (thank-you + result lookup).
@@ -244,6 +196,86 @@ export default function SurveyView({ slug }: { slug: string }) {
     };
   }, [slug]);
 
+  // Examen con intento en el servidor (tiempo límite, sorteo o señales): se
+  // pide el intento ANTES de armar el formulario, porque define qué preguntas
+  // ve esta persona y cuánto tiempo le queda. Ver backend/app/exam.py.
+  const integ = data?.evaluation?.integrity;
+  const necesitaIntento =
+    !!data?.evaluation?.enabled &&
+    !!(integ?.timeLimitSec || (integ?.groups && Object.keys(integ.groups).length) || integ?.signals);
+  const listoParaIntento =
+    status === "ready" && !!data && data.available !== false && !(data.gated === true && !accessToken);
+  const [examen, setExamen] = useState<{
+    status: "loading" | "ready" | "error";
+    token?: string;
+    secondsLeft?: number | null;
+    schema?: Record<string, unknown>;
+    signals?: boolean;
+    error?: string;
+  } | null>(null);
+  useEffect(() => {
+    if (!necesitaIntento || !listoParaIntento) return;
+    let cancel = false;
+    fetch(`${apiBase()}/api/v1/survey/public/${encodeURIComponent(slug)}/start`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ visitor_id: getVisitorId(), ...(accessToken ? { access_token: accessToken } : {}) }),
+    })
+      .then(async (r) => {
+        const j = await r.json().catch(() => null);
+        if (cancel) return;
+        if (!r.ok) {
+          setExamen({ status: "error", error: typeof j?.detail === "string" ? j.detail : undefined });
+          return;
+        }
+        if (!j?.exam) {
+          setExamen({ status: "ready" });
+          return;
+        }
+        setExamen({
+          status: "ready",
+          token: j.exam.attempt_token,
+          secondsLeft: j.exam.seconds_left,
+          schema: j.exam.json_schema,
+          signals: !!j.exam.signals,
+        });
+      })
+      .catch(() => !cancel && setExamen({ status: "error" }));
+    return () => {
+      cancel = true;
+    };
+  }, [necesitaIntento, listoParaIntento, slug, accessToken]);
+
+  // Señales de integridad (sólo si el examen las pide): cuántas veces salió de
+  // la pestaña, cuánto tiempo estuvo afuera y textos largos pegados. Se
+  // mandan con la respuesta; el servidor las registra para el docente.
+  useEffect(() => {
+    if (!examen?.signals) return;
+    const integridad = { current: INTEGRIDAD };
+    let ocultoDesde: number | null = null;
+    const onVis = () => {
+      if (document.visibilityState === "hidden") {
+        integridad.current.tab_switches += 1;
+        ocultoDesde = Date.now();
+      } else if (ocultoDesde) {
+        integridad.current.hidden_seconds += Math.round((Date.now() - ocultoDesde) / 1000);
+        ocultoDesde = null;
+      }
+    };
+    const onPaste = (e: ClipboardEvent) => {
+      const texto = e.clipboardData?.getData("text") ?? "";
+      const nombre = (e.target as HTMLElement | null)?.closest("[data-name]")?.getAttribute("data-name") ?? "";
+      if (texto.length) integridad.current.pastes.push({ question: nombre, chars: texto.length });
+    };
+    document.addEventListener("visibilitychange", onVis);
+    document.addEventListener("paste", onPaste, true);
+    return () => {
+      document.removeEventListener("visibilitychange", onVis);
+      document.removeEventListener("paste", onPaste, true);
+    };
+  }, [examen?.signals]);
+
   // Funnel: una vista por visitante al cargar la encuesta (disponible o no gated).
   useEffect(() => {
     if (status === "ready" && data && data.available !== false) {
@@ -254,10 +286,12 @@ export default function SurveyView({ slug }: { slug: string }) {
 
   const model = useMemo(() => {
     if (!data) return null;
+    if (necesitaIntento && listoParaIntento && examen?.status !== "ready") return null;
     const evalMeta = data.evaluation || {};
     const isExam = !!evalMeta.enabled;
-    const survey = new Model(absolutizeAssets(data.json_schema || {}));
-    survey.locale = data.language || "es";
+    const survey = new Model(absolutizeAssets(examen?.schema || data.json_schema || {}));
+    fijarIdiomaOriginal(data.language || "es");
+    survey.locale = idiomaInicial(data);
     // The custom video-response recorder reads this to upload to the right survey.
     survey.setVariable("encSlug", slug);
     const themeDesign = themeToDesign(data.theme);
@@ -285,6 +319,11 @@ export default function SurveyView({ slug }: { slug: string }) {
     // Funnel: primer valor respondido = "comenzó"; cada cambio de página marca
     // la última pregunta vista (punto de abandono si no termina).
     let startedTracked = false;
+    reiniciarTiempos();
+    survey.onCurrentPageChanged.add(marcarPagina);
+    survey.onValueChanged.add((_s, opt) => {
+      if (opt?.name) registrarRespuesta(opt.name);
+    });
     survey.onValueChanged.add((_s, opt: any) => {
       if (!startedTracked) {
         startedTracked = true;
@@ -329,6 +368,7 @@ export default function SurveyView({ slug }: { slug: string }) {
     // Save & resume: keep partial answers on this device and restore them, so a
     // respondent can close the tab and come back. Cleared on submit.
     const resumeKey = `enc_resume_${slug}`;
+    let localAt = 0;
     try {
       const saved =
         typeof window !== "undefined" ? window.localStorage.getItem(resumeKey) : null;
@@ -336,23 +376,79 @@ export default function SurveyView({ slug }: { slug: string }) {
         const parsed = JSON.parse(saved);
         if (parsed && parsed.data) survey.data = parsed.data;
         if (typeof parsed?.page === "number") survey.currentPageNo = parsed.page;
+        if (typeof parsed?.at === "number") localAt = parsed.at;
       }
     } catch {
       /* ignore corrupt resume state */
     }
+
+    // Borrador en el SERVIDOR: sólo existe cuando se sabe quién responde
+    // (invitado con código, alumno desde Moodle) y permite retomar desde otro
+    // dispositivo. En encuestas públicas anónimas el servidor contesta
+    // `enabled: false` y no se le vuelve a mandar nada.
+    const draftUrl = `${apiBase()}/api/v1/survey/public/${encodeURIComponent(slug)}/draft`;
+    let serverDrafts: boolean | null = null;
+    let touched = false;
+    let draftTimer: ReturnType<typeof setTimeout> | null = null;
+    fetch(
+      `${draftUrl}${accessToken ? `?access_token=${encodeURIComponent(accessToken)}` : ""}`,
+      { credentials: "include", cache: "no-store" }
+    )
+      .then((r) => (r.ok ? r.json() : null))
+      .then((j) => {
+        serverDrafts = !!j?.enabled;
+        const d = j?.draft;
+        // Gana el más nuevo, y nunca se pisa lo que la persona ya empezó acá.
+        if (!d || touched) return;
+        if (localAt && Date.parse(d.updated_at) <= localAt) return;
+        if (d.answers && Object.keys(d.answers).length) survey.data = d.answers;
+        if (typeof d.page === "number") survey.currentPageNo = d.page;
+      })
+      .catch(() => {
+        serverDrafts = false;
+      });
+    const pushDraft = () => {
+      if (serverDrafts === false) return;
+      if (draftTimer) clearTimeout(draftTimer);
+      draftTimer = setTimeout(() => {
+        fetch(draftUrl, {
+          method: "PUT",
+          credentials: "include",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            answers: survey.data,
+            page: survey.currentPageNo,
+            ...(accessToken ? { access_token: accessToken } : {}),
+          }),
+        })
+          .then((r) => (r.ok ? r.json() : null))
+          .then((j) => {
+            if (j && j.enabled === false) serverDrafts = false;
+          })
+          .catch(() => {
+            /* best-effort: el borrador local sigue */
+          });
+      }, 2000);
+    };
+
     const persist = () => {
+      touched = true;
       try {
         window.localStorage.setItem(
           resumeKey,
-          JSON.stringify({ data: survey.data, page: survey.currentPageNo })
+          JSON.stringify({ data: survey.data, page: survey.currentPageNo, at: ahora() })
         );
       } catch {
         /* storage may be unavailable */
       }
+      pushDraft();
     };
     survey.onValueChanged.add(persist);
     survey.onCurrentPageChanged.add(persist);
     survey.onComplete.add(() => {
+      // El envío borra el borrador del servidor; uno pendiente no lo revive.
+      if (draftTimer) clearTimeout(draftTimer);
+      serverDrafts = false;
       try {
         window.localStorage.removeItem(resumeKey);
       } catch {
@@ -404,7 +500,14 @@ export default function SurveyView({ slug }: { slug: string }) {
           if ("choicesOrder" in q) q.choicesOrder = "random";
         });
       }
-      if (integ.timeLimitSec) survey.maxTimeToFinish = integ.timeLimitSec;
+      // El tiempo que queda lo calcula el SERVIDOR (desde que empezó el
+      // intento): recargar la página no reinicia el reloj.
+      const restante = examen?.secondsLeft ?? integ.timeLimitSec;
+      if (restante) {
+        survey.maxTimeToFinish = Math.max(1, restante);
+        survey.showTimer = true;
+        survey.timerLocation = "top";
+      }
       // We render our own results screen for exams.
       survey.showCompletedPage = evalMeta.feedbackTiming === "never";
     }
@@ -456,26 +559,44 @@ export default function SurveyView({ slug }: { slug: string }) {
             /* si falla, el backend rechazará y el usuario puede reintentar */
           }
         }
-        const res = await fetch(
-          `${apiBase()}/api/v1/survey/public/${encodeURIComponent(slug)}/submit`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
+        const cuerpo: Record<string, unknown> = {
               answers: sender.data,
               completed: true,
               // Gated surveys require the access token obtained at the gate.
               ...(accessToken ? { access_token: accessToken } : {}),
               ...(captchaSolution ? { captcha: captchaSolution } : {}),
+              ...(examen?.token ? { attempt_token: examen.token } : {}),
               meta: {
                 locale: sender.locale || data.language || null,
                 referrer: typeof document !== "undefined" ? document.referrer : null,
                 visitor_id: getVisitorId(),
+                ...(examen?.signals ? { integrity: INTEGRIDAD } : {}),
+                hidden: camposOcultos(data.hidden_fields),
+                timing: tiemposRedondeados(),
+                submission_id: nuevoIdDeEnvio(),
               },
-            }),
-          }
-        );
+            };
+        let res: Response;
+        try {
+          res = await fetch(`${apiBase()}/api/v1/survey/public/${encodeURIComponent(slug)}/submit`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(cuerpo),
+          });
+        } catch {
+          // Sin red: la respuesta queda guardada acá y sale sola después.
+          encolar(slug, cuerpo);
+          setOffline(true);
+          return;
+        }
         const body = await res.json().catch(() => null);
+        if (!res.ok) {
+          // Cupo lleno u otro rechazo del servidor: se muestra el motivo en vez
+          // de un "gracias" que haría creer que la respuesta quedó guardada.
+          const d = body?.detail;
+          setRejected(typeof d === "string" ? d : typeof d?.message === "string" ? d.message : "");
+          return;
+        }
         // Redirección al terminar: si hay una URL válida y NO hay cuenta
         // regresiva configurada, saltamos directo (mostrando "Redirigiendo…").
         // Con cuenta regresiva, dejamos que la pantalla de gracias la muestre.
@@ -507,14 +628,14 @@ export default function SurveyView({ slug }: { slug: string }) {
           setCompleted(true);
         }
       } catch {
-        /* keep the thank-you page even if the network hiccups */
+        /* una falla al procesar la respuesta del servidor: la respuesta ya se guardó */
       } finally {
         setSubmitting(false);
       }
     });
 
     return survey;
-  }, [data, slug, accessToken, magic]);
+  }, [data, slug, accessToken, magic, examen, necesitaIntento, listoParaIntento]);
 
   const design = useMemo(() => themeToDesign(data?.theme), [data]);
   useEffect(() => {
@@ -543,6 +664,15 @@ export default function SurveyView({ slug }: { slug: string }) {
   );
 
   if (status === "loading") return <Centered>{t("public.loading")}</Centered>;
+  if (necesitaIntento && listoParaIntento && examen?.status === "error")
+    return (
+      <Centered>
+        <h1 className="text-xl font-semibold">{t("public.error.title")}</h1>
+        <p className="text-sm opacity-70 mt-2">{examen.error || t("public.error.body")}</p>
+      </Centered>
+    );
+  if (necesitaIntento && listoParaIntento && examen?.status !== "ready")
+    return <Centered>{t("public.loading")}</Centered>;
   if (status === "notfound")
     return (
       <Centered>
@@ -576,6 +706,22 @@ export default function SurveyView({ slug }: { slug: string }) {
         reason={reason}
         footer={t("public.closed.thanks")}
       />
+    );
+  }
+
+  if (offline) {
+    return (
+      <Centered>
+        <p className="max-w-md text-center text-base">{t("public.offline.saved")}</p>
+      </Centered>
+    );
+  }
+
+  if (rejected !== null) {
+    return (
+      <Centered>
+        <p className="max-w-md text-center text-base">{rejected || t("public.submit.rejected")}</p>
+      </Centered>
     );
   }
 
@@ -697,6 +843,9 @@ export default function SurveyView({ slug }: { slug: string }) {
           ENC_EMBED_CSS}
       </style>
       <FullscreenButton />
+      {model && (data?.languages?.length ?? 0) > 1 && (
+        <LanguagePicker model={model} languages={data!.languages!} />
+      )}
       {brandingHeader}
       {submitting && (
         <StateScreen
@@ -840,395 +989,3 @@ const ENC_SURFACE_CSS = `
 }
 `;
 
-// Floating background-music control. Browsers block autoplay with sound, so we
-// respect that: if autoplay is on we start muted and let the respondent unmute,
-// otherwise we show a play button. Loop/volume come from the survey design.
-function AudioPlayer({ audio, accent }: { audio: AudioSettings; accent: string }) {
-  const { t } = useI18n();
-  const ref = useRef<HTMLAudioElement | null>(null);
-  // El estado se sincroniza con los EVENTOS reales del <audio> (play/pause/
-  // ended/volumechange), así los botones nunca quedan desfasados del sonido.
-  const [playing, setPlaying] = useState(false);
-  const [muted, setMuted] = useState(!!audio.autoplay);
-  const [failed, setFailed] = useState(false);
-
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    // Volumen 0 configurado por error dejaría el control "muerto": mínimo audible.
-    el.volume = Math.max(0.05, Math.min(1, audio.volume ?? 0.6));
-    el.loop = audio.loop ?? true;
-    const sync = () => {
-      setPlaying(!el.paused);
-      setMuted(el.muted);
-    };
-    el.addEventListener("play", sync);
-    el.addEventListener("pause", sync);
-    el.addEventListener("ended", sync);
-    el.addEventListener("volumechange", sync);
-    const onError = () => setFailed(true);
-    el.addEventListener("error", onError);
-    if (audio.autoplay) {
-      el.muted = true;
-      el.play().catch(() => {
-        /* autoplay bloqueado: el usuario tocará el botón */
-      });
-    }
-    return () => {
-      el.removeEventListener("play", sync);
-      el.removeEventListener("pause", sync);
-      el.removeEventListener("ended", sync);
-      el.removeEventListener("volumechange", sync);
-      el.removeEventListener("error", onError);
-    };
-  }, [audio.autoplay, audio.loop, audio.volume]);
-
-  async function toggle() {
-    const el = ref.current;
-    if (!el) return;
-    try {
-      if (el.paused) {
-        // Reproducir: siempre con sonido (es un gesto del usuario).
-        el.muted = false;
-        await el.play();
-      } else if (el.muted) {
-        // Sonando en silencio (autoplay): activar el sonido.
-        el.muted = false;
-      } else {
-        el.pause();
-      }
-    } catch {
-      toast.error(t("public.audio.playError"));
-    }
-  }
-
-  function toggleMute() {
-    const el = ref.current;
-    if (!el) return;
-    el.muted = !el.muted;
-  }
-
-  if (failed) return null; // archivo inaccesible: no mostramos un control muerto
-
-  const active = playing && !muted;
-  return (
-    // En móvil el control sube por encima de la fila de navegación de SurveyJS
-    // (Anterior/Completar) para no taparla; en pantallas grandes queda abajo.
-    <div className="fixed bottom-20 right-3 sm:bottom-4 sm:right-4 z-50 flex items-center gap-2 rounded-full bg-white/95 shadow-lg ring-1 ring-black/5 px-2.5 py-1.5 sm:px-3 sm:py-2 backdrop-blur">
-      {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
-      <audio ref={ref} src={resolveAssetUrl(audio.url)} preload="auto" />
-      <button
-        type="button"
-        onClick={toggle}
-        className={`grid h-10 w-10 sm:h-8 sm:w-8 place-items-center rounded-full text-white${active ? " animate-pulse" : ""}`}
-        style={{ backgroundColor: accent, opacity: active ? 1 : 0.85 }}
-        aria-label={active ? t("public.audio.pause") : t("public.audio.play")}
-        title={active ? t("public.audio.pause") : t("public.audio.play")}
-      >
-        <Music className="h-4 w-4" />
-      </button>
-      {playing && (
-        <button
-          type="button"
-          onClick={toggleMute}
-          className="grid h-10 w-10 sm:h-8 sm:w-8 place-items-center rounded-full text-neutral-500 hover:bg-neutral-100"
-          aria-label={muted ? t("public.audio.unmute") : t("public.audio.mute")}
-          title={muted ? t("public.audio.unmute") : t("public.audio.mute")}
-        >
-          {muted ? <VolumeX className="h-4 w-4" /> : <Volume2 className="h-4 w-4" />}
-        </button>
-      )}
-    </div>
-  );
-}
-
-function ResultsScreen({
-  results,
-  accent,
-  slug,
-  apiBase,
-  certCreds,
-}: {
-  results: GradedResult;
-  accent: string;
-  slug: string;
-  apiBase: () => string;
-  certCreds: { email: string; code: string } | null;
-}) {
-  const { t } = useI18n();
-  const pct = Math.round(results.percent ?? 0);
-  const showScore = results.total !== undefined;
-  const passed = results.passed;
-  const [showCert, setShowCert] = useState(false);
-  // El certificado se ofrece sólo si aprobó, no hay revisión pendiente y
-  // tenemos sus credenciales (email + código) para pedirlo.
-  const canCertify =
-    passed === true && !results.needs_review && !!certCreds;
-
-  return (
-    <div className="min-h-screen bg-neutral-50 flex items-start justify-center p-4 sm:p-6">
-      <div className="w-full max-w-xl mt-4 sm:mt-8">
-        <div className="bg-white rounded-2xl shadow-sm ring-1 ring-black/5 p-6 sm:p-8 text-center">
-          <h1 className="text-lg font-semibold text-neutral-800">
-            {results.needs_review
-              ? t("public.received")
-              : t("public.results.title")}
-          </h1>
-
-          {showScore ? (
-            <>
-              <div
-                className="mx-auto mt-6 grid place-items-center rounded-full"
-                style={{
-                  width: 128,
-                  height: 128,
-                  background: `conic-gradient(${accent} ${pct * 3.6}deg, #eee 0deg)`,
-                }}
-              >
-                <div className="grid place-items-center rounded-full bg-white" style={{ width: 104, height: 104 }}>
-                  <span className="text-2xl font-bold text-neutral-800">{pct}%</span>
-                </div>
-              </div>
-              <p className="mt-3 text-sm text-neutral-500">
-                {t("public.results.points", {
-                  total: results.total ?? 0,
-                  max: results.max ?? 0,
-                })}
-              </p>
-              {passed !== null && passed !== undefined && (
-                <span
-                  className={`inline-block mt-2 rounded-full px-3 py-1 text-xs font-semibold ${
-                    passed ? "bg-green-100 text-green-700" : "bg-red-100 text-red-700"
-                  }`}
-                >
-                  {passed ? t("public.results.passed") : t("public.results.failed")}
-                </span>
-              )}
-            </>
-          ) : (
-            <p className="mt-4 text-sm text-neutral-500">
-              {t("public.results.sentNoScore")}
-            </p>
-          )}
-
-          {results.needs_review && (
-            <p className="mt-4 text-xs text-amber-600">
-              {t("public.results.needsReview")}
-            </p>
-          )}
-
-          {canCertify && (
-            <button
-              type="button"
-              onClick={() => setShowCert(true)}
-              // Ancho completo en móvil y alto táctil (≥44px) para el pulgar.
-              className="mt-6 inline-flex w-full sm:w-auto min-h-[44px] items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold text-white transition"
-              style={{ backgroundColor: accent }}
-            >
-              <Award className="h-4 w-4" /> {t("public.results.viewCert")}
-            </button>
-          )}
-        </div>
-
-        {results.questions?.length > 0 && (
-          <div className="mt-4 space-y-2">
-            {results.questions.map((q, i) => (
-              <div
-                key={i}
-                className="bg-white rounded-xl ring-1 ring-black/5 p-4 flex items-start gap-3"
-              >
-                <VerdictDot verdict={q.verdict} />
-                <div className="min-w-0 flex-1">
-                  <div className="text-sm font-medium text-neutral-800">{q.title}</div>
-                  {/* Su propia respuesta: es el dato que despeja la duda, y
-                      antes no se mostraba en ningún lado. */}
-                  {q.answer ? (
-                    <div className="mt-1.5 text-xs text-neutral-600">
-                      <span className="text-neutral-400">{t("public.results.yourAnswer")}</span>{" "}
-                      <span className="font-medium">{q.answer}</span>
-                    </div>
-                  ) : (
-                    <div className="mt-1.5 text-xs italic text-neutral-400">
-                      {t("public.results.noAnswer")}
-                    </div>
-                  )}
-                  {q.correct_answer && (
-                    <div className="mt-1 text-xs text-green-700">
-                      <span className="text-green-600/70">{t("public.results.correctAnswer")}</span>{" "}
-                      <span className="font-medium">{q.correct_answer}</span>
-                    </div>
-                  )}
-                  {(q.explanation || q.feedback) && (
-                    <div className="mt-1.5 rounded-lg bg-neutral-50 px-2.5 py-1.5 text-xs leading-relaxed text-neutral-600">
-                      {q.explanation || q.feedback}
-                    </div>
-                  )}
-                </div>
-                <div className="text-xs font-semibold text-neutral-400 shrink-0">
-                  {q.awarded}/{q.points}
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {showCert && certCreds && (
-        <Certificate
-          slug={slug}
-          email={certCreds.email}
-          code={certCreds.code}
-          accent={accent}
-          apiBase={apiBase}
-          onClose={() => setShowCert(false)}
-        />
-      )}
-    </div>
-  );
-}
-
-// Pantalla de gracias personalizada (encuesta común, sin redirección).
-// Respeta el tema claro/oscuro del diseño de la encuesta.
-function ThankYouScreen({
-  message,
-  accent,
-  design,
-  brandingHeader,
-}: {
-  message: string;
-  accent: string;
-  design: ReturnType<typeof themeToDesign>;
-  brandingHeader: React.ReactNode;
-}) {
-  const dark = design.mode === "dark";
-  const pageBg = design.backgroundColor || (dark ? "#181c24" : "#f6f6f7");
-  const cardBg = dark ? "#232833" : "#ffffff";
-  const textColor = dark ? "#e5e7eb" : "#1f2937";
-
-  return (
-    <div className="min-h-screen" style={{ backgroundColor: pageBg }}>
-      {brandingHeader}
-      <div className="flex items-start justify-center p-4 sm:p-6">
-        <div className="w-full max-w-xl mt-6 sm:mt-10">
-          <div
-            className="rounded-2xl p-6 sm:p-8 text-center shadow-sm ring-1 ring-black/5"
-            style={{ backgroundColor: cardBg }}
-          >
-            <div
-              className="mx-auto mb-5 grid h-12 w-12 place-items-center rounded-full"
-              style={{ backgroundColor: `${accent}1a`, color: accent }}
-            >
-              <Check className="h-6 w-6" />
-            </div>
-            <p
-              className="whitespace-pre-line text-base leading-relaxed"
-              style={{ color: textColor }}
-            >
-              {message}
-            </p>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function VerdictDot({ verdict }: { verdict: string }) {
-  const color =
-    verdict === "correct" ? "#22c55e" : verdict === "partial" ? "#f59e0b" : "#ef4444";
-  return (
-    <span
-      className="mt-1 w-2.5 h-2.5 rounded-full shrink-0"
-      style={{ backgroundColor: color }}
-      aria-hidden
-    />
-  );
-}
-
-function Centered({ children }: { children: React.ReactNode }) {
-  return (
-    <div className="min-h-screen flex flex-col items-center justify-center text-center px-6 text-neutral-800">
-      {children}
-    </div>
-  );
-}
-
-// Pantalla de estado a pantalla completa, personalizable desde el panel de diseño
-// (analizando / cerrada): fondo por color o imagen (con velo para legibilidad),
-// emoji, spinner, título, mensaje. Con `spinner` es un overlay sobre la encuesta.
-function StateScreen({
-  config,
-  accent,
-  dark,
-  spinner,
-  title,
-  message,
-  reason,
-  footer,
-}: {
-  config?: StateScreenConfig;
-  accent: string;
-  dark: boolean;
-  spinner?: boolean;
-  title?: string;
-  message: string;
-  reason?: string;
-  footer?: string;
-}) {
-  const c = config || {};
-  const hasBgImage = !!c.bgImage;
-  const showSpinner = !!spinner && (c.spinner ?? true);
-  const textColor =
-    c.textColor || (hasBgImage ? "#ffffff" : dark ? "#e5e7eb" : "#1f2937");
-  const style: React.CSSProperties = hasBgImage
-    ? {
-        backgroundImage: `linear-gradient(rgba(0,0,0,0.55),rgba(0,0,0,0.55)), url(${resolveAssetUrl(
-          c.bgImage!
-        )})`,
-        backgroundSize: "cover",
-        backgroundPosition: "center",
-      }
-    : { backgroundColor: c.bgColor || (dark ? "#09090b" : "#ffffff") };
-  return (
-    <div
-      role="status"
-      aria-live="polite"
-      className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-4 px-6 text-center"
-      style={style}
-    >
-      {c.emoji && (
-        <div className="text-5xl leading-none" aria-hidden="true">
-          {c.emoji}
-        </div>
-      )}
-      {showSpinner && (
-        <span
-          className="inline-block h-9 w-9 animate-spin rounded-full border-[3px] border-current border-t-transparent"
-          style={{ color: accent }}
-          aria-hidden="true"
-        />
-      )}
-      {title && (
-        <h1 className="text-2xl font-semibold" style={{ color: textColor }}>
-          {title}
-        </h1>
-      )}
-      <p
-        className="max-w-md text-base font-medium leading-relaxed"
-        style={{ color: textColor }}
-      >
-        {message}
-      </p>
-      {reason && (
-        <p className="text-sm" style={{ color: textColor, opacity: 0.75 }}>
-          {reason}
-        </p>
-      )}
-      {footer && (
-        <p className="mt-1 text-sm" style={{ color: textColor, opacity: 0.55 }}>
-          {footer}
-        </p>
-      )}
-    </div>
-  );
-}

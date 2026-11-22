@@ -14,6 +14,7 @@ from sqlalchemy import (
     Integer,
     String,
     UniqueConstraint,
+    Uuid,
 )
 from sqlmodel import Field, SQLModel
 
@@ -30,9 +31,11 @@ def _new_slug() -> str:
 ROLE_OWNER = "owner"
 ROLE_ADMIN = "admin"
 ROLE_MEMBER = "member"
-VALID_ROLES = {ROLE_OWNER, ROLE_ADMIN, ROLE_MEMBER}
-# Rank for "at least" checks: owner > admin > member.
-ROLE_RANK = {ROLE_MEMBER: 1, ROLE_ADMIN: 2, ROLE_OWNER: 3}
+# Lector: ve encuestas y resultados, no edita ni publica nada (app/scopes.py).
+ROLE_VIEWER = "viewer"
+VALID_ROLES = {ROLE_OWNER, ROLE_ADMIN, ROLE_MEMBER, ROLE_VIEWER}
+# Rank for "at least" checks: owner > admin > member > viewer.
+ROLE_RANK = {ROLE_VIEWER: 1, ROLE_MEMBER: 2, ROLE_ADMIN: 3, ROLE_OWNER: 4}
 
 
 class User(SQLModel, table=True):
@@ -72,6 +75,17 @@ class Organization(SQLModel, table=True):
         sa_column=Column(String, unique=True, index=True), default=None
     )
     logo: Optional[str] = Field(sa_column=Column(String), default=None)
+    # Tope mensual de gasto en IA (USD). None = sin tope. Al 80% se avisa a los
+    # administradores una vez por mes (`ai_budget_warned` guarda "AAAA-MM").
+    ai_monthly_budget_usd: Optional[float] = Field(sa_column=Column(Float), default=None)
+    ai_budget_warned: Optional[str] = Field(sa_column=Column(String), default=None)
+    # Retención por defecto de la organización (cada encuesta puede pisarla).
+    retention_days: Optional[int] = Field(sa_column=Column(Integer), default=None)
+    retention_action: Optional[str] = Field(sa_column=Column(String), default=None)  # anonymize | delete
+    # Publicar requiere aprobación de un administrador (los miembros piden).
+    require_publish_approval: bool = Field(
+        sa_column=Column(Boolean, nullable=False, server_default="0"), default=False
+    )
     created_at: datetime = Field(
         sa_column=Column(DateTime(timezone=True), nullable=False, default=_utcnow)
     )
@@ -93,6 +107,9 @@ class Membership(SQLModel, table=True):
         )
     )
     role: str = Field(sa_column=Column(String, nullable=False), default=ROLE_MEMBER)
+    # Carpetas a las que se limita (con sus subcarpetas). None = toda la
+    # organización. No aplica a dueños ni administradores (app/scopes.py).
+    folder_scope: Optional[list] = Field(sa_column=Column(JSON), default=None)
     created_at: datetime = Field(
         sa_column=Column(DateTime(timezone=True), nullable=False, default=_utcnow)
     )
@@ -282,6 +299,27 @@ class Survey(SQLModel, table=True):
     insights: Optional[dict] = Field(sa_column=Column(JSON), default=None)
     # Cached AI executive report (narrative over the computed aggregates).
     report: Optional[dict] = Field(sa_column=Column(JSON), default=None)
+    # Anonimato garantizado: el servidor no guarda email, código, IP, navegador
+    # ni identificador de visitante con la respuesta (ver app/privacy.py).
+    anonymous: bool = Field(
+        sa_column=Column(Boolean, nullable=False, server_default="0"), default=False
+    )
+    # Retención: a los N días de enviada, la respuesta se anonimiza o se borra.
+    retention_days: Optional[int] = Field(sa_column=Column(Integer), default=None)
+    retention_action: Optional[str] = Field(sa_column=Column(String), default=None)
+    # Recordatorios a invitados que no respondieron:
+    # {"enabled": true, "every_days": 3, "max": 2}
+    reminders: Optional[dict] = Field(sa_column=Column(JSON), default=None)
+    # Campos ocultos que llegan en la URL, cupos por grupo y link público de
+    # resultados (ver app/fields.py).
+    hidden_fields: Optional[list] = Field(sa_column=Column(JSON), default=None)
+    quotas: Optional[list] = Field(sa_column=Column(JSON), default=None)
+    public_results: Optional[dict] = Field(sa_column=Column(JSON), default=None)
+    # Traducciones por idioma: {idioma: {texto original: traducción}} (app/translation.py).
+    translations: Optional[dict] = Field(sa_column=Column(JSON), default=None)
+    # Pedido de aprobación para publicar: {"state": "pending"|"rejected",
+    # "by": email, "at": iso, "note": "..."}. None = sin pedido en curso.
+    approval: Optional[dict] = Field(sa_column=Column(JSON), default=None)
     # Papelera (soft-delete): al borrar se marca la fecha en vez de destruir la
     # encuesta y sus respuestas. Una encuesta en la papelera no se lista, no se
     # edita y — crítico — deja de responderse desde su link público. Se puede
@@ -403,6 +441,18 @@ class SurveyResponse(SQLModel, table=True):
         sa_column=Column(Boolean, nullable=False, server_default="0", index=True),
         default=False,
     )
+    # ── Trazabilidad ─────────────────────────────────────────────────────────
+    #
+    # Qué versión de la encuesta (estructura + rúbrica) contestó esta persona.
+    # Sin esto, editar la encuesta después reinterpretaba en silencio todas las
+    # respuestas viejas. NULL en respuestas anteriores a la 0026.
+    survey_version_id: Optional[uuid.UUID] = Field(
+        sa_column=Column(ForeignKey("survey_versions.id", ondelete="SET NULL"), index=True),
+        default=None,
+    )
+    # SHA-256 de lo que llegó (ver `app/audit.py::response_hash`). Permite
+    # comprobar después que las respuestas no se tocaron en la base.
+    integrity_hash: Optional[str] = Field(sa_column=Column(String), default=None)
 
 
 # ── AI providers, usage tracking and editable pricing ────────────────────────
@@ -456,6 +506,12 @@ class AiUsage(SQLModel, table=True):
     )
     survey_id: Optional[uuid.UUID] = Field(
         sa_column=Column(ForeignKey("surveys.id", ondelete="SET NULL"), index=True),
+        default=None,
+    )
+    # Qué respuesta se corrigió con esta llamada (solo en `grade`). SET NULL: el
+    # gasto existió aunque la respuesta se borre después.
+    response_id: Optional[uuid.UUID] = Field(
+        sa_column=Column(ForeignKey("survey_responses.id", ondelete="SET NULL"), index=True),
         default=None,
     )
     operation: str = Field(sa_column=Column(String, nullable=False))  # generate | grade | insights
@@ -514,8 +570,129 @@ class SurveyInvitee(SQLModel, table=True):
     sent_at: Optional[datetime] = Field(
         sa_column=Column(DateTime(timezone=True)), default=None
     )
+    # Seguimiento: abrió el email (píxel), respondió, recordatorios enviados.
+    # `used_at` es el clic (la primera vez que entró con su enlace).
+    opened_at: Optional[datetime] = Field(
+        sa_column=Column(DateTime(timezone=True)), default=None
+    )
+    responded_at: Optional[datetime] = Field(
+        sa_column=Column(DateTime(timezone=True)), default=None
+    )
+    reminders_sent: int = Field(
+        sa_column=Column(Integer, nullable=False, server_default="0"), default=0
+    )
+    last_reminded_at: Optional[datetime] = Field(
+        sa_column=Column(DateTime(timezone=True)), default=None
+    )
     created_at: datetime = Field(
         sa_column=Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    )
+
+
+class SurveyTemplate(SQLModel, table=True):
+    """Plantilla propia de una organización: una encuesta guardada para
+    reutilizar (preguntas, corrección y diseño), sin respuestas."""
+
+    __tablename__ = "survey_templates"
+
+    id: uuid.UUID = Field(primary_key=True, default_factory=uuid.uuid4)
+    org_id: uuid.UUID = Field(
+        sa_column=Column(
+            ForeignKey("organizations.id", ondelete="CASCADE"), index=True, nullable=False
+        )
+    )
+    title: str = Field(sa_column=Column(String, nullable=False))
+    description: Optional[str] = Field(sa_column=Column(String), default=None)
+    category: Optional[str] = Field(sa_column=Column(String), default=None)
+    json_schema: dict = Field(sa_column=Column(JSON, nullable=False), default_factory=dict)
+    evaluation: Optional[dict] = Field(sa_column=Column(JSON), default=None)
+    theme: Optional[dict] = Field(sa_column=Column(JSON), default=None)
+    language: Optional[str] = Field(sa_column=Column(String), default=None)
+    uses: int = Field(sa_column=Column(Integer, nullable=False, server_default="0"), default=0)
+    created_by: Optional[uuid.UUID] = Field(
+        sa_column=Column(ForeignKey("users.id", ondelete="SET NULL")), default=None
+    )
+    created_at: datetime = Field(
+        sa_column=Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    )
+
+
+class SurveyComment(SQLModel, table=True):
+    """Comentario de un colaborador sobre la encuesta o sobre una pregunta."""
+
+    __tablename__ = "survey_comments"
+
+    id: uuid.UUID = Field(primary_key=True, default_factory=uuid.uuid4)
+    survey_id: uuid.UUID = Field(
+        sa_column=Column(ForeignKey("surveys.id", ondelete="CASCADE"), index=True, nullable=False)
+    )
+    question: Optional[str] = Field(sa_column=Column(String), default=None)
+    body: str = Field(sa_column=Column(String, nullable=False))
+    author_id: Optional[uuid.UUID] = Field(
+        sa_column=Column(ForeignKey("users.id", ondelete="SET NULL")), default=None
+    )
+    author_email: Optional[str] = Field(sa_column=Column(String), default=None)
+    resolved_at: Optional[datetime] = Field(sa_column=Column(DateTime(timezone=True)), default=None)
+    created_at: datetime = Field(
+        sa_column=Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    )
+
+
+class OrgSso(SQLModel, table=True):
+    """Inicio de sesión con el proveedor de identidad de la organización
+    (OIDC: Google Workspace, Microsoft Entra ID, Okta, Keycloak…)."""
+
+    __tablename__ = "org_sso"
+
+    id: uuid.UUID = Field(primary_key=True, default_factory=uuid.uuid4)
+    org_id: uuid.UUID = Field(
+        sa_column=Column(ForeignKey("organizations.id", ondelete="CASCADE"), unique=True, nullable=False)
+    )
+    issuer: str = Field(sa_column=Column(String, nullable=False))
+    client_id: str = Field(sa_column=Column(String, nullable=False))
+    # En claro, como `ai_providers.api_key`; nunca se devuelve completo.
+    client_secret: Optional[str] = Field(sa_column=Column(String), default=None)
+    # Dominios de email que entran por este proveedor (ej. ["escuela.edu"]).
+    domains: list = Field(sa_column=Column(JSON, nullable=False), default_factory=list)
+    enabled: bool = Field(sa_column=Column(Boolean, nullable=False, server_default="1"), default=True)
+    # Alta automática de quien entra por SSO, con este rol.
+    auto_provision: bool = Field(sa_column=Column(Boolean, nullable=False, server_default="1"), default=True)
+    default_role: str = Field(sa_column=Column(String, nullable=False, server_default="member"), default="member")
+    # Obligatorio: los de esos dominios no pueden entrar con contraseña.
+    enforce: bool = Field(sa_column=Column(Boolean, nullable=False, server_default="0"), default=False)
+    created_at: datetime = Field(
+        sa_column=Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    )
+
+
+class ApiKey(SQLModel, table=True):
+    """Clave de la API pública de una organización. Se guarda sólo el hash: la
+    clave completa se muestra una vez, al crearla."""
+
+    __tablename__ = "api_keys"
+
+    id: uuid.UUID = Field(primary_key=True, default_factory=uuid.uuid4)
+    org_id: uuid.UUID = Field(
+        sa_column=Column(
+            ForeignKey("organizations.id", ondelete="CASCADE"), index=True, nullable=False
+        )
+    )
+    name: str = Field(sa_column=Column(String, nullable=False))
+    prefix: str = Field(sa_column=Column(String, nullable=False, index=True))
+    key_hash: str = Field(sa_column=Column(String, nullable=False, unique=True))
+    # read: consultar; write: además crear encuestas y cargar respuestas.
+    scope: str = Field(sa_column=Column(String, nullable=False, server_default="read"), default="read")
+    created_by: Optional[uuid.UUID] = Field(
+        sa_column=Column(ForeignKey("users.id", ondelete="SET NULL")), default=None
+    )
+    created_at: datetime = Field(
+        sa_column=Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    )
+    last_used_at: Optional[datetime] = Field(
+        sa_column=Column(DateTime(timezone=True)), default=None
+    )
+    revoked_at: Optional[datetime] = Field(
+        sa_column=Column(DateTime(timezone=True)), default=None
     )
 
 
@@ -583,6 +760,281 @@ class ResponseDeletion(SQLModel, table=True):
     deleted_at: datetime = Field(
         sa_column=Column(DateTime(timezone=True), nullable=False, default=_utcnow)
     )
+
+
+class SurveyVersion(SQLModel, table=True):
+    """Una foto inmutable de la estructura y la rúbrica de una encuesta.
+
+    Se crea de forma perezosa: sólo cuando algo la necesita referenciar (una
+    respuesta que llega, una corrección que se corre). Así el autosave del
+    editor no genera cientos de versiones que nadie contestó. Dos fotos con el
+    mismo contenido son la misma versión (`content_hash`)."""
+
+    __tablename__ = "survey_versions"
+    __table_args__ = (UniqueConstraint("survey_id", "number", name="uq_survey_version_number"),)
+
+    id: uuid.UUID = Field(primary_key=True, default_factory=uuid.uuid4)
+    survey_id: uuid.UUID = Field(
+        sa_column=Column(
+            ForeignKey("surveys.id", ondelete="CASCADE"), index=True, nullable=False
+        )
+    )
+    number: int = Field(sa_column=Column(Integer, nullable=False))
+    json_schema: dict = Field(sa_column=Column(JSON, nullable=False), default_factory=dict)
+    evaluation: Optional[dict] = Field(sa_column=Column(JSON), default=None)
+    content_hash: str = Field(sa_column=Column(String, nullable=False, index=True))
+    created_at: datetime = Field(
+        sa_column=Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    )
+    # Por qué existe: "respuesta", "corrección", "guardado", "publicada",
+    # "autoguardado", "restaurada" (ver `ensure_survey_version`).
+    label: Optional[str] = Field(sa_column=Column(String), default=None)
+    created_by: Optional[uuid.UUID] = Field(
+        sa_column=Column(ForeignKey("users.id", ondelete="SET NULL")), default=None
+    )
+    created_by_email: Optional[str] = Field(sa_column=Column(String), default=None)
+
+
+class GradeRevision(SQLModel, table=True):
+    """Cada cambio de nota de una respuesta: quién, cuándo, de dónde y con qué.
+
+    `source`: `submit` (corrección al enviar), `regrade` (re-corrida individual
+    o masiva), `manual` (un docente la tocó). La nota anterior y la nueva van
+    completas para poder reconstruir cualquier punto de la historia sin
+    depender del orden de las filas.
+
+    CASCADE a la respuesta: si se borra una respuesta (p. ej. por un pedido de
+    baja de datos) sus correcciones se van con ella; el borrado en sí queda en
+    `audit_events`."""
+
+    __tablename__ = "grade_revisions"
+
+    id: uuid.UUID = Field(primary_key=True, default_factory=uuid.uuid4)
+    response_id: uuid.UUID = Field(
+        sa_column=Column(
+            ForeignKey("survey_responses.id", ondelete="CASCADE"), index=True, nullable=False
+        )
+    )
+    survey_id: uuid.UUID = Field(sa_column=Column(ForeignKey("surveys.id", ondelete="CASCADE"), index=True, nullable=False))
+    source: str = Field(sa_column=Column(String, nullable=False))
+    actor_id: Optional[uuid.UUID] = Field(
+        sa_column=Column(ForeignKey("users.id", ondelete="SET NULL"), index=True),
+        default=None,
+    )
+    actor_email: Optional[str] = Field(sa_column=Column(String), default=None)
+    score_before: Optional[float] = Field(sa_column=Column(Float), default=None)
+    score_after: Optional[float] = Field(sa_column=Column(Float), default=None)
+    max_score: Optional[float] = Field(sa_column=Column(Float), default=None)
+    grade_before: Optional[dict] = Field(sa_column=Column(JSON), default=None)
+    grade_after: Optional[dict] = Field(sa_column=Column(JSON), default=None)
+    # Con qué versión de la encuesta se corrigió (puede no ser la que se contestó).
+    survey_version_id: Optional[uuid.UUID] = Field(
+        sa_column=Column(ForeignKey("survey_versions.id", ondelete="SET NULL")),
+        default=None,
+    )
+    note: Optional[str] = Field(sa_column=Column(String), default=None)
+    created_at: datetime = Field(
+        sa_column=Column(DateTime(timezone=True), nullable=False, default=_utcnow, index=True)
+    )
+
+
+class AuditEvent(SQLModel, table=True):
+    """Registro general de auditoría: quién hizo qué, sobre qué, y cuándo.
+
+    `survey_id` y `response_id` NO llevan clave foránea a propósito, igual que
+    `response_deletions.response_id`: el registro tiene que sobrevivir al
+    borrado definitivo de lo que describe. Sólo `org_id` cascadea: si la
+    organización entera desaparece, su auditoría también."""
+
+    __tablename__ = "audit_events"
+
+    id: uuid.UUID = Field(primary_key=True, default_factory=uuid.uuid4)
+    org_id: Optional[uuid.UUID] = Field(
+        sa_column=Column(ForeignKey("organizations.id", ondelete="CASCADE"), index=True),
+        default=None,
+    )
+    survey_id: Optional[uuid.UUID] = Field(sa_column=Column(Uuid, index=True), default=None)
+    response_id: Optional[uuid.UUID] = Field(sa_column=Column(Uuid, index=True), default=None)
+    actor_id: Optional[uuid.UUID] = Field(
+        sa_column=Column(ForeignKey("users.id", ondelete="SET NULL"), index=True),
+        default=None,
+    )
+    actor_email: Optional[str] = Field(sa_column=Column(String), default=None)
+    action: str = Field(sa_column=Column(String, nullable=False, index=True))
+    detail: Optional[dict] = Field(sa_column=Column(JSON), default=None)
+    created_at: datetime = Field(
+        sa_column=Column(DateTime(timezone=True), nullable=False, default=_utcnow, index=True)
+    )
+
+
+class SurveyDraft(SQLModel, table=True):
+    """Respuestas a medio hacer, guardadas en el servidor para retomar desde
+    cualquier dispositivo.
+
+    Sólo existe cuando se sabe QUIÉN responde (invitado con código, alumno que
+    entra desde Moodle): `key` es esa identidad. En las encuestas públicas
+    anónimas no se guarda nada acá -- el borrador vive en el navegador -- para
+    no retener en el servidor lo que alguien empezó y decidió no enviar.
+    Se borra al enviar y vence a los `DRAFT_TTL_DAYS` días."""
+
+    __tablename__ = "survey_drafts"
+    __table_args__ = (UniqueConstraint("survey_id", "key", name="uq_survey_draft_key"),)
+
+    id: uuid.UUID = Field(primary_key=True, default_factory=uuid.uuid4)
+    survey_id: uuid.UUID = Field(
+        sa_column=Column(
+            ForeignKey("surveys.id", ondelete="CASCADE"), index=True, nullable=False
+        )
+    )
+    key: str = Field(sa_column=Column(String, nullable=False))
+    answers: dict = Field(sa_column=Column(JSON, nullable=False), default_factory=dict)
+    page: int = Field(sa_column=Column(Integer, nullable=False, server_default="0"), default=0)
+    updated_at: datetime = Field(
+        sa_column=Column(DateTime(timezone=True), nullable=False, default=_utcnow, index=True)
+    )
+
+
+DRAFT_TTL_DAYS = 30
+
+
+class BankItem(SQLModel, table=True):
+    """Una pregunta del banco de la organización, reutilizable entre encuestas.
+
+    Guarda el elemento de SurveyJS y su corrección tal cual. Al insertarla en
+    una encuesta, el elemento lleva `encBankId` con este id: así las
+    estadísticas del ítem se juntan de todos los exámenes donde se usó."""
+
+    __tablename__ = "bank_items"
+
+    id: uuid.UUID = Field(primary_key=True, default_factory=uuid.uuid4)
+    org_id: uuid.UUID = Field(
+        sa_column=Column(ForeignKey("organizations.id", ondelete="CASCADE"), index=True, nullable=False)
+    )
+    title: str = Field(sa_column=Column(String, nullable=False))
+    qtype: str = Field(sa_column=Column(String, nullable=False, index=True))
+    element: dict = Field(sa_column=Column(JSON, nullable=False), default_factory=dict)
+    grading: Optional[dict] = Field(sa_column=Column(JSON), default=None)
+    topic: Optional[str] = Field(sa_column=Column(String, index=True), default=None)
+    tags: list = Field(sa_column=Column(JSON, nullable=False), default_factory=list)
+    difficulty: Optional[str] = Field(sa_column=Column(String), default=None)
+    bloom: Optional[str] = Field(sa_column=Column(String), default=None)
+    source_survey_id: Optional[uuid.UUID] = Field(sa_column=Column(Uuid), default=None)
+    created_by: Optional[uuid.UUID] = Field(
+        sa_column=Column(ForeignKey("users.id", ondelete="SET NULL")), default=None
+    )
+    created_at: datetime = Field(
+        sa_column=Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    )
+    updated_at: datetime = Field(
+        sa_column=Column(DateTime(timezone=True), nullable=False, default=_utcnow, onupdate=_utcnow)
+    )
+
+
+class SurveyAttempt(SQLModel, table=True):
+    """Un intento de examen: cuándo empezó y qué preguntas le tocaron.
+
+    Lo registra el servidor al empezar (ver `app/exam.py`). Es lo que hace que
+    el tiempo límite no dependa del reloj del navegador y que el sorteo no
+    cambie al recargar. `key` es la identidad de quien rinde (código de
+    invitado, alumno del LMS o, sin identidad, el visitante anónimo)."""
+
+    __tablename__ = "survey_attempts"
+
+    id: uuid.UUID = Field(primary_key=True, default_factory=uuid.uuid4)
+    survey_id: uuid.UUID = Field(
+        sa_column=Column(ForeignKey("surveys.id", ondelete="CASCADE"), index=True, nullable=False)
+    )
+    key: str = Field(sa_column=Column(String, nullable=False, index=True))
+    started_at: datetime = Field(
+        sa_column=Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    )
+    deadline: Optional[datetime] = Field(sa_column=Column(DateTime(timezone=True)), default=None)
+    drawn: Optional[list] = Field(sa_column=Column(JSON), default=None)
+    # Forma fija del examen (A, B, …) si el examen usa formas (app/exam.py).
+    form: Optional[str] = Field(sa_column=Column(String), default=None)
+    submitted_at: Optional[datetime] = Field(sa_column=Column(DateTime(timezone=True)), default=None)
+    response_id: Optional[uuid.UUID] = Field(sa_column=Column(Uuid), default=None)
+
+
+class GradeAppeal(SQLModel, table=True):
+    """Reclamo de nota: un alumno pide que se revise UNA pregunta.
+
+    El docente lo acepta (con el puntaje nuevo, que pasa por el historial de
+    notas y vuelve al LMS) o lo rechaza con una respuesta. El alumno ve el
+    estado y la respuesta al consultar su resultado."""
+
+    __tablename__ = "grade_appeals"
+
+    id: uuid.UUID = Field(primary_key=True, default_factory=uuid.uuid4)
+    survey_id: uuid.UUID = Field(
+        sa_column=Column(ForeignKey("surveys.id", ondelete="CASCADE"), index=True, nullable=False)
+    )
+    response_id: uuid.UUID = Field(
+        sa_column=Column(ForeignKey("survey_responses.id", ondelete="CASCADE"), index=True, nullable=False)
+    )
+    question: str = Field(sa_column=Column(String, nullable=False))
+    message: str = Field(sa_column=Column(String, nullable=False))
+    status: str = Field(sa_column=Column(String, nullable=False, index=True, server_default="open"), default="open")
+    reply: Optional[str] = Field(sa_column=Column(String), default=None)
+    award_before: Optional[float] = Field(sa_column=Column(Float), default=None)
+    award_after: Optional[float] = Field(sa_column=Column(Float), default=None)
+    resolved_by_email: Optional[str] = Field(sa_column=Column(String), default=None)
+    created_at: datetime = Field(
+        sa_column=Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    )
+    resolved_at: Optional[datetime] = Field(sa_column=Column(DateTime(timezone=True)), default=None)
+
+
+JOB_PENDING = "pending"
+JOB_RUNNING = "running"
+JOB_DONE = "done"
+JOB_FAILED = "failed"
+
+
+class Job(SQLModel, table=True):
+    """Una tarea en segundo plano, persistida (ver `app/jobs.py`).
+
+    Reemplaza a los `asyncio.create_task` sueltos: si el proceso se reinicia,
+    lo pendiente sigue acá y se retoma; si falla, se reintenta con espera
+    creciente; y lo que se rindió queda a la vista con su último error. Es,
+    además, el registro de entregas: cada nota enviada al LMS, cada webhook y
+    cada email es una fila con su estado.
+
+    `survey_id`/`response_id` sin FK, igual que la auditoría: el registro de
+    una entrega no tiene que desaparecer con lo que describe."""
+
+    __tablename__ = "jobs"
+
+    id: uuid.UUID = Field(primary_key=True, default_factory=uuid.uuid4)
+    kind: str = Field(sa_column=Column(String, nullable=False, index=True))
+    payload: dict = Field(sa_column=Column(JSON, nullable=False), default_factory=dict)
+    status: str = Field(
+        sa_column=Column(String, nullable=False, index=True, server_default=JOB_PENDING),
+        default=JOB_PENDING,
+    )
+    attempts: int = Field(sa_column=Column(Integer, nullable=False, server_default="0"), default=0)
+    max_attempts: int = Field(sa_column=Column(Integer, nullable=False, server_default="6"), default=6)
+    run_after: datetime = Field(
+        sa_column=Column(DateTime(timezone=True), nullable=False, default=_utcnow, index=True)
+    )
+    locked_at: Optional[datetime] = Field(sa_column=Column(DateTime(timezone=True)), default=None)
+    last_error: Optional[str] = Field(sa_column=Column(String), default=None)
+    # Avance de las tareas largas (p. ej. {"done": 40, "total": 120}).
+    progress: Optional[dict] = Field(sa_column=Column(JSON), default=None)
+    result: Optional[dict] = Field(sa_column=Column(JSON), default=None)
+    # Dos pedidos de la misma entrega mientras la primera sigue pendiente son
+    # uno solo (p. ej. tres recorrecciones seguidas de la misma nota al LMS).
+    dedupe_key: Optional[str] = Field(sa_column=Column(String, index=True), default=None)
+    org_id: Optional[uuid.UUID] = Field(
+        sa_column=Column(ForeignKey("organizations.id", ondelete="CASCADE"), index=True),
+        default=None,
+    )
+    survey_id: Optional[uuid.UUID] = Field(sa_column=Column(Uuid, index=True), default=None)
+    response_id: Optional[uuid.UUID] = Field(sa_column=Column(Uuid, index=True), default=None)
+    created_at: datetime = Field(
+        sa_column=Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    )
+    finished_at: Optional[datetime] = Field(sa_column=Column(DateTime(timezone=True)), default=None)
 
 
 # ── LTI 1.3 (Encuestum como herramienta de un LMS) ───────────────────────────

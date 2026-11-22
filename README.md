@@ -32,6 +32,7 @@ Encuestum es una **plataforma multi-tenant** de encuestas y evaluaciones. Cualqu
 - [✨ Qué hace](#-qué-hace)
 - [🚀 Instalación rápida](#-instalación-rápida)
 - [🐳 Deploy con Docker](#-deploy-con-docker)
+- [🛟 Operación: cola de tareas, salud y backups](#-operación-cola-de-tareas-salud-y-backups)
 - [🎛️ Deploy en EasyPanel](#️-deploy-en-easypanel)
 - [⚙️ Configuración (variables de entorno)](#️-configuración-variables-de-entorno)
 - [🗄️ Almacenamiento externo (Cloudflare R2 / S3)](#️-almacenamiento-externo-cloudflare-r2--s3)
@@ -146,6 +147,50 @@ docker build -t encuestum:local .
 
 ---
 
+## 🛟 Operación: cola de tareas, salud y backups
+
+**Cola de tareas.** Las notas que vuelven a Moodle, los webhooks, los emails y las recorrecciones masivas pasan por una cola guardada en la propia base (tabla `jobs`). Se encolan en la misma transacción que las causa, así que un reinicio no pierde nada. Si una entrega falla, se reintenta con espera creciente (30 s → 1 h). Lo que se rinde queda en el panel (ficha de la respuesta → **Entregas**) con su error y un botón **Reintentar**. Por API: `GET /api/v1/survey/surveys/{id}/deliveries?status=failed`. No necesita Redis.
+
+**Salud.** `GET /api/health` (proceso vivo) y `GET /api/ready` (toca la base). La imagen trae un `HEALTHCHECK` sobre `/api/ready`.
+
+**Base de datos.** En producción usá **Postgres** (Opción A). SQLite sirve para probar o para un uso chico de un solo proceso.
+
+**Backups (Postgres).** Un dump diario alcanza para la mayoría de las instalaciones:
+
+```bash
+# backup (comprimido, formato custom)
+docker compose -f docker-compose.prod.yml exec -T db \
+  pg_dump -U encuestum -Fc encuestum > encuestum-$(date +%F).dump
+```
+
+```bash
+# restaurar sobre una base vacía
+docker compose -f docker-compose.prod.yml exec -T db \
+  pg_restore -U encuestum -d encuestum --clean --if-exists < encuestum-AAAA-MM-DD.dump
+```
+
+Guardá también el volumen `/app_data` (archivos subidos, si no usás R2/S3) y tu `.env`: sin `ENCUESTUM_SESSION_SECRET` las sesiones se invalidan y los seudónimos de IP dejan de coincidir. **Probá restaurar** al menos una vez: un backup que nunca se restauró no es un backup.
+
+**Mantenimiento automático (cada hora).** El worker de la cola manda los **recordatorios** a invitados que no respondieron (configurables por encuesta: cada N días, hasta M veces) y aplica la **retención** (anonimizar o borrar respuestas a los N días, por encuesta o por defecto de la organización). Todo queda en la auditoría.
+
+**Privacidad.** *Anonimato garantizado* por encuesta: el servidor no guarda email, código, IP, navegador ni visitante. Desde **Integraciones → Privacidad** un admin busca todo lo que hay de un email, lo exporta (JSON) o lo borra/anonimiza (derechos de acceso y supresión).
+
+**API pública.** Claves por organización en **Integraciones → API pública** (lectura o escritura; se guarda sólo el hash). Documentación navegable en `/api/v1/ext/docs` y OpenAPI en `/api/v1/ext/openapi.json`. Límite: 120 pedidos/min por clave.
+
+**Tope de IA.** En la sección **IA** se fija un tope mensual en USD: al 80% se avisa por email a dueños y admins; al 100% se frenan la generación y la corrección con IA (lo pendiente se reintenta solo).
+
+**SSO por organización.** En **Integraciones → Inicio de sesión único** se conecta cualquier proveedor OpenID Connect (Google Workspace, Microsoft Entra ID, Okta, Keycloak…): emisor, client ID/secret y los dominios de email. La URI de redirección a registrar es `<ENCUESTUM_PUBLIC_API_URL>/api/v1/auth/org-sso/callback`. Opcional: alta automática con rol miembro o lector, y SSO obligatorio para esos dominios. (Distinto de la federación de plataforma con Lockatus, `AUTH_MODE=federado`.)
+
+**Roles y alcance.** Además de dueño, admin y miembro hay **lector** (ve y comenta, no cambia nada). Un miembro o lector se puede limitar a ciertas carpetas (con sus subcarpetas) desde **Miembros**. Con **Publicar requiere aprobación**, los miembros piden publicar y un admin aprueba o devuelve con un comentario.
+
+**Servidor MCP.** Un asistente de IA puede consultar la organización con una clave de la API: `claude mcp add --transport http encuestum https://<host>/api/v1/mcp --header "Authorization: Bearer enc_…"`. Herramientas: `list_surveys`, `get_survey`, `get_summary`, `get_responses` y `add_invitees` (clave de escritura).
+
+**Sin conexión.** Las encuestas públicas ya abiertas se pueden volver a abrir y completar sin red (service worker en `/sw.js`); las respuestas quedan en el dispositivo y se envían solas al volver la conexión, sin duplicarse.
+
+**Integridad.** Cada respuesta guarda una huella SHA-256 (sello "Íntegra"/"Modificada" en el panel), y cada exportación queda en el registro de actividad con la huella del archivo (también en el header `X-Encuestum-SHA256`).
+
+---
+
 ## 🎛️ Deploy en EasyPanel
 
 EasyPanel es la forma más cómoda de correrlo en un VPS. Encuestum es **una App** (no compose): corre la imagen y se configura por variables de entorno. Guía completa en [`docs/DEPLOY_EASYPANEL.md`](docs/DEPLOY_EASYPANEL.md); para el stack completo de la Suite (R2 + SSO Lockatus) ver [`docs/DEPLOY_EASYPANEL_SUITE.md`](docs/DEPLOY_EASYPANEL_SUITE.md). Resumen:
@@ -177,6 +222,7 @@ Todo se configura por env con prefijo `ENCUESTUM_*`. Ver [`.env.example`](.env.e
 | `ENCUESTUM_SESSION_SECRET` | *(efímero)* | **Firma las sesiones. OBLIGATORIO en prod** (`openssl rand -hex 32`). Si no lo fijás, las sesiones se invalidan en cada reinicio. |
 | `DATABASE_URL` | *(SQLite)* | `postgresql://user:pass@host:5432/db` para Postgres. Sin esto usa SQLite en `ENCUESTUM_DATA_DIR`. |
 | `ENCUESTUM_PUBLIC_URL` | *(CORS[0])* | URL base pública (para los links de los emails). En prod, tu dominio. |
+| `ENCUESTUM_PUBLIC_API_URL` | *(PUBLIC_URL)* | Dónde se llega a la API desde afuera: píxel de apertura de las invitaciones y servidor de la API pública (`/api/v1/ext/docs`). Sólo si la API vive en otro dominio. |
 | `ENCUESTUM_COOKIE_SECURE` | `true` | Cookies solo-HTTPS. Poné `false` solo en http local. |
 | `ENCUESTUM_ALLOW_REGISTRATION` | `true` | Auto-registro público. `false` para cerrar el alta. |
 | `ENCUESTUM_REQUIRE_EMAIL_VERIFICATION` | `false` | Exigir verificar el email antes de usar la cuenta. |
@@ -193,6 +239,9 @@ Todo se configura por env con prefijo `ENCUESTUM_*`. Ver [`.env.example`](.env.e
 | `LTI_ENABLED` | `false` | Prende la integración **LTI 1.3** (Moodle, Canvas, Blackboard…). Apagado por defecto: nada cambia para instalaciones que no usan un LMS. Guía de conexión completa en [`docs/MOODLE.md`](docs/MOODLE.md) (entorno de prueba con Docker en [`dev/moodle/README.md`](dev/moodle/README.md)). |
 | `LTI_PRIVATE_KEY` | *(generada)* | Clave privada RSA (PEM) con la que el tool firma sus JWT. Sin definirla, se genera una al arrancar y se guarda en la base. |
 | `LTI_KEY_ID` | `encuestum-lti-1` | `kid` publicado en el JWKS. Cambiarlo obliga a las plataformas ya registradas a releer las claves. |
+| `ENCUESTUM_WORKERS` | `1` | Procesos del backend. Con Postgres podés subirlo (2-4); con SQLite dejalo en 1. |
+| `ENCUESTUM_JOBS_WORKER` | `true` | Worker de la cola de tareas (notas al LMS, webhooks, emails, recorrecciones). Cada proceso corre el suyo y se reparten el trabajo. |
+| `ENCUESTUM_STORE_IP_HASH` | `true` | Guarda con cada respuesta un seudónimo (HMAC) de la IP, nunca la IP en claro. `false` para no dejar rastro de red. |
 | `LTI_FRAME_ANCESTORS` | `*` | Quién puede embeber las encuestas mientras LTI está activo. **Sin definir, cualquier sitio de internet puede meterlas en un iframe** — es lo que hace falta para no tener que saber de antemano el dominio del LMS. Si ya lo sabés, listalo: `https://moodle.escuela.edu https://aula.otro.org`. |
 
 ---

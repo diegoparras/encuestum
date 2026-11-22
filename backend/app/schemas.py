@@ -53,6 +53,21 @@ class SurveyUpdateRequest(BaseModel):
     grading_message: Optional[str] = None  # texto mientras se procesa/corrige
     redirect_url: Optional[str] = None
     require_captcha: Optional[bool] = None
+    # Privacidad y distribución (ver app/privacy.py y app/distribution.py).
+    anonymous: Optional[bool] = None
+    retention_days: Optional[int] = None  # 0 = sin retención
+    retention_action: Optional[str] = None  # anonymize | delete
+    reminders: Optional[dict[str, Any]] = None
+    # Campos ocultos de la URL, cupos y link público de resultados (app/fields.py).
+    hidden_fields: Optional[List[str]] = None
+    quotas: Optional[List[dict[str, Any]]] = None
+    public_results: Optional[dict[str, Any]] = None
+    # Control de concurrencia: el `content_hash` que el editor tenía al cargar o
+    # al último guardado. Sin él no se controla (llamadores viejos, API).
+    base_content_hash: Optional[str] = None
+    # Guardado manual (botón Guardar / Ctrl+S): deja una versión en el
+    # historial. El autoguardado deja una cada 15 minutos como mucho.
+    snapshot: Optional[bool] = None
 
 
 class SurveySummary(BaseModel):
@@ -99,11 +114,25 @@ class SurveyDetail(BaseModel):
     grading_message: Optional[str] = None
     redirect_url: Optional[str] = None
     require_captcha: bool = False
+    anonymous: bool = False
+    retention_days: Optional[int] = None
+    retention_action: Optional[str] = None
+    reminders: Optional[dict[str, Any]] = None
+    hidden_fields: Optional[List[str]] = None
+    quotas: Optional[List[dict[str, Any]]] = None
+    public_results: Optional[dict[str, Any]] = None
+    approval: Optional[dict[str, Any]] = None
     created_at: datetime
     updated_at: datetime
+    # Huella del contenido editable (preguntas, corrección, diseño, título).
+    # El editor la devuelve en `base_content_hash` al guardar: si no coincide,
+    # alguien más cambió la encuesta mientras tanto (ver `update_survey`).
+    content_hash: Optional[str] = None
 
     @classmethod
     def from_model(cls, s: Survey) -> "SurveyDetail":
+        from app.audit import survey_content_hash
+
         return cls(
             id=s.id, title=s.title, slug=s.slug, status=s.status, language=s.language,
             json_schema=s.json_schema or {}, theme=s.theme, evaluation=s.evaluation,
@@ -120,7 +149,16 @@ class SurveyDetail(BaseModel):
             grading_message=getattr(s, "grading_message", None),
             redirect_url=getattr(s, "redirect_url", None),
             require_captcha=bool(getattr(s, "require_captcha", False)),
+            anonymous=bool(getattr(s, "anonymous", False)),
+            retention_days=getattr(s, "retention_days", None),
+            retention_action=getattr(s, "retention_action", None),
+            reminders=getattr(s, "reminders", None),
+            hidden_fields=getattr(s, "hidden_fields", None),
+            quotas=getattr(s, "quotas", None),
+            public_results=getattr(s, "public_results", None),
+            approval=getattr(s, "approval", None),
             created_at=s.created_at, updated_at=s.updated_at,
+            content_hash=survey_content_hash(s),
         )
 
 
@@ -143,6 +181,10 @@ class PublicSurvey(BaseModel):
     redirect_url: Optional[str] = None
     # Anti-bot: when true the public page must solve a proof-of-work before submit.
     require_captcha: bool = False
+    # Parámetros de la URL que se guardan con la respuesta (campos ocultos).
+    hidden_fields: List[str] = []
+    # Idiomas en que se puede responder (el primero es el original).
+    languages: List[str] = []
 
 
 class SubmitResponseRequest(BaseModel):
@@ -152,6 +194,8 @@ class SubmitResponseRequest(BaseModel):
     access_token: Optional[str] = None
     # Solved proof-of-work challenge (only required if the survey opts in).
     captcha: Optional[dict[str, Any]] = None
+    # Intento de examen (ver POST /public/{slug}/start y app/exam.py).
+    attempt_token: Optional[str] = None
 
 
 class SurveyAccessRequest(BaseModel):
@@ -185,15 +229,23 @@ class ResponseItem(BaseModel):
     # Fuera de los resultados sin estar borrada (ver app/hygiene.py).
     excluded: bool = False
     is_test: bool = False
+    # Trazabilidad (ver app/audit.py).
+    survey_version_id: Optional[uuid.UUID] = None
+    # True/False: la huella coincide o no; None: respuesta anterior a la huella.
+    integrity_ok: Optional[bool] = None
 
     @classmethod
     def from_model(cls, r) -> "ResponseItem":
+        from app.audit import verify_response
+
         return cls(
             id=r.id, answers=r.answers or {}, completed=r.completed, meta=r.meta,
             submitted_at=r.submitted_at, score=r.score, max_score=r.max_score,
             needs_review=r.needs_review, grade=r.grade, graded_at=r.graded_at,
             excluded=bool(getattr(r, "excluded", False)),
             is_test=bool(getattr(r, "is_test", False)),
+            survey_version_id=getattr(r, "survey_version_id", None),
+            integrity_ok=verify_response(r) if hasattr(r, "integrity_hash") else None,
         )
 
 
@@ -210,9 +262,18 @@ class OverrideRequest(BaseModel):
 
 
 class GenerateQuestionsRequest(BaseModel):
-    topic: str
+    topic: str = Field(max_length=500)
     count: int = 5
     types: List[str] = Field(default_factory=lambda: ["radiogroup", "comment"])
     language: str = "es"
     difficulty: str = "media"
-    context: Optional[str] = None
+    # Material base (texto). Puede ser largo: el servidor elige los fragmentos
+    # relevantes (ver app/material.py), no viaja entero al modelo.
+    context: Optional[str] = Field(default=None, max_length=600_000)
+    # Niveles de Bloom a cubrir y objetivos de aprendizaje (opcionales).
+    bloom: List[str] = Field(default_factory=list)
+    objectives: Optional[str] = Field(default=None, max_length=4000)
+    # Títulos que ya hay en el editor (aunque no estén guardados): no repetirlas.
+    existing_titles: List[str] = Field(default_factory=list, max_length=500)
+    # Generar variantes de esta pregunta en vez de preguntas nuevas.
+    variant_of: Optional[dict[str, Any]] = None

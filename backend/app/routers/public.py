@@ -1,10 +1,13 @@
 import logging
 import math
 import uuid
+from datetime import timedelta, timezone
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, Field
+from sqlalchemy import delete as sa_delete
+from sqlalchemy import func
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
@@ -259,11 +262,21 @@ def _respondent_view(
     return view
 
 
+def _idiomas(s: Survey) -> list[str]:
+    from app.translation import coverage
+
+    traducidos = [c["language"] for c in coverage(s.json_schema or {}, s.translations) if c["translated"]]
+    return [s.language or "es", *traducidos] if traducidos else []
+
+
 def _public_payload(s: Survey, available: bool, reason: str | None, gated: bool) -> PublicSurvey:
+    from app.translation import localize
+
     show_form = available and not gated
     return PublicSurvey(
         slug=s.slug, title=s.title, language=s.language,
-        json_schema=(s.json_schema or {}) if show_form else {},
+        json_schema=localize(s.json_schema or {}, s.translations) if show_form else {},
+        languages=_idiomas(s),
         theme=s.theme,  # theme carries branding; safe to show on the gate
         evaluation=public_evaluation_meta(s.evaluation) if show_form else None,
         available=available, closed_reason=reason,
@@ -273,7 +286,55 @@ def _public_payload(s: Survey, available: bool, reason: str | None, gated: bool)
         redirect_url=getattr(s, "redirect_url", None),
         require_captcha=bool(getattr(s, "require_captcha", False))
         and get_settings().captcha_enabled,
+        hidden_fields=list(getattr(s, "hidden_fields", None) or []),
     )
+
+
+@router.get("/track/open/{token}.gif", include_in_schema=False)
+async def track_open(token: str, session: AsyncSession = Depends(get_session)):
+    """Píxel de apertura de las invitaciones. Siempre devuelve la imagen (un
+    token vencido o inválido no le muestra un error a nadie)."""
+    from fastapi import Response
+
+    from app.distribution import PIXEL_GIF, mark_opened
+
+    try:
+        await mark_opened(session, token)
+    except Exception as exc:  # noqa: BLE001
+        LOGGER.debug("píxel de apertura: %s", exc)
+    return Response(content=PIXEL_GIF, media_type="image/gif",
+                    headers={"Cache-Control": "no-store, max-age=0"})
+
+
+@router.get("/results/{token}")
+async def public_results(token: str, session: AsyncSession = Depends(get_session)):
+    """Resultados de solo lectura para compartir (si el dueño lo habilitó).
+    Sin preguntas que identifiquen, sin firmas ni archivos, y con un mínimo de
+    respuestas para mostrar algo."""
+    from app import fields as fields_mod
+    from app.privacy import identifying_questions
+    from app.summarizing import build_summary
+
+    if not token or len(token) > 64:
+        raise HTTPException(status_code=404, detail="Resultados no encontrados")
+    candidatas = (await session.scalars(
+        select(Survey).where(Survey.public_results.is_not(None), Survey.deleted_at.is_(None))
+    )).all()
+    s = next((x for x in candidatas
+              if (x.public_results or {}).get("enabled") and (x.public_results or {}).get("token") == token), None)
+    if s is None:
+        raise HTTPException(status_code=404, detail="Resultados no encontrados")
+    cfg = s.public_results
+    responses = (await session.scalars(
+        counted_only(select(SurveyResponse).where(SurveyResponse.survey_id == s.id))
+    )).all()
+    base = {"title": s.title, "language": s.language, "theme": s.theme,
+            "min_responses": cfg["min_responses"], "total_responses": len(responses)}
+    if len(responses) < cfg["min_responses"]:
+        return {**base, "enough": False, "summary": None}
+    resumen = build_summary(s.json_schema or {}, responses, hidden_fields=s.hidden_fields)
+    return {**base, "enough": True, "summary": fields_mod.public_summary(
+        resumen, identifying=identifying_questions(s.json_schema or {}), show_text=cfg.get("show_text", False))}
 
 
 @router.get("/{slug}", response_model=PublicSurvey)
@@ -335,6 +396,199 @@ async def track_visit(
         await session.rollback()
 
 
+# ── Intentos de examen: tiempo límite y sorteo controlados por el servidor ────
+_ATTEMPT_PURPOSE = "exam_attempt"
+
+
+class StartRequest(BaseModel):
+    access_token: Optional[str] = None
+    visitor_id: Optional[str] = Field(default=None, max_length=64)
+
+
+async def _attempt_key(request: Request, s: Survey, access_token: Optional[str], visitor_id: Optional[str], session) -> str:
+    """Quién rinde. Con identidad (invitado, alumno del LMS) el intento es suyo
+    en cualquier dispositivo; sin identidad, del navegador."""
+    k = await _draft_key(request, s, access_token, session)
+    if k:
+        return k
+    if visitor_id:
+        return f"v:{visitor_id}"
+    import secrets
+
+    return f"anon:{secrets.token_urlsafe(12)}"
+
+
+@router.post("/{slug}/start")
+async def start_attempt(slug: str, payload: StartRequest, request: Request, session: AsyncSession = Depends(get_session)):
+    """Empieza (o retoma) el intento de examen: fija la hora de inicio, el
+    plazo y las preguntas sorteadas, y devuelve el esquema que le toca a esta
+    persona. Retomar devuelve el MISMO intento: recargar la página no reinicia
+    el reloj ni cambia las preguntas."""
+    from app import exam
+    from app.models import SurveyAttempt
+    from app.translation import localize
+
+    await rate_limit(request, f"start:{slug}", limit=60, window_s=60)
+    s = await _visible(slug, session)
+    available, reason = await _availability(s, session)
+    if not available:
+        raise HTTPException(status_code=403, detail=reason or "Esta encuesta está cerrada.")
+    if (getattr(s, "access_mode", "public") != "public" and not _lti_context(request, s)
+            and not _valid_access(s, payload.access_token)):
+        raise HTTPException(status_code=403, detail="Necesitás acceso para responder esta encuesta.")
+    cfg = exam.settings(s.evaluation)
+    if cfg is None:
+        return {"exam": None}
+
+    key = await _attempt_key(request, s, payload.access_token, payload.visitor_id, session)
+    att = (
+        await session.scalars(
+            select(SurveyAttempt)
+            .where(SurveyAttempt.survey_id == s.id, SurveyAttempt.key == key,
+                   SurveyAttempt.submitted_at.is_(None))
+            .order_by(SurveyAttempt.started_at.desc())
+            .limit(1)
+        )
+    ).first()
+    if att is None:
+        previos = int(await session.scalar(
+            select(func.count(SurveyAttempt.id)).where(SurveyAttempt.survey_id == s.id, SurveyAttempt.key == key)
+        ) or 0)
+        ahora = _utcnow()
+        # Formas fijas: por turnos sobre todos los intentos de la encuesta, y el
+        # sorteo de preguntas es el de la forma (igual para todos los que la tienen).
+        forma = None
+        if cfg["forms"]:
+            total = int(await session.scalar(
+                select(func.count(SurveyAttempt.id)).where(SurveyAttempt.survey_id == s.id)
+            ) or 0)
+            forma = exam.form_for(cfg, total)
+        semilla = f"{s.id}:forma:{forma}" if forma else f"{s.id}:{key}:{previos}"
+        att = SurveyAttempt(
+            survey_id=s.id, key=key, started_at=ahora, form=forma,
+            deadline=ahora + timedelta(seconds=cfg["timeLimitSec"]) if cfg["timeLimitSec"] else None,
+            drawn=exam.draw(s.json_schema or {}, cfg["groups"], semilla) if cfg["groups"] else None,
+        )
+        session.add(att)
+        await session.commit()
+        await session.refresh(att)
+
+    def aware(d):
+        return d if d is None or d.tzinfo else d.replace(tzinfo=timezone.utc)
+
+    deadline = aware(att.deadline)
+    restan = max(0, int((deadline - _utcnow()).total_seconds())) if deadline else None
+    token = create_purpose_token(_ATTEMPT_PURPOSE, {"a": str(att.id), "s": str(s.id)}, ttl_hours=72)
+    return {
+        "exam": {
+            "attempt_token": token,
+            "started_at": aware(att.started_at).isoformat(),
+            "deadline": deadline.isoformat() if deadline else None,
+            "seconds_left": restan,
+            "signals": cfg["signals"],
+            "json_schema": localize(exam.personal_schema(s.json_schema or {}, att.drawn, cfg, att.form), s.translations),
+            "form": att.form,
+        }
+    }
+
+
+# ── Borradores en el servidor (retomar desde otro dispositivo) ───────────────
+_MAX_DRAFT_BYTES = 256 * 1024
+
+
+class DraftRequest(BaseModel):
+    answers: dict = Field(default_factory=dict)
+    page: int = 0
+    access_token: Optional[str] = None
+
+
+async def _draft_key(request: Request, s: Survey, access_token: Optional[str], session) -> Optional[str]:
+    """La identidad bajo la que se guarda el borrador, o None si no hay una.
+
+    Sin identidad (encuesta pública anónima) no se guarda nada en el servidor:
+    ver `SurveyDraft`. Un vínculo LTI anónimo tampoco: guardar por `sub` sería
+    identificar a quien eligió no ser identificado."""
+    lti = _lti_context(request, s)
+    if lti:
+        if not lti.get("sub") or lti.get("anonymous"):
+            return None
+        if lti.get("link_id"):
+            link = await session.get(LtiResourceLink, uuid.UUID(lti["link_id"]))
+            if link is None or link.anonymous:
+                return None
+        origen = lti.get("link_id") or lti.get("mod_site_id") or "lms"
+        return f"lms:{origen}:{lti['sub']}"
+    if getattr(s, "access_mode", "public") == "list" and _valid_access(s, access_token):
+        data = read_purpose_token(_ACCESS_PURPOSE, access_token or "") or {}
+        if data.get("code"):
+            return f"inv:{data['code']}"
+    return None
+
+
+@router.get("/{slug}/draft")
+async def get_draft(
+    slug: str,
+    request: Request,
+    access_token: Optional[str] = None,
+    session: AsyncSession = Depends(get_session),
+):
+    """El borrador de quien responde, si tiene identidad y dejó uno.
+    `enabled: false` le dice al navegador que no hace falta mandar borradores."""
+    from app.models import SurveyDraft
+
+    await rate_limit(request, f"draft:{slug}", limit=120, window_s=60)
+    s = await _visible(slug, session)
+    key = await _draft_key(request, s, access_token, session)
+    if key is None:
+        return {"enabled": False}
+    d = (
+        await session.scalars(
+            select(SurveyDraft).where(SurveyDraft.survey_id == s.id, SurveyDraft.key == key)
+        )
+    ).first()
+    if d is None:
+        return {"enabled": True, "draft": None}
+    return {"enabled": True, "draft": {"answers": d.answers, "page": d.page,
+                                       "updated_at": d.updated_at.isoformat()}}
+
+
+@router.put("/{slug}/draft")
+async def save_draft(
+    slug: str,
+    payload: DraftRequest,
+    request: Request,
+    session: AsyncSession = Depends(get_session),
+):
+    """Guarda (o reemplaza) el borrador. Silencioso si no hay identidad."""
+    import json as _json
+
+    from app.models import SurveyDraft
+
+    await rate_limit(request, f"draft:{slug}", limit=120, window_s=60)
+    s = await _visible(slug, session)
+    key = await _draft_key(request, s, payload.access_token, session)
+    if key is None:
+        return {"enabled": False}
+    if len(_json.dumps(payload.answers, default=str)) > _MAX_DRAFT_BYTES:
+        raise HTTPException(status_code=413, detail="El borrador es demasiado grande.")
+    d = (
+        await session.scalars(
+            select(SurveyDraft).where(SurveyDraft.survey_id == s.id, SurveyDraft.key == key)
+        )
+    ).first()
+    if d is None:
+        d = SurveyDraft(survey_id=s.id, key=key)
+    d.answers = payload.answers
+    d.page = max(0, int(payload.page or 0))
+    d.updated_at = _utcnow()
+    session.add(d)
+    try:
+        await session.commit()
+    except Exception:  # noqa: BLE001 — carrera del upsert: otro request lo creó
+        await session.rollback()
+    return {"enabled": True, "saved": True}
+
+
 @router.post("/{slug}/access")
 async def survey_access(
     slug: str,
@@ -363,6 +617,8 @@ async def survey_access(
             raise HTTPException(status_code=403, detail="Email o código inválido")
         if inv.used_at is None:
             inv.used_at = _utcnow()
+            # Si entró con el enlace, lo abrió (aunque su correo bloquee el píxel).
+            inv.opened_at = inv.opened_at or inv.used_at
             session.add(inv)
             await session.commit()
         token_data.update({"email": inv.email, "code": inv.code})
@@ -383,6 +639,18 @@ async def submit(
     # Anti-spam: tope de envíos por IP por encuesta.
     await rate_limit(request, f"submit:{slug}", limit=15, window_s=60)
     s = await _visible(slug, session)
+    # Reenvío de la misma respuesta (el navegador la guardó sin conexión y la
+    # manda de nuevo, o se perdió la confirmación): no se duplica.
+    envio = (payload.meta or {}).get("submission_id")
+    if isinstance(envio, str) and 8 <= len(envio) <= 64:
+        previa = (await session.scalars(
+            select(SurveyResponse).where(
+                SurveyResponse.survey_id == s.id,
+                SurveyResponse.meta["submission_id"].as_string() == envio,
+            ).limit(1)
+        )).first()
+        if previa is not None:
+            return {"id": str(previa.id), "status": "recorded", "duplicate": True}
     available, reason = await _availability(s, session)
     if not available:
         raise HTTPException(status_code=403, detail=reason or "Esta encuesta está cerrada.")
@@ -496,17 +764,127 @@ async def submit(
                 ),
             )
 
+    # Examen: intento, plazo, preguntas sorteadas y senales de integridad.
+    from app import exam as exam_mod
+    from app.models import SurveyAttempt
+
+    exam_cfg = exam_mod.settings(s.evaluation)
+    intento = None
+    if exam_cfg is not None:
+        datos = read_purpose_token(_ATTEMPT_PURPOSE, payload.attempt_token or "") or {}
+        if datos.get("s") == str(s.id):
+            intento = await session.get(SurveyAttempt, uuid.UUID(datos["a"]))
+        if intento is None and exam_cfg["groups"]:
+            # Sin intento no se sabe qué preguntas le tocaron: corregir todo
+            # sería ponerle 0 en las que nunca vio.
+            raise HTTPException(status_code=409, detail="El examen no se inició bien. Recargá la página.")
+        if intento is not None and intento.submitted_at is not None:
+            raise HTTPException(status_code=409, detail="Ese intento ya se entregó.")
+
+    # Trazabilidad: qué versión se contestó, metadatos que pone el SERVIDOR (el
+    # navegador sólo aporta un puñado de claves acotadas) y la huella.
+    from app.audit import ensure_survey_version, hash_ip, record_grade_revision, response_hash, sanitize_client_meta
+    from app.ratelimit import _client_ip
+
+    version = await ensure_survey_version(session, s, label="respuesta")
+    meta = sanitize_client_meta(payload.meta)
+    ajustes = get_settings()
+    # Anonimato garantizado: ni navegador, ni IP, ni visitante, ni email.
+    anonima = bool(getattr(s, "anonymous", False))
+    if anonima:
+        from app.privacy import strip_identity_meta
+
+        meta = strip_identity_meta(meta)
+    server_meta: dict = {"received_at": _utcnow().isoformat()}
+    if not anonima:
+        server_meta["user_agent"] = (request.headers.get("user-agent") or "")[:512] or None
+    if ajustes.store_ip_hash and not anonima:
+        server_meta["ip_hash"] = hash_ip(_client_ip(request), ajustes.session_secret)
+    if exam_cfg is not None:
+        ahora = _utcnow()
+        late = 0
+        exam_seconds = None
+        if intento is not None:
+            ini = intento.started_at if intento.started_at.tzinfo else intento.started_at.replace(tzinfo=timezone.utc)
+            exam_seconds = max(0, int((ahora - ini).total_seconds()))
+            server_meta["exam_seconds"] = exam_seconds
+            if intento.deadline is not None:
+                dl = intento.deadline if intento.deadline.tzinfo else intento.deadline.replace(tzinfo=timezone.utc)
+                late = max(0, int((ahora - dl).total_seconds()) - exam_mod.GRACE_S)
+            if intento.drawn is not None:
+                meta["drawn"] = list(intento.drawn)
+            if intento.form:
+                meta["form"] = intento.form
+        else:
+            server_meta["no_attempt"] = True
+        integridad = exam_mod.sanitize_integrity((payload.meta or {}).get("integrity")) if exam_cfg["signals"] else None
+        if integridad:
+            meta["integrity"] = integridad
+        titulos = {el.get("name"): el.get("title") or el.get("name") for el in _elementos_publicos(s.json_schema)}
+        senales = exam_mod.flags(integridad, exam_seconds=exam_seconds, late_seconds=late, titles=titulos)
+        if senales:
+            server_meta["flags"] = senales
+    meta["server"] = server_meta
+
+    # Campos ocultos (de la URL) y tiempo por pregunta, acotados por el servidor.
+    from app import fields as fields_mod
+
+    ocultos = fields_mod.extract_hidden(getattr(s, "hidden_fields", None), (payload.meta or {}).get("hidden"))
+    if ocultos:
+        meta["hidden"] = ocultos
+    nombres_preg = {el.get("name") for el in _elementos_publicos(s.json_schema) if el.get("name")}
+    tiempos = fields_mod.sanitize_timing((payload.meta or {}).get("timing"), nombres_preg)
+    if tiempos:
+        meta["timing"] = tiempos
+
+    # Cupos: si el grupo al que pertenece esta respuesta ya se llenó, no entra.
+    if getattr(s, "quotas", None):
+        previas = (await session.scalars(
+            counted_only(select(SurveyResponse).where(SurveyResponse.survey_id == s.id))
+        )).all()
+        propias = {**(payload.answers or {}), **{fields_mod.HIDDEN_PREFIX + k: v for k, v in ocultos.items()}}
+        lleno = fields_mod.quota_hit(s.quotas, propias, [fields_mod.answers_with_hidden(x) for x in previas])
+        if lleno is not None:
+            raise HTTPException(status_code=409, detail={
+                "code": "quota_full",
+                "message": lleno.get("message") or "Ya se completó el cupo para tu grupo. ¡Gracias por tu interés!",
+            })
+
     r = SurveyResponse(
-        survey_id=s.id, answers=payload.answers or {}, completed=payload.completed, meta=payload.meta,
-        respondent_email=None if anonimo else resp_email, respondent_code=resp_code,
+        survey_id=s.id, answers=payload.answers or {}, completed=payload.completed, meta=meta,
+        survey_version_id=version.id,
+        respondent_email=None if (anonimo or anonima) else resp_email,
+        respondent_code=None if anonima else resp_code,
         lti_link_id=uuid.UUID(link_id) if link_id else None,
-        lti_sub=None if anonimo else (lti.get("sub") if lti else None),
+        lti_sub=None if (anonimo or anonima) else (lti.get("sub") if lti else None),
         mod_site_id=mod_site_id, mod_cmid=mod_cmid, mod_grademax=mod_grademax,
     )
+    # Enviada: el borrador (si lo había) ya no tiene razón de existir.
+    clave_borrador = await _draft_key(request, s, payload.access_token, session)
+    if clave_borrador is not None:
+        from app.models import SurveyDraft
+
+        await session.execute(
+            sa_delete(SurveyDraft).where(SurveyDraft.survey_id == s.id, SurveyDraft.key == clave_borrador)
+        )
+
+    r.id = r.id or uuid.uuid4()
+    r.submitted_at = _utcnow()
+    r.integrity_hash = response_hash(r)
     session.add(r)
+    if intento is not None:
+        intento.submitted_at = r.submitted_at
+        intento.response_id = r.id
+        session.add(intento)
+
+    # Seguimiento de la invitación: respondió. En una encuesta anónima sólo
+    # se guarda el día (la hora exacta permitiría cruzarla con la respuesta).
+    from app.distribution import mark_responded
+
+    await mark_responded(session, s.id, resp_code, day_only=anonima)
 
     # Funnel: si el cliente mandó su visitor_id, cerramos su visita como completa.
-    visitor_id = (payload.meta or {}).get("visitor_id")
+    visitor_id = meta.get("visitor_id")
     if isinstance(visitor_id, str) and visitor_id:
         visit = (
             await session.scalars(
@@ -521,6 +899,12 @@ async def submit(
         visit.completed = True
         visit.last_seen_at = _utcnow()
         session.add(visit)
+        # Duración aproximada: desde que abrió la encuesta por primera vez
+        # hasta que la envió. Incluye lo que tardó en empezar.
+        if visit.created_at is not None:
+            abierta = visit.created_at if visit.created_at.tzinfo else visit.created_at.replace(tzinfo=timezone.utc)
+            server_meta["seconds_since_first_view"] = max(0, int((r.submitted_at - abierta).total_seconds()))
+            r.meta = {**meta, "server": dict(server_meta)}
 
     await session.commit()
 
@@ -531,40 +915,59 @@ async def submit(
             from app.ai_config import resolve_provider
             from app.ai_usage import track_ai_call
             provider = await resolve_provider(session, s.org_id)
-            async with track_ai_call(session, provider, s.org_id, "grade", s.id):
+            async with track_ai_call(session, provider, s.org_id, "grade", s.id, response_id=r.id):
                 grade = await grade_response(
-                    evaluation=evaluation, answers=r.answers,
+                    # Sólo las preguntas que le tocaron (sorteo de examen).
+                    evaluation=exam_mod.evaluation_for(evaluation, s.json_schema or {}, meta.get("drawn")),
+                    answers=r.answers,
                     question_types=extract_question_types(s.json_schema),
                     question_choices=extract_question_choices(s.json_schema),
                     language=s.language or "es",
                 )
+            grade["graded_with_version"] = version.number
             r.grade = grade
             r.score = grade.get("total")
             r.max_score = grade.get("max")
             r.needs_review = bool(grade.get("needs_review"))
             r.graded_at = _utcnow()
             session.add(r)
+            record_grade_revision(
+                session, r, source="submit", grade_before=None, survey_version_id=version.id
+            )
             await session.commit()
         except Exception as exc:  # noqa: BLE001
             LOGGER.warning("grading failed for %s: %s", r.id, exc)
             r.needs_review = True
             session.add(r)
+            # La respuesta ya está guardada; la corrección se reintenta sola en
+            # segundo plano (un proveedor de IA caído un minuto no puede dejar
+            # la nota pendiente para siempre).
+            from app import jobs
+
+            jobs.enqueue(
+                session, "grade.response", {"response_id": str(r.id)},
+                org_id=s.org_id, survey_id=s.id, response_id=r.id,
+                dedupe_key=f"grade.response:{r.id}", delay=timedelta(minutes=1),
+            )
             await session.commit()
             grade = None
 
-    # Fire webhooks with the final (graded) state — never blocks the respondent.
-    schedule_response_delivery(s.id, r.id)
+    # Todo lo que sale de acá se ENCOLA en una sola transacción (ver
+    # app/jobs.py): webhooks con el estado final (ya corregido), la nota al LMS
+    # y los avisos por email. Nada de esto bloquea a quien respondió, y nada se
+    # pierde si el proceso se reinicia antes de enviarlo.
+    schedule_response_delivery(s.id, r.id, session=session)
     # Si vino de un LMS y quedó una nota, se la devolvemos al libro de calificaciones.
     if lti and r.score is not None:
         from app.lti.ags import schedule_score
 
-        schedule_score(r.id)
-    # Email the owner(s) if configured (fire-and-forget).
+        schedule_score(r.id, session=session, survey_id=s.id, org_id=s.org_id)
     if getattr(s, "notify_emails", None):
         from app.notify import schedule_response_notification
         schedule_response_notification(
-            s.notify_emails, s.title, s.id, await _response_count(s.id, session)
+            s.notify_emails, s.title, s.id, await _response_count(s.id, session), session=session
         )
+    await session.commit()
 
     if grade is None:
         return {"id": str(r.id), "status": "recorded"}
@@ -572,11 +975,16 @@ async def submit(
     # Whether the respondent sees their correction now depends on results_mode.
     results_mode = getattr(s, "results_mode", "immediate")
     if results_mode == "immediate":
-        return {"id": str(r.id), "status": "graded",
-                "result": _respondent_view(
-                    grade, evaluation, s.json_schema or {}, r.answers,
-                    cerrada=await _ya_cerro(s, session),
-                )}
+        vista = _respondent_view(
+            grade, evaluation, s.json_schema or {}, r.answers,
+            cerrada=await _ya_cerro(s, session),
+        )
+        # Con identidad de invitado se puede pedir revisión desde ya (con su
+        # email y código, igual que al consultar el resultado después).
+        if getattr(s, "access_mode", "public") == "list" and resp_code:
+            vista["can_appeal"] = True
+            vista["appeals"] = []
+        return {"id": str(r.id), "status": "graded", "result": vista}
     if results_mode == "on_release":
         return {"id": str(r.id), "status": "recorded", "results_pending": True,
                 "can_check": getattr(s, "access_mode", "public") == "list"}
@@ -618,13 +1026,89 @@ async def lookup_result(
         raise HTTPException(status_code=404, detail="No encontramos tu respuesta")
     if not r.grade:
         return {"status": "pending", "detail": "Tu respuesta todavía no fue corregida."}
+    from app.models import GradeAppeal
+
+    reclamos = (await session.scalars(
+        select(GradeAppeal).where(GradeAppeal.response_id == r.id).order_by(GradeAppeal.created_at)
+    )).all()
+    vista = _respondent_view(
+        r.grade, s.evaluation or {}, s.json_schema or {}, r.answers,
+        cerrada=await _ya_cerro(s, session),
+    )
+    # Reclamos de esta persona (estado y respuesta del docente), y que se
+    # pueden hacer: el resultado se consultó con email y código.
+    vista["appeals"] = [
+        {"question": a.question, "status": a.status, "reply": a.reply}
+        for a in reclamos
+    ]
+    vista["can_appeal"] = True
     return {
         "status": "graded",
-        "result": _respondent_view(
-            r.grade, s.evaluation or {}, s.json_schema or {}, r.answers,
-            cerrada=await _ya_cerro(s, session),
-        ),
+        "result": vista,
+        "appeals": [
+            {"question": a.question, "status": a.status, "reply": a.reply,
+             "created_at": a.created_at.isoformat()}
+            for a in reclamos
+        ],
     }
+
+
+class AppealRequest(BaseModel):
+    email: str = Field(max_length=320)
+    code: str = Field(max_length=64)
+    question: str = Field(max_length=200)
+    message: str = Field(min_length=5, max_length=2000)
+
+
+@router.post("/{slug}/appeal", status_code=201)
+async def create_appeal(slug: str, payload: AppealRequest, request: Request, session: AsyncSession = Depends(get_session)):
+    """Un alumno (con su email y código) pide que se revise la corrección de
+    una pregunta. Uno abierto por pregunta; el docente recibe un aviso."""
+    from app.audit import record_event
+    from app.models import GradeAppeal
+
+    await rate_limit(request, f"appeal:{slug}", limit=10, window_s=600)
+    s = await _visible(slug, session)
+    if getattr(s, "access_mode", "public") != "list":
+        raise HTTPException(status_code=404, detail="Esta encuesta no admite reclamos")
+    inv = await _find_invitee(session, s.id, payload.email, payload.code)
+    if not inv:
+        raise HTTPException(status_code=403, detail="Email o código inválido")
+    modo = getattr(s, "results_mode", "immediate")
+    if modo == "never" or (modo == "on_release" and not getattr(s, "results_released", False)):
+        raise HTTPException(status_code=403, detail="Los resultados todavía no están disponibles.")
+    r = (await session.scalars(
+        select(SurveyResponse)
+        .where(SurveyResponse.survey_id == s.id, SurveyResponse.respondent_code == inv.code)
+        .order_by(SurveyResponse.submitted_at.desc())
+    )).first()
+    if not r or not r.grade:
+        raise HTTPException(status_code=404, detail="No encontramos tu respuesta corregida")
+    pregunta = next((q for q in (r.grade.get("questions") or []) if q.get("name") == payload.question), None)
+    if pregunta is None:
+        raise HTTPException(status_code=422, detail="Esa pregunta no está en tu corrección")
+    abierto = await session.scalar(select(GradeAppeal.id).where(
+        GradeAppeal.response_id == r.id, GradeAppeal.question == payload.question, GradeAppeal.status == "open"))
+    if abierto:
+        raise HTTPException(status_code=409, detail="Ya hay un reclamo abierto sobre esa pregunta.")
+    a = GradeAppeal(survey_id=s.id, response_id=r.id, question=payload.question,
+                    message=payload.message.strip(), award_before=pregunta.get("awarded"))
+    session.add(a)
+    record_event(session, action="appeal.created", org_id=s.org_id, survey_id=s.id, response_id=r.id,
+                 detail={"question": payload.question, "by": inv.email})
+    if getattr(s, "notify_emails", None):
+        from app.email import build_url
+        from app.notify import parse_emails
+        from app import jobs
+
+        for dest in parse_emails(s.notify_emails):
+            jobs.enqueue(session, "email.send", {
+                "to": dest, "subject": f"Reclamo de nota: {s.title or 'examen'}",
+                "text": f"{inv.email} pidió revisar «{pregunta.get('title') or payload.question}».\n\n"
+                        f"«{payload.message.strip()}»\n\nRespondelo acá:\n{build_url(f'/surveys/{s.id}')}\n",
+            }, org_id=s.org_id, survey_id=s.id)
+    await session.commit()
+    return {"id": str(a.id), "status": a.status}
 
 
 @router.post("/{slug}/certificate")
@@ -723,3 +1207,13 @@ async def grade_question(
     except Exception as exc:  # noqa: BLE001
         LOGGER.warning("live grade failed: %s", exc)
         raise HTTPException(status_code=502, detail="No se pudo corregir ahora")
+
+
+def _elementos_publicos(schema: dict) -> list[dict]:
+    return [
+        el
+        for p in (schema or {}).get("pages", []) or []
+        if isinstance(p, dict)
+        for el in p.get("elements", []) or []
+        if isinstance(el, dict)
+    ]

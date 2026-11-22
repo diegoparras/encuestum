@@ -8,7 +8,6 @@ si falta, y se publica el score.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import time
 import uuid
@@ -289,13 +288,7 @@ async def _deliver(response_id: uuid.UUID) -> None:
     que una integración apagada no le hable al LMS tiene que vivir donde se
     resuelve el request saliente."""
     try:
-        origen = await _origen(response_id)
-        if origen == "mod":
-            from app.mod.grades import entregar_nota
-
-            await entregar_nota(response_id)
-        elif origen == "lti":
-            await _deliver_lti(response_id)
+        await _deliver_strict(response_id)
     except Exception as exc:  # noqa: BLE001 — el LMS no puede romper el submit del alumno
         # Este catch también atrapa errores de programación, no sólo fallas de
         # red -- y esta línea es el único diagnóstico que queda, porque para
@@ -303,6 +296,29 @@ async def _deliver(response_id: uuid.UUID) -> None:
         LOGGER.warning(
             "no se pudo publicar la nota de %s: %s", response_id, exc, exc_info=True
         )
+
+
+async def _deliver_strict(response_id: uuid.UUID) -> str | None:
+    """El despacho sin red de seguridad: PROPAGA si el LMS falla. Lo usa la
+    cola (`deliver_job`), que es quien decide reintentar; `_deliver` lo envuelve
+    para los llamadores que necesitan que nunca levante. Devuelve por dónde
+    salió la nota (o None si no correspondía enviarla)."""
+    origen = await _origen(response_id)
+    if origen == "mod":
+        from app.mod.grades import entregar_nota
+
+        await entregar_nota(response_id)
+    elif origen == "lti":
+        await _deliver_lti(response_id)
+    return origen
+
+
+async def deliver_job(payload: dict, ctx) -> dict:
+    """Handler de la cola (`lms.grade`): si el LMS falla, la excepción sube y
+    `app/jobs.py` reintenta con espera creciente; si se rinde, queda `failed`
+    con el error a la vista del docente, en vez de una línea en el log."""
+    origen = await _deliver_strict(uuid.UUID(payload["response_id"]))
+    return {"via": origen}
 
 
 async def _deliver_lti(response_id: uuid.UUID) -> None:
@@ -378,13 +394,21 @@ async def _deliver_lti(response_id: uuid.UUID) -> None:
         )
 
 
-def schedule_score(response_id: uuid.UUID) -> None:
-    """Dispara el envío sin bloquear la respuesta al alumno, igual que los
-    webhooks. Es el único disparador de los DOS transportes (AGS y el servicio
-    web de `mod_encuestum`): quién publica lo decide `_deliver`, no quien llama
-    acá. Por eso `routers/public.py` no tiene que saber de dónde vino la
-    respuesta para pedir que se publique la nota."""
-    try:
-        asyncio.get_running_loop().create_task(_deliver(response_id))
-    except RuntimeError:  # sin loop corriendo (tests sincrónicos): no hacemos nada
-        LOGGER.debug("sin event loop: se omite el envío de nota de %s", response_id)
+def schedule_score(response_id: uuid.UUID, session=None, *, survey_id=None, org_id=None) -> None:
+    """Pide que la nota de esta respuesta vuelva al LMS. Es el único disparador
+    de los DOS transportes (AGS y el servicio web de `mod_encuestum`): quién
+    publica lo decide `_deliver_strict`, no quien llama acá.
+
+    Con `session`, la entrega se encola DENTRO de esa transacción (ver
+    `app/jobs.py`): si el cambio de nota se guarda, el envío también, y si el
+    proceso se reinicia antes de enviar, la tarea sigue en la base. Sin sesión
+    (llamadas viejas) se encola aparte, en segundo plano."""
+    from app import jobs
+
+    kw = dict(response_id=response_id, survey_id=survey_id, org_id=org_id,
+              dedupe_key=f"lms.grade:{response_id}")
+    payload = {"response_id": str(response_id)}
+    if session is not None:
+        jobs.enqueue(session, "lms.grade", payload, **kw)
+    else:
+        jobs.enqueue_detached("lms.grade", payload, **kw)

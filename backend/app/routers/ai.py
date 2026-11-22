@@ -375,6 +375,38 @@ async def usage(
     }
 
 
+# ── budget ───────────────────────────────────────────────────────────────────
+class BudgetIn(BaseModel):
+    budget_usd: Optional[float] = Field(default=None, ge=0, le=1_000_000)
+
+
+@router.get("/budget")
+async def get_budget(ctx: OrgContext = Depends(current_context), session: AsyncSession = Depends(get_session)):
+    """Tope mensual de IA de la organización y lo gastado este mes."""
+    from app.ai_usage import budget_status
+
+    return await budget_status(session, ctx.org)
+
+
+@router.put("/budget")
+async def set_budget(payload: BudgetIn, ctx: OrgContext = Depends(current_context), session: AsyncSession = Depends(get_session)):
+    from app.ai_usage import budget_status
+    from app.audit import record_event
+
+    if not (_is_org_admin(ctx) or is_superadmin(ctx.user)):
+        raise HTTPException(status_code=403, detail="Requiere rol admin")
+    antes = ctx.org.ai_monthly_budget_usd
+    ctx.org.ai_monthly_budget_usd = payload.budget_usd or None
+    # Cambiar el tope rearma el aviso del 80% para este mes.
+    ctx.org.ai_budget_warned = None
+    session.add(ctx.org)
+    record_event(session, action="ai.budget_changed", org_id=ctx.org.id, actor=ctx.user,
+                 detail={"before": antes, "after": ctx.org.ai_monthly_budget_usd})
+    await session.commit()
+    await session.refresh(ctx.org)
+    return await budget_status(session, ctx.org)
+
+
 # ── price table ──────────────────────────────────────────────────────────────
 @router.get("/prices")
 async def list_prices(

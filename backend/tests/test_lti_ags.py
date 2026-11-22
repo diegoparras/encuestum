@@ -1,6 +1,5 @@
 """AGS: pedido del token, alta del line item y publicación de la nota."""
 
-import asyncio
 import json
 import uuid
 
@@ -9,6 +8,7 @@ import jwt
 import pytest
 import pytest_asyncio
 from jwt.algorithms import RSAAlgorithm
+from sqlmodel import select
 
 from app.lti.ags import ensure_lineitem, get_access_token, get_lineitem_max, post_score
 from app.lti.keys import get_tool_key
@@ -639,36 +639,82 @@ async def test_deliver_sobrevive_a_una_carrera_de_clave_del_tool(
 async def test_schedule_score_dispara_deliver_de_verdad(monkeypatch, lti_on, ags_setup, db_session):
     """El único punto donde `schedule_score` corre de verdad, de punta a
     punta: los tests de `submit()` la monkeypatchean para no repetir el envío
-    completo, y los de `_deliver` lo llaman directo sin pasar por
-    `schedule_score`. Acá se la deja correr tal cual -- crea la tarea
-    fire-and-forget de siempre -- y se comprueba que `_deliver` es alcanzado
-    con el id correcto. Como es fire-and-forget, hay que cederle el control al
-    loop para que la tarea corra; nada de dormir un tiempo fijo."""
+    completo, y los de `_deliver` lo llaman directo. Acá la entrega se encola
+    en la misma transacción (cola persistente, `app/jobs.py`), queda en la base
+    como pendiente, y al vaciar la cola llega al transporte con el id correcto."""
     import app.lti.ags as ags_module
-    from app.models import SurveyResponse
+    from app import jobs
+    from app.models import Job, SurveyResponse
 
     alcanzado = {}
 
     async def fake_deliver(response_id):
         alcanzado["id"] = response_id
+        return "lti"
 
-    monkeypatch.setattr(ags_module, "_deliver", fake_deliver)
+    monkeypatch.setattr(ags_module, "_deliver_strict", fake_deliver)
 
     async with db_session() as session:
         survey = ags_setup["survey"]
         r = SurveyResponse(survey_id=survey.id, answers={}, score=8.5, max_score=10.0,
                            lti_link_id=ags_setup["link"].id, lti_sub="u-42")
         session.add(r)
+        ags_module.schedule_score(r.id, session=session)
+        # Dos pedidos en la misma transacción son una sola entrega.
+        ags_module.schedule_score(r.id, session=session)
         await session.commit()
         response_id = r.id
 
-    antes = asyncio.all_tasks()
-    ags_module.schedule_score(response_id)
-    nuevas = asyncio.all_tasks() - antes
-    assert len(nuevas) == 1  # la tarea fire-and-forget que crea schedule_score
-    await asyncio.gather(*nuevas)
+    async with db_session() as session:
+        pendientes = (await session.scalars(
+            select(Job).where(Job.response_id == response_id, Job.kind == "lms.grade")
+        )).all()
+    assert len(pendientes) == 1 and pendientes[0].status == "pending"
 
+    await jobs.drain()
     assert alcanzado.get("id") == response_id
+    async with db_session() as session:
+        j = await session.get(Job, pendientes[0].id)
+    assert j.status == "done" and j.result == {"via": "lti"}
+
+
+@pytest.mark.asyncio
+async def test_una_entrega_que_falla_se_reintenta_y_queda_a_la_vista(monkeypatch, lti_on, ags_setup, db_session):
+    """Antes, si el LMS no contestaba, la nota se perdía con un warning en el
+    log. Ahora la tarea vuelve a la cola con espera creciente y guarda el error;
+    al agotar los intentos queda `failed`, visible para el docente."""
+    import app.lti.ags as ags_module
+    from app import jobs
+    from app.models import Job, SurveyResponse
+
+    async def caido(response_id):
+        raise RuntimeError("Moodle no responde")
+
+    monkeypatch.setattr(ags_module, "_deliver_strict", caido)
+
+    async with db_session() as session:
+        r = SurveyResponse(survey_id=ags_setup["survey"].id, answers={}, score=5.0, max_score=10.0,
+                           lti_link_id=ags_setup["link"].id, lti_sub="u-43")
+        session.add(r)
+        job = jobs.enqueue(session, "lms.grade", {"response_id": str(r.id)}, response_id=r.id,
+                           max_attempts=2)
+        await session.commit()
+        jid = job.id
+
+    await jobs.drain()
+    async with db_session() as session:
+        j = await session.get(Job, jid)
+        assert j.status == "pending" and j.attempts == 1
+        assert "Moodle no responde" in j.last_error
+        # Se adelanta el reintento en vez de esperar los 30 s del backoff.
+        j.run_after = j.created_at
+        session.add(j)
+        await session.commit()
+
+    await jobs.drain()
+    async with db_session() as session:
+        j = await session.get(Job, jid)
+    assert j.status == "failed" and j.attempts == 2
 
 
 # ── El enganche en submit(): sólo agenda la nota si hay contexto LTI y score ──
@@ -692,7 +738,7 @@ async def test_submit_agenda_la_nota_lti_cuando_hay_score(monkeypatch, lti_on, a
     import app.routers.public as public_router
 
     llamados = []
-    monkeypatch.setattr(ags_module, "schedule_score", lambda rid: llamados.append(rid))
+    monkeypatch.setattr(ags_module, "schedule_score", lambda rid, **_: llamados.append(rid))
     monkeypatch.setattr(
         public_router, "_lti_context",
         lambda request, s: {"link_id": str(ags_setup["link"].id), "sub": "u-42", "email": None, "slug": s.slug},
@@ -718,7 +764,7 @@ async def test_submit_no_agenda_nota_lti_sin_contexto_lti(monkeypatch, lti_on):
     import app.lti.ags as ags_module
 
     llamados = []
-    monkeypatch.setattr(ags_module, "schedule_score", lambda rid: llamados.append(rid))
+    monkeypatch.setattr(ags_module, "schedule_score", lambda rid, **_: llamados.append(rid))
 
     c = new_client()
     register(c)
@@ -741,7 +787,7 @@ async def test_submit_no_agenda_nota_lti_sin_evaluacion(monkeypatch, lti_on, ags
     import app.routers.public as public_router
 
     llamados = []
-    monkeypatch.setattr(ags_module, "schedule_score", lambda rid: llamados.append(rid))
+    monkeypatch.setattr(ags_module, "schedule_score", lambda rid, **_: llamados.append(rid))
     monkeypatch.setattr(
         public_router, "_lti_context",
         lambda request, s: {"link_id": str(ags_setup["link"].id), "sub": "u-42", "email": None, "slug": s.slug},
@@ -773,7 +819,7 @@ async def test_override_en_respuesta_lti_dispara_entrega(monkeypatch, lti_on, ag
     import app.routers.public as public_router
 
     llamados = []
-    monkeypatch.setattr(ags_module, "schedule_score", lambda rid: llamados.append(rid))
+    monkeypatch.setattr(ags_module, "schedule_score", lambda rid, **_: llamados.append(rid))
     monkeypatch.setattr(
         public_router, "_lti_context",
         lambda request, s: {"link_id": str(ags_setup["link"].id), "sub": "u-42", "email": None, "slug": s.slug},
@@ -806,7 +852,7 @@ async def test_override_en_respuesta_no_lti_no_dispara_entrega(monkeypatch, lti_
     import app.lti.ags as ags_module
 
     llamados = []
-    monkeypatch.setattr(ags_module, "schedule_score", lambda rid: llamados.append(rid))
+    monkeypatch.setattr(ags_module, "schedule_score", lambda rid, **_: llamados.append(rid))
 
     c = new_client()
     register(c)
@@ -830,7 +876,7 @@ async def test_grade_one_en_respuesta_lti_dispara_entrega(monkeypatch, lti_on, a
     from app.models import SurveyResponse
 
     llamados = []
-    monkeypatch.setattr(ags_module, "schedule_score", lambda rid: llamados.append(rid))
+    monkeypatch.setattr(ags_module, "schedule_score", lambda rid, **_: llamados.append(rid))
 
     c = new_client()
     register(c)
@@ -861,7 +907,7 @@ async def test_grade_all_dispara_entrega_solo_para_las_lti(monkeypatch, lti_on, 
     from app.models import SurveyResponse
 
     llamados = []
-    monkeypatch.setattr(ags_module, "schedule_score", lambda rid: llamados.append(rid))
+    monkeypatch.setattr(ags_module, "schedule_score", lambda rid, **_: llamados.append(rid))
 
     c = new_client()
     register(c)
@@ -923,7 +969,7 @@ async def test_override_en_respuesta_lti_no_dispara_entrega_si_lti_esta_apagado(
 
     _lti_apagado(monkeypatch, request)
     llamados = []
-    monkeypatch.setattr(ags_module, "schedule_score", lambda rid: llamados.append(rid))
+    monkeypatch.setattr(ags_module, "schedule_score", lambda rid, **_: llamados.append(rid))
 
     c = new_client()
     register(c)
@@ -954,7 +1000,7 @@ async def test_grade_one_en_respuesta_lti_no_dispara_entrega_si_lti_esta_apagado
 
     _lti_apagado(monkeypatch, request)
     llamados = []
-    monkeypatch.setattr(ags_module, "schedule_score", lambda rid: llamados.append(rid))
+    monkeypatch.setattr(ags_module, "schedule_score", lambda rid, **_: llamados.append(rid))
 
     c = new_client()
     register(c)
@@ -985,7 +1031,7 @@ async def test_grade_all_no_dispara_entrega_si_lti_esta_apagado(
 
     _lti_apagado(monkeypatch, request)
     llamados = []
-    monkeypatch.setattr(ags_module, "schedule_score", lambda rid: llamados.append(rid))
+    monkeypatch.setattr(ags_module, "schedule_score", lambda rid, **_: llamados.append(rid))
 
     c = new_client()
     register(c)

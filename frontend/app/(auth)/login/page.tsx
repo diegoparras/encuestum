@@ -25,6 +25,23 @@ function LoginForm() {
   // null = todavía no sabemos el modo de auth; true = SSO (Lockatus); false = local.
   const [sso, setSso] = useState<boolean | null>(null);
   const [ssoError, setSsoError] = useState(false);
+  // SSO de la organización del email (OIDC propio de cada organización).
+  const [orgSso, setOrgSso] = useState<{ start_url: string; enforce: boolean; organization: string | null } | null>(null);
+
+  async function buscarSso(valor: string) {
+    const v = valor.trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) {
+      setOrgSso(null);
+      return;
+    }
+    try {
+      const r = await fetch(getApiUrl(`/api/v1/auth/org-sso/lookup?email=${encodeURIComponent(v)}`), { cache: "no-store" });
+      const d = await r.json();
+      setOrgSso(d?.sso ? d : null);
+    } catch {
+      setOrgSso(null);
+    }
+  }
 
   useEffect(() => {
     fetch(getApiUrl("/api/v1/auth/config"), { cache: "no-store" })
@@ -97,10 +114,25 @@ function LoginForm() {
                   required
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
+                  onBlur={(e) => buscarSso(e.target.value)}
                   placeholder={t("auth.email.placeholder")}
                 />
               </div>
 
+              {orgSso && (
+                <a
+                  href={`${getApiUrl(orgSso.start_url)}&next=${encodeURIComponent(next)}`}
+                  className="inline-flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-4 py-2.5 text-sm font-semibold text-white hover:opacity-90"
+                >
+                  <LogIn className="h-4 w-4" />
+                  {orgSso.organization
+                    ? t("auth.orgSso.buttonOrg", { org: orgSso.organization })
+                    : t("auth.orgSso.button")}
+                </a>
+              )}
+
+              {!orgSso?.enforce && (
+              <>
               <div className="space-y-1.5">
                 <div className="flex items-center justify-between">
                   <Label htmlFor="password">{t("auth.password.label")}</Label>
@@ -125,10 +157,12 @@ function LoginForm() {
                 </p>
               )}
 
-              <Button type="submit" className="w-full" disabled={loading}>
+              <Button type="submit" className="w-full" disabled={loading} variant={orgSso ? "outline" : "primary"}>
                 {loading && <Loader2 className="h-4 w-4 animate-spin" />}
                 {loading ? t("auth.login.submitting") : t("auth.login.submit")}
               </Button>
+              </>
+              )}
             </form>
 
             <p className="mt-6 text-center text-sm text-neutral-500 dark:text-neutral-400">

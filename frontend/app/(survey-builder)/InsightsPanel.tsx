@@ -117,6 +117,14 @@ export function InsightsPanel({ surveyId, accent }: Props) {
             {insights!.generated_at && (
               <p className="text-[11px] text-neutral-400 dark:text-neutral-500">
                 Generado el {new Date(insights!.generated_at).toLocaleString()}
+                {insights!.response_count != null &&
+                  insights!.current_count != null &&
+                  insights!.current_count > insights!.response_count && (
+                    <span className="ml-1 font-medium text-amber-600 dark:text-amber-400">
+                      · llegaron {insights!.current_count - insights!.response_count} respuestas
+                      nuevas después: regeneralo para incluirlas
+                    </span>
+                  )}
               </p>
             )}
             {insights!.questions.map((q) => (

@@ -3,13 +3,20 @@
 import io
 import json
 import re
-from typing import List
+from typing import List, Optional
 
 from app.models import Survey, SurveyResponse
 
 _META = [
     "id", "submitted_at", "completed", "respondent_name", "respondent_email",
     "score", "max_score", "percent", "needs_review",
+]
+
+# Columnas de trazabilidad, AL FINAL para no correr las columnas de preguntas
+# de quien ya tenga planillas armadas sobre el orden anterior.
+_AUDIT = [
+    "survey_version", "graded_at", "graded_by", "model", "overridden",
+    "excluded", "is_test", "integrity_sha256", "exam_form",
 ]
 
 
@@ -37,14 +44,24 @@ def cell(value) -> str:
     return str(value)
 
 
-def export_rows(survey: Survey, responses: List[SurveyResponse]) -> List[list]:
+def _es_firma(v) -> bool:
+    return isinstance(v, str) and v.startswith("data:image/")
+
+
+def export_rows(
+    survey: Survey, responses: List[SurveyResponse], versions: Optional[dict] = None
+) -> List[list]:
+    """`versions`: id de `SurveyVersion` -> número, para la columna de versión."""
     from app.identity import identity_fields, respondent_identity
 
     schema = survey.json_schema or {}
     cols = survey_columns(schema)
     # Quién respondió: el invitado si lo hay; si no, lo que contestó (nombre/mail).
     fields = identity_fields(schema)
-    rows: List[list] = [_META + [title for (_n, title) in cols]]
+    versions = versions or {}
+    # Campos ocultos (de la URL) a continuación de las preguntas.
+    ocultos = list(getattr(survey, "hidden_fields", None) or [])
+    rows: List[list] = [_META + [title for (_n, title) in cols] + [f"@{h}" for h in ocultos] + _AUDIT]
     for r in responses:
         answers = r.answers or {}
         grade = r.grade or {}
@@ -59,7 +76,21 @@ def export_rows(survey: Survey, responses: List[SurveyResponse]) -> List[list]:
                 cell(r.score), cell(r.max_score), cell(grade.get("percent")),
                 "sí" if r.needs_review else "no",
             ]
-            + [cell(answers.get(name)) for (name, _t) in cols]
+            # Una firma es una imagen en base64 (decenas de KB): en la planilla
+            # va una marca, no la imagen.
+            + ["[firmado]" if _es_firma(answers.get(name)) else cell(answers.get(name)) for (name, _t) in cols]
+            + [cell(((getattr(r, "meta", None) or {}).get("hidden") or {}).get(h)) for h in ocultos]
+            + [
+                cell(versions.get(r.survey_version_id)),
+                r.graded_at.isoformat() if r.graded_at else "",
+                cell(grade.get("graded_by")),
+                cell(grade.get("model")),
+                "sí" if grade.get("overridden") else "no",
+                "sí" if getattr(r, "excluded", False) else "no",
+                "sí" if getattr(r, "is_test", False) else "no",
+                cell(getattr(r, "integrity_hash", None)),
+                cell((getattr(r, "meta", None) or {}).get("form")),
+            ]
         )
     return rows
 

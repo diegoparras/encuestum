@@ -193,6 +193,16 @@ async def login(
 ):
     settings = get_settings()
     await rate_limit(request, "login", limit=10, window_s=300)
+    # SSO obligatorio de la organización: ese dominio no entra con contraseña.
+    from app.routers.sso_api import config_for_email
+
+    sso = await config_for_email(session, payload.email)
+    if sso is not None and sso.enforce:
+        raise HTTPException(status_code=403, detail={
+            "code": "sso_required",
+            "message": "Tu organización ingresa con su proveedor de identidad (SSO).",
+            "start_url": f"/api/v1/auth/org-sso/start?email={urllib.parse.quote(payload.email.strip())}",
+        })
     user = await get_user_by_email(session, payload.email)
     if not user or not user.is_active or not verify_password(payload.password, user.password_hash):
         raise HTTPException(status_code=401, detail="Email o contraseña incorrectos")

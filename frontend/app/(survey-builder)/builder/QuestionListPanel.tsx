@@ -5,7 +5,8 @@ import {
   DndContext,
   closestCenter,
   KeyboardSensor,
-  PointerSensor,
+  MouseSensor,
+  TouchSensor,
   useSensor,
   useSensors,
   DragEndEvent,
@@ -37,6 +38,11 @@ import {
   ChevronRight,
   Search,
   X,
+  Hash,
+  SlidersHorizontal,
+  Phone,
+  PenLine,
+  ShieldCheck,
 } from "lucide-react";
 import { BuilderQuestion, QUESTION_TYPES, QuestionType } from "./model";
 import { SortableQuestion } from "./SortableQuestion";
@@ -58,6 +64,11 @@ const PALETTE_ICON: Record<QuestionType, React.ComponentType<{ className?: strin
   ranking: ListOrdered,
   date: Calendar,
   fileupload: Paperclip,
+  number: Hash,
+  slider: SlidersHorizontal,
+  phone: Phone,
+  signature: PenLine,
+  consent: ShieldCheck,
   section: Rows3,
 };
 
@@ -86,7 +97,10 @@ export function QuestionListPanel({
   const [paletteClosed, togglePalette] = useCollapsed("builder.palette");
   const [q, setQ] = React.useState("");
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    // Mouse: arrastra al moverse unos píxeles. Táctil (tablet): mantener
+    // apretado un instante, así deslizar el dedo sigue haciendo scroll.
+    useSensor(MouseSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 220, tolerance: 6 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
   );
 

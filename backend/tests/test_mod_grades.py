@@ -744,7 +744,7 @@ def _espiar_schedule(monkeypatch) -> list:
     import app.lti.ags as ags_module
 
     llamados: list = []
-    monkeypatch.setattr(ags_module, "schedule_score", lambda rid: llamados.append(rid))
+    monkeypatch.setattr(ags_module, "schedule_score", lambda rid, **_: llamados.append(rid))
     return llamados
 
 
