@@ -52,7 +52,40 @@ export interface Budget {
   month: string;
 }
 
+export interface SsoConfig {
+  configured: boolean;
+  redirect_uri: string;
+  issuer?: string;
+  client_id?: string;
+  client_secret_set?: boolean;
+  client_secret_hint?: string | null;
+  domains?: string[];
+  enabled?: boolean;
+  auto_provision?: boolean;
+  default_role?: "member" | "viewer";
+  enforce?: boolean;
+}
+
 export const ecosystemApi = {
+  sso: () => req<SsoConfig>("/api/v1/sso"),
+  saveSso: (body: {
+    issuer: string; client_id: string; client_secret?: string; domains: string[];
+    enabled: boolean; auto_provision: boolean; default_role: string; enforce: boolean;
+  }) => req<SsoConfig>("/api/v1/sso", { method: "PUT", body: JSON.stringify(body) }),
+  deleteSso: () => req<void>("/api/v1/sso", { method: "DELETE" }),
+  workflow: () => req<{ require_publish_approval: boolean }>("/api/v1/workflow"),
+  setWorkflow: (require_publish_approval: boolean) =>
+    req<{ require_publish_approval: boolean }>("/api/v1/workflow", {
+      method: "PUT",
+      body: JSON.stringify({ require_publish_approval }),
+    }),
+  pendingApprovals: () => req<{ id: string; title: string | null; by: string; at: string }[]>("/api/v1/workflow/pending"),
+  mcpUrl: () => getApiUrl("/api/v1/mcp"),
+  setMemberScope: (orgId: string, userId: string, folderIds: string[] | null) =>
+    req<{ folder_scope: string[] | null }>(`/api/v1/orgs/${orgId}/members/${userId}/scope`, {
+      method: "PUT",
+      body: JSON.stringify({ folder_ids: folderIds }),
+    }),
   listKeys: () => req<ApiKey[]>("/api/v1/api-keys"),
   createKey: (name: string, scope: "read" | "write") =>
     req<ApiKey>("/api/v1/api-keys", { method: "POST", body: JSON.stringify({ name, scope }) }),

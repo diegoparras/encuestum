@@ -34,6 +34,8 @@ import {
   type Role,
 } from "@/utils/auth";
 import { useAsyncData } from "@/lib/useAsyncData";
+import { surveyApi } from "../surveyApi";
+import { ecosystemApi } from "../ecosystemApi";
 import { useI18n } from "@/lib/i18n";
 import { LoadError, LoadSpinner } from "@/components/LoadError";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -351,6 +353,8 @@ export default function MembersPage() {
       </div>
 
       {/* Members list */}
+      {canManage && <WorkflowCard />}
+
       <Card>
         <CardHeader className="flex flex-row items-center gap-2">
           <Users className="h-5 w-5 text-neutral-400 dark:text-neutral-500" />
@@ -397,6 +401,7 @@ export default function MembersPage() {
                               }
                               className="h-8 w-40 py-0"
                             >
+                              <option value="viewer">{t("members.role.viewer")}</option>
                               <option value="member">{t("members.role.member")}</option>
                               <option value="admin">{t("members.role.admin")}</option>
                               <option value="owner" disabled={!canAssignOwner}>
@@ -405,6 +410,9 @@ export default function MembersPage() {
                             </Select>
                           ) : (
                             <span className="text-neutral-700 dark:text-neutral-300">{roleLabel(m.role)}</span>
+                          )}
+                          {canManage && (m.role === "member" || m.role === "viewer") && me && (
+                            <ScopeEditor orgId={me.active_org_id} member={m} />
                           )}
                         </td>
                         <td className="py-3 pr-4 text-neutral-500 dark:text-neutral-400">
@@ -553,7 +561,8 @@ export default function MembersPage() {
                   value={newRole}
                   onChange={(e) => setNewRole(e.target.value as Role)}
                 >
-                  <option value="member">{t("members.role.member")}</option>
+                  <option value="viewer">{t("members.role.viewer")}</option>
+                              <option value="member">{t("members.role.member")}</option>
                   <option value="admin">{t("members.role.admin")}</option>
                   {canAssignOwner && <option value="owner">{t("members.role.owner")}</option>}
                 </Select>
@@ -604,7 +613,8 @@ export default function MembersPage() {
                   value={inviteRole}
                   onChange={(e) => setInviteRole(e.target.value as Role)}
                 >
-                  <option value="member">{t("members.role.member")}</option>
+                  <option value="viewer">{t("members.role.viewer")}</option>
+                              <option value="member">{t("members.role.member")}</option>
                   <option value="admin">{t("members.role.admin")}</option>
                   {canAssignOwner && <option value="owner">{t("members.role.owner")}</option>}
                 </Select>
@@ -752,5 +762,100 @@ export default function MembersPage() {
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+/** A qué carpetas se limita un miembro o lector (toda la organización por defecto). */
+function ScopeEditor({ orgId, member }: { orgId: string; member: Member }) {
+  const { t } = useI18n();
+  const [open, setOpen] = useState(false);
+  const [scope, setScope] = useState<string[] | null>(member.folder_scope ?? null);
+  const { data: folders } = useAsyncData(() => (open ? surveyApi.listFolders() : Promise.resolve(null)), [open]);
+  async function guardar(next: string[] | null) {
+    try {
+      const r = await ecosystemApi.setMemberScope(orgId, member.user_id, next);
+      setScope(r.folder_scope);
+    } catch (e) {
+      toast.error((e as Error)?.message || t("members.scope.error"));
+    }
+  }
+  return (
+    <div className="mt-1 text-xs">
+      <button type="button" onClick={() => setOpen((v) => !v)} className="text-neutral-500 underline-offset-2 hover:underline">
+        {scope === null ? t("members.scope.all") : t("members.scope.some", { n: scope.length })}
+      </button>
+      {open && folders && (
+        <div className="mt-1 w-56 space-y-1 rounded-lg border border-neutral-200 bg-white p-2 shadow-sm dark:border-neutral-700 dark:bg-neutral-900">
+          <label className="flex items-center gap-1.5">
+            <input type="radio" checked={scope === null} onChange={() => guardar(null)} /> {t("members.scope.allLabel")}
+          </label>
+          <label className="flex items-center gap-1.5">
+            <input type="radio" checked={scope !== null} onChange={() => guardar([])} /> {t("members.scope.onlyLabel")}
+          </label>
+          {scope !== null && (
+            <div className="ml-4 max-h-40 space-y-0.5 overflow-y-auto">
+              {folders.length === 0 && <p className="text-neutral-400">{t("members.scope.noFolders")}</p>}
+              {folders.map((f) => (
+                <label key={f.id} className="flex items-center gap-1.5">
+                  <input
+                    type="checkbox"
+                    checked={scope.includes(f.id)}
+                    onChange={(e) => guardar(e.target.checked ? [...scope, f.id] : scope.filter((x) => x !== f.id))}
+                  />
+                  {f.name}
+                </label>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Publicar con aprobación: los miembros piden y un admin aprueba. */
+function WorkflowCard() {
+  const { t } = useI18n();
+  const { data, setData } = useAsyncData(() => ecosystemApi.workflow(), []);
+  const { data: pendientes } = useAsyncData(() => ecosystemApi.pendingApprovals().catch(() => []), []);
+  if (!data) return null;
+  return (
+    <Card>
+      <CardContent className="space-y-2 py-4 text-sm">
+        <label className="flex items-start gap-2">
+          <input
+            type="checkbox"
+            className="mt-1"
+            checked={data.require_publish_approval}
+            onChange={async (e) => {
+              try {
+                setData(await ecosystemApi.setWorkflow(e.target.checked));
+              } catch (err) {
+                toast.error((err as Error)?.message || "Error");
+              }
+            }}
+          />
+          <span>
+            <span className="font-medium text-neutral-800 dark:text-neutral-200">{t("members.workflow.title")}</span>
+            <span className="block text-xs text-neutral-500 dark:text-neutral-400">{t("members.workflow.hint")}</span>
+          </span>
+        </label>
+        {!!pendientes?.length && (
+          <div className="rounded-lg bg-amber-50 p-3 text-xs dark:bg-amber-950/30">
+            <div className="mb-1 font-medium text-amber-800 dark:text-amber-200">
+              {t("members.workflow.pending", { n: pendientes.length })}
+            </div>
+            <ul className="space-y-0.5">
+              {pendientes.map((p) => (
+                <li key={p.id}>
+                  <a href={`/surveys/${p.id}`} className="text-amber-900 underline dark:text-amber-100">{p.title || "—"}</a>
+                  <span className="text-amber-700 dark:text-amber-300"> · {p.by}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }

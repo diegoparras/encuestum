@@ -6,6 +6,7 @@ from pydantic import BaseModel, Field as PydField
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
+from app import scopes
 from app.config import get_settings
 from app.db import get_session
 from app.deps import OrgContext, current_context
@@ -18,7 +19,7 @@ from app.grading import (
     grade_response,
 )
 
-router = APIRouter(prefix="/surveys", tags=["evaluation"])
+router = APIRouter(prefix="/surveys", tags=["evaluation"], dependencies=[Depends(scopes.guard)])
 
 
 async def _survey_or_404(sid, org_id, session):

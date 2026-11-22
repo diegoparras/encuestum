@@ -6,6 +6,8 @@ import type { Lang } from "../i18n";
 // SurveyJS (Siguiente/Anterior/Enviar) los maneja el locale de survey-core.
 export const dict: Record<Lang, Record<string, string>> = {
   en: {
+    "public.offline.saved": "You're offline. Your response is saved on this device and will be sent automatically when the connection is back. You can close this page.",
+    "public.offline.sent": "{n} response(s) saved offline were sent",
     "public.submit.rejected": "Your response couldn't be saved. Please try again later.",
     "publicResults.kicker": "Results",
     "publicResults.total": "{n} responses",
@@ -160,6 +162,8 @@ export const dict: Record<Lang, Record<string, string>> = {
     "public.video.recordHint": "Record up to {min} minutes with your webcam",
   },
   es: {
+    "public.offline.saved": "No hay conexión. Tu respuesta quedó guardada en este dispositivo y se va a enviar sola cuando vuelva la conexión. Podés cerrar la página.",
+    "public.offline.sent": "Se enviaron {n} respuesta(s) guardadas sin conexión",
     "public.submit.rejected": "No se pudo guardar tu respuesta. Probá de nuevo más tarde.",
     "publicResults.kicker": "Resultados",
     "publicResults.total": "{n} respuestas",
@@ -310,6 +314,8 @@ export const dict: Record<Lang, Record<string, string>> = {
     "public.video.recordHint": "Grabá hasta {min} minutos con tu webcam",
   },
   fr: {
+    "public.offline.saved": "Vous êtes hors ligne. Votre réponse est enregistrée sur cet appareil et sera envoyée automatiquement dès le retour de la connexion. Vous pouvez fermer cette page.",
+    "public.offline.sent": "{n} réponse(s) enregistrée(s) hors ligne ont été envoyées",
     "public.submit.rejected": "Votre réponse n'a pas pu être enregistrée. Veuillez réessayer plus tard.",
     "publicResults.kicker": "Résultats",
     "publicResults.total": "{n} réponses",
@@ -464,6 +470,8 @@ export const dict: Record<Lang, Record<string, string>> = {
       "Enregistrez jusqu'à {min} minutes avec votre webcam",
   },
   pt: {
+    "public.offline.saved": "Você está offline. Sua resposta foi salva neste dispositivo e será enviada automaticamente quando a conexão voltar. Você pode fechar esta página.",
+    "public.offline.sent": "{n} resposta(s) salva(s) offline foram enviadas",
     "public.submit.rejected": "Não foi possível salvar sua resposta. Tente novamente mais tarde.",
     "publicResults.kicker": "Resultados",
     "publicResults.total": "{n} respostas",
@@ -615,6 +623,8 @@ export const dict: Record<Lang, Record<string, string>> = {
     "public.video.recordHint": "Grave até {min} minutos com sua webcam",
   },
   it: {
+    "public.offline.saved": "Sei offline. La tua risposta è salvata su questo dispositivo e verrà inviata automaticamente quando tornerà la connessione. Puoi chiudere questa pagina.",
+    "public.offline.sent": "Inviate {n} risposte salvate offline",
     "public.submit.rejected": "Non è stato possibile salvare la tua risposta. Riprova più tardi.",
     "publicResults.kicker": "Risultati",
     "publicResults.total": "{n} risposte",
@@ -769,6 +779,8 @@ export const dict: Record<Lang, Record<string, string>> = {
     "public.video.recordHint": "Registra fino a {min} minuti con la tua webcam",
   },
   zh: {
+    "public.offline.saved": "你当前处于离线状态。你的回答已保存在此设备上，网络恢复后将自动提交。你可以关闭此页面。",
+    "public.offline.sent": "已提交 {n} 份离线保存的回答",
     "public.submit.rejected": "无法保存你的回复，请稍后再试。",
     "publicResults.kicker": "结果",
     "publicResults.total": "{n} 条回复",
@@ -906,6 +918,8 @@ export const dict: Record<Lang, Record<string, string>> = {
     "public.video.recordHint": "用摄像头最多录制 {min} 分钟",
   },
   ja: {
+    "public.offline.saved": "オフラインです。回答はこの端末に保存され、接続が回復すると自動的に送信されます。このページを閉じてもかまいません。",
+    "public.offline.sent": "オフラインで保存された {n} 件の回答を送信しました",
     "public.submit.rejected": "回答を保存できませんでした。しばらくしてからもう一度お試しください。",
     "publicResults.kicker": "結果",
     "publicResults.total": "回答 {n} 件",

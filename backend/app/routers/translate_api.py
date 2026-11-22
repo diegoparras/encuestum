@@ -10,13 +10,14 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app import scopes
 from app import translation
 from app.audit import record_event
 from app.db import get_session
 from app.deps import OrgContext, current_context
 from app.routers.admin import _survey_or_404
 
-router = APIRouter(prefix="/surveys", tags=["translations"])
+router = APIRouter(prefix="/surveys", tags=["translations"], dependencies=[Depends(scopes.guard)])
 
 _BATCH = 60
 

@@ -189,7 +189,7 @@ def verify_response(r) -> Optional[bool]:
 
 # Lo único que el navegador puede aportar a `meta`. Antes se guardaba cualquier
 # JSON que mandara el cliente, sin límite de claves ni de tamaño.
-_CLIENT_META_KEYS = {"locale", "referrer", "visitor_id", "timezone", "screen", "started_at"}
+_CLIENT_META_KEYS = {"locale", "referrer", "visitor_id", "timezone", "screen", "started_at", "submission_id"}
 _MAX_META_VALUE = 512
 
 

@@ -64,6 +64,8 @@ export interface SurveyDetail {
   hidden_fields?: string[] | null;
   quotas?: Quota[] | null;
   public_results?: PublicResultsConfig | null;
+  /** Pedido de publicación (si la organización exige aprobación). */
+  approval?: { state: "pending" | "rejected"; by: string; at: string; note?: string | null; decided_by?: string } | null;
   created_at: string;
   updated_at: string;
   /** Huella del contenido editable: el editor la devuelve al guardar para que
@@ -385,6 +387,14 @@ export interface TranslationCoverage {
   translated: number;
   missing: number;
   unused: number;
+}
+export interface SurveyComment {
+  id: string;
+  question: string | null;
+  body: string;
+  author: string | null;
+  resolved: boolean;
+  created_at: string;
 }
 export interface OrgTemplate {
   id: string;
@@ -983,6 +993,20 @@ export const surveyApi = {
       `/api/v1/survey/surveys/${id}/translate`,
       { method: "POST", body: JSON.stringify({ languages, only_missing }) }
     ),
+  listComments: (id: string) => request<SurveyComment[]>(`/api/v1/survey/surveys/${id}/comments`),
+  addComment: (id: string, body: string, question?: string) =>
+    request<SurveyComment>(`/api/v1/survey/surveys/${id}/comments`, {
+      method: "POST",
+      body: JSON.stringify({ body, question }),
+    }),
+  resolveComment: (id: string, cid: string, resolved: boolean) =>
+    request<SurveyComment>(`/api/v1/survey/surveys/${id}/comments/${cid}/resolve?resolved=${resolved}`, { method: "POST" }),
+  deleteComment: (id: string, cid: string) =>
+    request<void>(`/api/v1/survey/surveys/${id}/comments/${cid}`, { method: "DELETE" }),
+  approve: (id: string, note?: string) =>
+    request<SurveyDetail>(`/api/v1/survey/surveys/${id}/approval/approve`, { method: "POST", body: JSON.stringify({ note }) }),
+  reject: (id: string, note?: string) =>
+    request<SurveyDetail>(`/api/v1/survey/surveys/${id}/approval/reject`, { method: "POST", body: JSON.stringify({ note }) }),
   quotaStatus: (id: string) => request<QuotaStatus[]>(`/api/v1/survey/surveys/${id}/quotas`),
   listTemplates: () => request<OrgTemplate[]>(`/api/v1/survey/templates`),
   saveTemplate: (survey_id: string, extra: { title?: string; description?: string; category?: string } = {}) =>

@@ -224,6 +224,80 @@ function aplicarIdioma(model: Model, code: string) {
   model.locale = code;
 }
 
+// ── Sin conexión ────────────────────────────────────────────────────────────
+// Si al enviar no hay red, la respuesta queda en este dispositivo y se manda
+// sola al volver la conexión (o la próxima vez que se abra la encuesta). Cada
+// envío lleva un `submission_id`: si el servidor ya la había recibido (se
+// perdió sólo la confirmación), no la duplica.
+const BANDEJA = "enc_outbox";
+type Pendiente = { slug: string; body: Record<string, unknown>; at: number };
+
+function leerBandeja(): Pendiente[] {
+  try {
+    return JSON.parse(window.localStorage.getItem(BANDEJA) || "[]");
+  } catch {
+    return [];
+  }
+}
+
+function escribirBandeja(items: Pendiente[]) {
+  try {
+    if (items.length) window.localStorage.setItem(BANDEJA, JSON.stringify(items));
+    else window.localStorage.removeItem(BANDEJA);
+  } catch {
+    /* sin almacenamiento: no hay nada que hacer */
+  }
+}
+
+function encolar(slug: string, body: Record<string, unknown>) {
+  escribirBandeja([...leerBandeja(), { slug, body, at: ahora() }]);
+}
+
+function nuevoIdDeEnvio(): string {
+  try {
+    return crypto.randomUUID();
+  } catch {
+    return `${ahora()}-${Math.random().toString(36).slice(2)}`;
+  }
+}
+
+/** Manda lo pendiente. Devuelve cuántas respuestas salieron. */
+async function vaciarBandeja(base: string): Promise<number> {
+  const pendientes = leerBandeja();
+  if (!pendientes.length || (typeof navigator !== "undefined" && !navigator.onLine)) return 0;
+  const quedan: Pendiente[] = [];
+  let enviadas = 0;
+  for (const p of pendientes) {
+    try {
+      let body = p.body;
+      let r = await fetch(`${base}/api/v1/survey/public/${encodeURIComponent(p.slug)}/submit`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+      });
+      if (r.status === 400 && body.captcha) {
+        // El desafío anti-bot vence: se resuelve otro y se reintenta una vez.
+        body = { ...body, captcha: await getCaptchaSolution(base, p.slug) };
+        r = await fetch(`${base}/api/v1/survey/public/${encodeURIComponent(p.slug)}/submit`, {
+          method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body),
+        });
+      }
+      if (r.ok) enviadas += 1;
+      else if (r.status >= 500 || r.status === 429) quedan.push(p);
+      // Otro 4xx (cerrada, cupo lleno, acceso vencido): reintentar no lo arregla.
+    } catch {
+      quedan.push(p);
+    }
+  }
+  escribirBandeja(quedan);
+  return enviadas;
+}
+
+/** Registra el service worker que deja abrir la encuesta sin conexión. */
+function registrarServiceWorker() {
+  if (typeof navigator === "undefined" || !("serviceWorker" in navigator)) return;
+  if (process.env.NODE_ENV !== "production") return;
+  navigator.serviceWorker.register("/sw.js", { scope: "/s/" }).catch(() => {});
+}
+
 function trackVisit(slug: string, event: "view" | "progress", question?: string) {
   const vid = getVisitorId();
   if (!vid) return;
@@ -258,6 +332,20 @@ export default function SurveyView({ slug }: { slug: string }) {
   // Redirección al terminar: mostramos "Redirigiendo…" antes de navegar.
   const [redirecting, setRedirecting] = useState(false);
   const [rejected, setRejected] = useState<string | null>(null);
+  const [offline, setOffline] = useState(false);
+
+  // Respuestas guardadas sin conexión: se mandan al abrir y al volver la red.
+  useEffect(() => {
+    registrarServiceWorker();
+    const enviar = () => {
+      vaciarBandeja(apiBase()).then((n) => {
+        if (n > 0) toast.success(t("public.offline.sent", { n }));
+      });
+    };
+    enviar();
+    window.addEventListener("online", enviar);
+    return () => window.removeEventListener("online", enviar);
+  }, [t]);
   // Access token for gated (pin/list) surveys; set once the access gate passes.
   const [accessToken, setAccessToken] = useState<string | null>(null);
   // Post-submit screen for list-mode surveys (thank-you + result lookup).
@@ -701,12 +789,7 @@ export default function SurveyView({ slug }: { slug: string }) {
             /* si falla, el backend rechazará y el usuario puede reintentar */
           }
         }
-        const res = await fetch(
-          `${apiBase()}/api/v1/survey/public/${encodeURIComponent(slug)}/submit`,
-          {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
+        const cuerpo: Record<string, unknown> = {
               answers: sender.data,
               completed: true,
               // Gated surveys require the access token obtained at the gate.
@@ -720,10 +803,22 @@ export default function SurveyView({ slug }: { slug: string }) {
                 ...(examen?.signals ? { integrity: INTEGRIDAD } : {}),
                 hidden: camposOcultos(data.hidden_fields),
                 timing: tiemposRedondeados(),
+                submission_id: nuevoIdDeEnvio(),
               },
-            }),
-          }
-        );
+            };
+        let res: Response;
+        try {
+          res = await fetch(`${apiBase()}/api/v1/survey/public/${encodeURIComponent(slug)}/submit`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(cuerpo),
+          });
+        } catch {
+          // Sin red: la respuesta queda guardada acá y sale sola después.
+          encolar(slug, cuerpo);
+          setOffline(true);
+          return;
+        }
         const body = await res.json().catch(() => null);
         if (!res.ok) {
           // Cupo lleno u otro rechazo del servidor: se muestra el motivo en vez
@@ -763,7 +858,7 @@ export default function SurveyView({ slug }: { slug: string }) {
           setCompleted(true);
         }
       } catch {
-        /* keep the thank-you page even if the network hiccups */
+        /* una falla al procesar la respuesta del servidor: la respuesta ya se guardó */
       } finally {
         setSubmitting(false);
       }
@@ -841,6 +936,14 @@ export default function SurveyView({ slug }: { slug: string }) {
         reason={reason}
         footer={t("public.closed.thanks")}
       />
+    );
+  }
+
+  if (offline) {
+    return (
+      <Centered>
+        <p className="max-w-md text-center text-base">{t("public.offline.saved")}</p>
+      </Centered>
     );
   }
 

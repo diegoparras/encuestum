@@ -25,6 +25,7 @@ import { surveyApi, type SurveySummary } from "../surveyApi";
 import MoodleSection from "./MoodleSection";
 import ApiKeysSection from "./ApiKeysSection";
 import PrivacySection from "./PrivacySection";
+import SsoSection from "./SsoSection";
 import { useAsyncData } from "@/lib/useAsyncData";
 import { useI18n } from "@/lib/i18n";
 import { LoadError, LoadSpinner } from "@/components/LoadError";
@@ -364,6 +365,8 @@ export default function IntegrationsPage() {
       <ApiKeysSection />
 
       <PrivacySection />
+
+      <SsoSection />
 
       {/* Conexión con Moodle (LTI 1.3). Trae sus propios datos y maneja sus
           propios estados de carga/error, así que una caída del listado LTI no

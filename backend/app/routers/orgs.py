@@ -1,7 +1,9 @@
 """Organizations: create, switch active org, manage members."""
 
 import uuid
-from typing import List
+from typing import List, Optional
+
+from pydantic import BaseModel
 
 from fastapi import APIRouter, Body, Depends, HTTPException, Response
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -130,7 +132,8 @@ async def list_members(
         )
     ).all()
     return [
-        MemberOut(user_id=u.id, email=u.email, name=u.name, role=m.role, joined_at=m.created_at)
+        MemberOut(user_id=u.id, email=u.email, name=u.name, role=m.role, joined_at=m.created_at,
+                  folder_scope=m.folder_scope)
         for (m, u) in rows
     ]
 
@@ -200,7 +203,46 @@ async def update_member_role(
     await session.commit()
     await session.refresh(target)
     u = await session.get(User, member_user_id)
-    return MemberOut(user_id=u.id, email=u.email, name=u.name, role=target.role, joined_at=target.created_at)
+    return MemberOut(user_id=u.id, email=u.email, name=u.name, role=target.role, joined_at=target.created_at,
+                     folder_scope=target.folder_scope)
+
+
+class MemberScopeRequest(BaseModel):
+    # None = toda la organización; lista = sólo esas carpetas (y subcarpetas).
+    folder_ids: Optional[List[uuid.UUID]] = None
+
+
+@router.put("/{org_id}/members/{member_user_id}/scope", response_model=MemberOut)
+async def update_member_scope(
+    org_id: uuid.UUID,
+    member_user_id: uuid.UUID,
+    payload: MemberScopeRequest,
+    session: AsyncSession = Depends(get_session),
+    user: User = Depends(current_user),
+):
+    """Limita a un miembro o lector a ciertas carpetas. A dueños y
+    administradores no se les aplica (ven todo igual)."""
+    from app.audit import record_event
+    from app.models import SurveyFolder
+    from app.scopes import clean_scope
+
+    caller = await _membership(session, user.id, org_id)
+    _require_rank(caller, ROLE_ADMIN)
+    target = await _membership(session, member_user_id, org_id)
+    ids = set((await session.scalars(select(SurveyFolder.id).where(SurveyFolder.org_id == org_id))).all())
+    try:
+        target.folder_scope = clean_scope(
+            [str(x) for x in payload.folder_ids] if payload.folder_ids is not None else None, ids)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    session.add(target)
+    record_event(session, action="member.scope_changed", org_id=org_id, actor=user,
+                 detail={"user_id": str(member_user_id), "folders": target.folder_scope})
+    await session.commit()
+    await session.refresh(target)
+    u = await session.get(User, member_user_id)
+    return MemberOut(user_id=u.id, email=u.email, name=u.name, role=target.role, joined_at=target.created_at,
+                     folder_scope=target.folder_scope)
 
 
 @router.delete("/{org_id}/members/{member_user_id}", status_code=204)

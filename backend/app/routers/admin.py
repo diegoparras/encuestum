@@ -13,6 +13,7 @@ from sqlmodel import select
 
 from pydantic import BaseModel, EmailStr, Field
 
+from app import scopes
 from app.db import get_session
 from app.deps import OrgContext, current_context
 from app.exporting import CSV_MEDIA, XLSX_MEDIA, export_rows, rows_to_csv, sheets_to_xlsx
@@ -24,7 +25,7 @@ from app.schemas import (
     SurveySummary, SurveyUpdateRequest,
 )
 
-router = APIRouter(prefix="/surveys", tags=["surveys"])
+router = APIRouter(prefix="/surveys", tags=["surveys"], dependencies=[Depends(scopes.guard)])
 
 LOGGER = logging.getLogger(__name__)
 
@@ -67,6 +68,13 @@ async def create_survey(
         title=payload.title, json_schema=payload.json_schema or {},
         language=payload.language, theme=payload.theme, evaluation=payload.evaluation,
     )
+    # Alguien limitado a ciertas carpetas crea adentro de una de ellas (si no,
+    # no podría volver a ver lo que creó).
+    permitidas = await scopes.allowed_folders(session, ctx)
+    if permitidas is not None:
+        if not permitidas:
+            raise HTTPException(status_code=403, detail="No tenés carpetas asignadas para crear encuestas.")
+        s.folder_id = sorted(permitidas, key=str)[0]
     session.add(s)
     await session.flush()
     record_event(session, action="survey.created", org_id=ctx.org.id, actor=ctx.user, survey_id=s.id,
@@ -88,6 +96,8 @@ async def list_surveys(
             .order_by(Survey.updated_at.desc())
         )
     ).all()
+    permitidas = await scopes.allowed_folders(session, ctx)
+    surveys = [s for s in surveys if scopes.can_see(s, permitidas)]
     ids = [s.id for s in surveys]
     counts: dict = {}
     if ids:
@@ -216,6 +226,13 @@ async def update_survey(
             data["public_results"] = fields_mod.clean_public_results(data["public_results"], s.public_results)
     except ValueError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
+    if (data.get("status") == "published" and s.status != "published"
+            and getattr(ctx.org, "require_publish_approval", False) and not scopes.is_admin(ctx)):
+        raise HTTPException(status_code=403, detail="Publicar requiere aprobación: usá «Pedir publicación».")
+    if "folder_id" in data:
+        permitidas = await scopes.allowed_folders(session, ctx)
+        if permitidas is not None and data["folder_id"] not in permitidas:
+            raise HTTPException(status_code=403, detail="Esa carpeta está fuera de tu alcance.")
     # org_id / created_by / slug are handled explicitly, never via the generic loop.
     data.pop("org_id", None)
     data.pop("created_by", None)
@@ -405,12 +422,76 @@ async def publish_survey(
     session: AsyncSession = Depends(get_session),
 ):
     s = await _survey_or_404(sid, ctx.org.id, session)
+    # Flujo de aprobación: un miembro no publica, pide; un admin aprueba.
+    if getattr(ctx.org, "require_publish_approval", False) and not scopes.is_admin(ctx) and s.status != "published":
+        return await _pedir_aprobacion(s, ctx, session)
     s.status = "published"
+    s.approval = None
     from app.audit import ensure_survey_version
 
     await ensure_survey_version(session, s, label="publicada", actor=ctx.user)
     session.add(s)
     record_event(session, action="survey.published", org_id=ctx.org.id, actor=ctx.user, survey_id=s.id)
+    await session.commit()
+    await session.refresh(s)
+    return SurveyDetail.from_model(s)
+
+
+async def _pedir_aprobacion(s: Survey, ctx: OrgContext, session: AsyncSession) -> SurveyDetail:
+    from app.email import build_url, enqueue_email
+    from app.models import ROLE_ADMIN, ROLE_OWNER, Membership, User
+
+    s.approval = {"state": "pending", "by": ctx.user.email, "at": _utcnow().isoformat(), "note": None}
+    session.add(s)
+    record_event(session, action="survey.approval_requested", org_id=ctx.org.id, actor=ctx.user, survey_id=s.id)
+    admins = (await session.scalars(
+        select(User).join(Membership, Membership.user_id == User.id).where(
+            Membership.org_id == ctx.org.id, Membership.role.in_((ROLE_OWNER, ROLE_ADMIN)))
+    )).all()
+    for u in admins:
+        enqueue_email(session, u.email, f"Pedido de publicación: {s.title or 'encuesta'}",
+                      f"{ctx.user.email} pidió publicar «{s.title or 'una encuesta'}».\n\n"
+                      f"Revisala y aprobala acá:\n{build_url(f'/surveys/{s.id}')}\n",
+                      org_id=ctx.org.id, survey_id=s.id)
+    await session.commit()
+    await session.refresh(s)
+    return SurveyDetail.from_model(s)
+
+
+class ApprovalDecision(BaseModel):
+    note: Optional[str] = Field(default=None, max_length=1000)
+
+
+@router.post("/{sid}/approval/approve", response_model=SurveyDetail)
+async def approve_survey(sid: uuid.UUID, payload: ApprovalDecision, ctx: OrgContext = Depends(current_context),
+                         session: AsyncSession = Depends(get_session)):
+    _require_admin(ctx)
+    s = await _survey_or_404(sid, ctx.org.id, session)
+    from app.audit import ensure_survey_version
+
+    pedido = s.approval or {}
+    s.status, s.approval = "published", None
+    await ensure_survey_version(session, s, label="publicada", actor=ctx.user)
+    session.add(s)
+    record_event(session, action="survey.approved", org_id=ctx.org.id, actor=ctx.user, survey_id=s.id,
+                 detail={"requested_by": pedido.get("by"), "note": payload.note})
+    await session.commit()
+    await session.refresh(s)
+    return SurveyDetail.from_model(s)
+
+
+@router.post("/{sid}/approval/reject", response_model=SurveyDetail)
+async def reject_survey(sid: uuid.UUID, payload: ApprovalDecision, ctx: OrgContext = Depends(current_context),
+                        session: AsyncSession = Depends(get_session)):
+    _require_admin(ctx)
+    s = await _survey_or_404(sid, ctx.org.id, session)
+    if not s.approval:
+        raise HTTPException(status_code=409, detail="No hay un pedido de publicación.")
+    s.approval = {**s.approval, "state": "rejected", "note": (payload.note or "").strip() or None,
+                  "decided_by": ctx.user.email, "decided_at": _utcnow().isoformat()}
+    session.add(s)
+    record_event(session, action="survey.rejected", org_id=ctx.org.id, actor=ctx.user, survey_id=s.id,
+                 detail={"note": payload.note})
     await session.commit()
     await session.refresh(s)
     return SurveyDetail.from_model(s)

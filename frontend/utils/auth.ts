@@ -7,7 +7,7 @@
 
 import { getApiUrl } from "@/utils/api";
 
-export type Role = "owner" | "admin" | "member";
+export type Role = "owner" | "admin" | "member" | "viewer";
 
 export interface User {
   id: string;
@@ -40,6 +40,8 @@ export interface Member {
   name: string | null;
   role: Role;
   joined_at: string;
+  /** Carpetas a las que se limita (null = toda la organización). */
+  folder_scope?: string[] | null;
 }
 
 export interface Invitation {
@@ -285,7 +287,7 @@ export function acceptInvite(token: string): Promise<Me> {
 }
 
 // Role hierarchy helper: is `role` at least `min`?
-const RANK: Record<Role, number> = { member: 0, admin: 1, owner: 2 };
+const RANK: Record<Role, number> = { viewer: -1, member: 0, admin: 1, owner: 2 };
 export function roleAtLeast(role: Role, min: Role): boolean {
   return RANK[role] >= RANK[min];
 }

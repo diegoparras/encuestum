@@ -14,7 +14,7 @@ from app.db import engine
 from app.logging_conf import configure_logging
 from app.routers import (
     admin, ai, assets, auth, bank, evaluation, files, folders, lti, modapi, orgs, panel,
-    ext_api, privacy_api, public, templates_api, translate_api, uploads, webhooks_api,
+    comments_api, ext_api, mcp_api, privacy_api, public, sso_api, templates_api, translate_api, uploads, webhooks_api,
 )
 
 LOGGER = logging.getLogger("encuestum")
@@ -149,8 +149,12 @@ app.include_router(ai.router, prefix=API)
 app.include_router(lti.admin_router, prefix=API)
 app.include_router(modapi.admin_router, prefix=API)
 app.include_router(privacy_api.router, prefix=API)
+app.include_router(sso_api.auth_router, prefix=API)
+app.include_router(sso_api.admin_router, prefix=API)
+app.include_router(comments_api.workflow_router, prefix=API)
 app.include_router(ext_api.keys_router, prefix=API)
 app.include_router(ext_api.router, prefix=API)
+app.include_router(mcp_api.router, prefix=API)
 
 
 # Especificación propia de la API pública: sólo las rutas de /ext, con el
@@ -208,6 +212,7 @@ app.include_router(folders.router, prefix=SURVEY)
 app.include_router(bank.router, prefix=SURVEY)
 app.include_router(templates_api.router, prefix=SURVEY)
 app.include_router(translate_api.router, prefix=SURVEY)
+app.include_router(comments_api.router, prefix=SURVEY)
 
 
 @app.get("/api/health", tags=["ops"])

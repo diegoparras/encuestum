@@ -3,6 +3,8 @@ import type { Lang } from "../i18n";
 // Diccionario de área: auth (login, registro, recuperación/reset, verificación, invitaciones).
 export const dict: Record<Lang, Record<string, string>> = {
   en: {
+    "auth.orgSso.button": "Continue with your organization's SSO",
+    "auth.orgSso.buttonOrg": "Continue with {org}'s SSO",
     // Campos compartidos
     "auth.email.label": "Email",
     "auth.email.placeholder": "you@example.com",
@@ -89,6 +91,8 @@ export const dict: Record<Lang, Record<string, string>> = {
     "auth.errors.resendFailed": "Couldn't resend the verification",
   },
   es: {
+    "auth.orgSso.button": "Continuar con el SSO de tu organización",
+    "auth.orgSso.buttonOrg": "Continuar con el SSO de {org}",
     "auth.email.label": "Correo electrónico",
     "auth.email.placeholder": "vos@ejemplo.com",
     "auth.password.label": "Contraseña",
@@ -165,6 +169,8 @@ export const dict: Record<Lang, Record<string, string>> = {
     "auth.errors.resendFailed": "No se pudo reenviar la verificación",
   },
   fr: {
+    "auth.orgSso.button": "Continuer avec le SSO de votre organisation",
+    "auth.orgSso.buttonOrg": "Continuer avec le SSO de {org}",
     "auth.email.label": "E-mail",
     "auth.email.placeholder": "vous@exemple.com",
     "auth.password.label": "Mot de passe",
@@ -246,6 +252,8 @@ export const dict: Record<Lang, Record<string, string>> = {
     "auth.errors.resendFailed": "Impossible de renvoyer la vérification",
   },
   pt: {
+    "auth.orgSso.button": "Continuar com o SSO da sua organização",
+    "auth.orgSso.buttonOrg": "Continuar com o SSO de {org}",
     "auth.email.label": "E-mail",
     "auth.email.placeholder": "voce@exemplo.com",
     "auth.password.label": "Senha",
@@ -322,6 +330,8 @@ export const dict: Record<Lang, Record<string, string>> = {
     "auth.errors.resendFailed": "Não foi possível reenviar a verificação",
   },
   it: {
+    "auth.orgSso.button": "Continua con l'SSO della tua organizzazione",
+    "auth.orgSso.buttonOrg": "Continua con l'SSO di {org}",
     "auth.email.label": "Email",
     "auth.email.placeholder": "tu@esempio.com",
     "auth.password.label": "Password",
@@ -399,6 +409,8 @@ export const dict: Record<Lang, Record<string, string>> = {
     "auth.errors.resendFailed": "Impossibile inviare di nuovo la verifica",
   },
   zh: {
+    "auth.orgSso.button": "使用你所在组织的 SSO 继续",
+    "auth.orgSso.buttonOrg": "使用 {org} 的 SSO 继续",
     "auth.email.label": "电子邮箱",
     "auth.email.placeholder": "you@example.com",
     "auth.password.label": "密码",
@@ -470,6 +482,8 @@ export const dict: Record<Lang, Record<string, string>> = {
     "auth.errors.resendFailed": "无法重新发送验证",
   },
   ja: {
+    "auth.orgSso.button": "組織の SSO で続行",
+    "auth.orgSso.buttonOrg": "{org} の SSO で続行",
     "auth.email.label": "メールアドレス",
     "auth.email.placeholder": "you@example.com",
     "auth.password.label": "パスワード",

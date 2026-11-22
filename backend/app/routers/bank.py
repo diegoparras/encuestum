@@ -19,12 +19,13 @@ from sqlalchemy import func, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
+from app import scopes
 from app.db import get_session
 from app.deps import OrgContext, current_context
 from app.hygiene import counted_only
 from app.models import BankItem, Survey, SurveyResponse
 
-router = APIRouter(prefix="/bank", tags=["bank"])
+router = APIRouter(prefix="/bank", tags=["bank"], dependencies=[Depends(scopes.guard)])
 
 _MAX_ITEMS = 500
 

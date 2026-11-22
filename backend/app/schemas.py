@@ -121,6 +121,7 @@ class SurveyDetail(BaseModel):
     hidden_fields: Optional[List[str]] = None
     quotas: Optional[List[dict[str, Any]]] = None
     public_results: Optional[dict[str, Any]] = None
+    approval: Optional[dict[str, Any]] = None
     created_at: datetime
     updated_at: datetime
     # Huella del contenido editable (preguntas, corrección, diseño, título).
@@ -155,6 +156,7 @@ class SurveyDetail(BaseModel):
             hidden_fields=getattr(s, "hidden_fields", None),
             quotas=getattr(s, "quotas", None),
             public_results=getattr(s, "public_results", None),
+            approval=getattr(s, "approval", None),
             created_at=s.created_at, updated_at=s.updated_at,
             content_hash=survey_content_hash(s),
         )

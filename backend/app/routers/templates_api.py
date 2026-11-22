@@ -12,13 +12,14 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlmodel import select
 
+from app import scopes
 from app.audit import record_event
 from app.db import get_session
 from app.deps import OrgContext, current_context
 from app.models import Survey, SurveyTemplate
 from app.schemas import SurveyDetail
 
-router = APIRouter(prefix="/templates", tags=["templates"])
+router = APIRouter(prefix="/templates", tags=["templates"], dependencies=[Depends(scopes.guard)])
 
 
 class FromSurvey(BaseModel):

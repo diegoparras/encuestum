@@ -179,6 +179,14 @@ Guardá también el volumen `/app_data` (archivos subidos, si no usás R2/S3) y 
 
 **Tope de IA.** En la sección **IA** se fija un tope mensual en USD: al 80% se avisa por email a dueños y admins; al 100% se frenan la generación y la corrección con IA (lo pendiente se reintenta solo).
 
+**SSO por organización.** En **Integraciones → Inicio de sesión único** se conecta cualquier proveedor OpenID Connect (Google Workspace, Microsoft Entra ID, Okta, Keycloak…): emisor, client ID/secret y los dominios de email. La URI de redirección a registrar es `<ENCUESTUM_PUBLIC_API_URL>/api/v1/auth/org-sso/callback`. Opcional: alta automática con rol miembro o lector, y SSO obligatorio para esos dominios. (Distinto de la federación de plataforma con Lockatus, `AUTH_MODE=federado`.)
+
+**Roles y alcance.** Además de dueño, admin y miembro hay **lector** (ve y comenta, no cambia nada). Un miembro o lector se puede limitar a ciertas carpetas (con sus subcarpetas) desde **Miembros**. Con **Publicar requiere aprobación**, los miembros piden publicar y un admin aprueba o devuelve con un comentario.
+
+**Servidor MCP.** Un asistente de IA puede consultar la organización con una clave de la API: `claude mcp add --transport http encuestum https://<host>/api/v1/mcp --header "Authorization: Bearer enc_…"`. Herramientas: `list_surveys`, `get_survey`, `get_summary`, `get_responses` y `add_invitees` (clave de escritura).
+
+**Sin conexión.** Las encuestas públicas ya abiertas se pueden volver a abrir y completar sin red (service worker en `/sw.js`); las respuestas quedan en el dispositivo y se envían solas al volver la conexión, sin duplicarse.
+
 **Integridad.** Cada respuesta guarda una huella SHA-256 (sello "Íntegra"/"Modificada" en el panel), y cada exportación queda en el registro de actividad con la huella del archivo (también en el header `X-Encuestum-SHA256`).
 
 ---

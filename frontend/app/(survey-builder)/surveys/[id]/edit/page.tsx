@@ -14,7 +14,7 @@ import {
   ListChecks,
   Check,
 } from "lucide-react";
-import { GraduationCap, Sparkles, Palette, SpellCheck2, Undo2, Redo2, Keyboard, History, Library, Languages } from "lucide-react";
+import { GraduationCap, Sparkles, Palette, SpellCheck2, Undo2, Redo2, Keyboard, History, Library, Languages, MessageSquare, X } from "lucide-react";
 import { useUndoHistory } from "@/lib/useUndoHistory";
 import {
   surveyApi,
@@ -53,6 +53,7 @@ import { DesignPanel } from "../../../builder/DesignPanel";
 import { GenerateDialog } from "../../../builder/GenerateDialog";
 import { WordingReviewDialog } from "../../../builder/WordingReview";
 import { LanguagesDialog } from "../../../builder/LanguagesDialog";
+import { CommentsPanel } from "../../../Colaboracion";
 import { VersionHistoryDialog } from "../../../builder/VersionHistory";
 import { BankDialog, type ElementsToInsert } from "../../../builder/BankDialog";
 
@@ -114,6 +115,7 @@ export default function SurveyEditorPage() {
   const [genOpen, setGenOpen] = useState(false);
   const [wordingOpen, setWordingOpen] = useState(false);
   const [langOpen, setLangOpen] = useState(false);
+  const [commentsOpen, setCommentsOpen] = useState(false);
   const [versionsOpen, setVersionsOpen] = useState(false);
   const [bankOpen, setBankOpen] = useState(false);
   const [designOpen, setDesignOpen] = useState(false);
@@ -670,6 +672,15 @@ export default function SurveyEditorPage() {
           </button>
 
           <button
+            onClick={() => setCommentsOpen((v) => !v)}
+            aria-pressed={commentsOpen}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-neutral-200 dark:border-neutral-800 px-2.5 py-1.5 text-xs font-medium text-neutral-600 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800"
+            title={t("collab.title")}
+          >
+            <MessageSquare className="w-4 h-4" /> {t("builder.page.comments")}
+          </button>
+
+          <button
             onClick={() => setLangOpen(true)}
             disabled={!state.questions.length}
             className="inline-flex items-center gap-1.5 rounded-lg border border-neutral-200 dark:border-neutral-800 px-2.5 py-1.5 text-xs font-medium text-neutral-600 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 disabled:opacity-50"
@@ -935,6 +946,24 @@ export default function SurveyEditorPage() {
             }))
           }
         />
+      )}
+
+      {commentsOpen && (
+        <aside className="fixed bottom-4 right-4 top-20 z-50 flex w-[min(380px,calc(100vw-2rem))] flex-col rounded-2xl border border-neutral-200 bg-white shadow-2xl dark:border-neutral-800 dark:bg-neutral-900"
+          aria-label={t("collab.title")}>
+          <div className="flex items-center justify-between border-b border-neutral-100 px-4 py-3 dark:border-neutral-800">
+            <h2 className="text-sm font-semibold dark:text-neutral-100">{t("collab.title")}</h2>
+            <button onClick={() => setCommentsOpen(false)} aria-label={t("builder.inv.close")} className="text-neutral-400 hover:text-neutral-700">
+              <X className="h-4 w-4" />
+            </button>
+          </div>
+          <div className="flex-1 overflow-y-auto p-4">
+            <CommentsPanel
+              surveyId={id}
+              questions={state.questions.filter((q) => q.type !== "section").map((q) => ({ name: q.name, title: q.title || q.name }))}
+            />
+          </div>
+        </aside>
       )}
 
       {langOpen && (

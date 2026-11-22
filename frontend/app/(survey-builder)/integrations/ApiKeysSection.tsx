@@ -101,6 +101,10 @@ export default function ApiKeysSection() {
             <p className="mt-2 font-mono text-[11px] text-amber-700 dark:text-amber-300">
               curl -H &quot;Authorization: Bearer {nueva.key.slice(0, 16)}…&quot; {ecosystemApi.apiBase()}/surveys
             </p>
+            <p className="mt-2 text-[11px] text-amber-800 dark:text-amber-200">{t("integrations.api.mcp")}</p>
+            <code className="mt-1 block break-all rounded bg-white px-2 py-1 font-mono text-[11px] dark:bg-neutral-900 dark:text-neutral-200">
+              claude mcp add --transport http encuestum {ecosystemApi.mcpUrl()} --header &quot;Authorization: Bearer {nueva.key}&quot;
+            </code>
           </div>
         )}
 

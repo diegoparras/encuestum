@@ -31,9 +31,11 @@ def _new_slug() -> str:
 ROLE_OWNER = "owner"
 ROLE_ADMIN = "admin"
 ROLE_MEMBER = "member"
-VALID_ROLES = {ROLE_OWNER, ROLE_ADMIN, ROLE_MEMBER}
-# Rank for "at least" checks: owner > admin > member.
-ROLE_RANK = {ROLE_MEMBER: 1, ROLE_ADMIN: 2, ROLE_OWNER: 3}
+# Lector: ve encuestas y resultados, no edita ni publica nada (app/scopes.py).
+ROLE_VIEWER = "viewer"
+VALID_ROLES = {ROLE_OWNER, ROLE_ADMIN, ROLE_MEMBER, ROLE_VIEWER}
+# Rank for "at least" checks: owner > admin > member > viewer.
+ROLE_RANK = {ROLE_VIEWER: 1, ROLE_MEMBER: 2, ROLE_ADMIN: 3, ROLE_OWNER: 4}
 
 
 class User(SQLModel, table=True):
@@ -80,6 +82,10 @@ class Organization(SQLModel, table=True):
     # Retención por defecto de la organización (cada encuesta puede pisarla).
     retention_days: Optional[int] = Field(sa_column=Column(Integer), default=None)
     retention_action: Optional[str] = Field(sa_column=Column(String), default=None)  # anonymize | delete
+    # Publicar requiere aprobación de un administrador (los miembros piden).
+    require_publish_approval: bool = Field(
+        sa_column=Column(Boolean, nullable=False, server_default="0"), default=False
+    )
     created_at: datetime = Field(
         sa_column=Column(DateTime(timezone=True), nullable=False, default=_utcnow)
     )
@@ -101,6 +107,9 @@ class Membership(SQLModel, table=True):
         )
     )
     role: str = Field(sa_column=Column(String, nullable=False), default=ROLE_MEMBER)
+    # Carpetas a las que se limita (con sus subcarpetas). None = toda la
+    # organización. No aplica a dueños ni administradores (app/scopes.py).
+    folder_scope: Optional[list] = Field(sa_column=Column(JSON), default=None)
     created_at: datetime = Field(
         sa_column=Column(DateTime(timezone=True), nullable=False, default=_utcnow)
     )
@@ -308,6 +317,9 @@ class Survey(SQLModel, table=True):
     public_results: Optional[dict] = Field(sa_column=Column(JSON), default=None)
     # Traducciones por idioma: {idioma: {texto original: traducción}} (app/translation.py).
     translations: Optional[dict] = Field(sa_column=Column(JSON), default=None)
+    # Pedido de aprobación para publicar: {"state": "pending"|"rejected",
+    # "by": email, "at": iso, "note": "..."}. None = sin pedido en curso.
+    approval: Optional[dict] = Field(sa_column=Column(JSON), default=None)
     # Papelera (soft-delete): al borrar se marca la fecha en vez de destruir la
     # encuesta y sus respuestas. Una encuesta en la papelera no se lista, no se
     # edita y — crítico — deja de responderse desde su link público. Se puede
@@ -600,6 +612,54 @@ class SurveyTemplate(SQLModel, table=True):
     created_by: Optional[uuid.UUID] = Field(
         sa_column=Column(ForeignKey("users.id", ondelete="SET NULL")), default=None
     )
+    created_at: datetime = Field(
+        sa_column=Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    )
+
+
+class SurveyComment(SQLModel, table=True):
+    """Comentario de un colaborador sobre la encuesta o sobre una pregunta."""
+
+    __tablename__ = "survey_comments"
+
+    id: uuid.UUID = Field(primary_key=True, default_factory=uuid.uuid4)
+    survey_id: uuid.UUID = Field(
+        sa_column=Column(ForeignKey("surveys.id", ondelete="CASCADE"), index=True, nullable=False)
+    )
+    question: Optional[str] = Field(sa_column=Column(String), default=None)
+    body: str = Field(sa_column=Column(String, nullable=False))
+    author_id: Optional[uuid.UUID] = Field(
+        sa_column=Column(ForeignKey("users.id", ondelete="SET NULL")), default=None
+    )
+    author_email: Optional[str] = Field(sa_column=Column(String), default=None)
+    resolved_at: Optional[datetime] = Field(sa_column=Column(DateTime(timezone=True)), default=None)
+    created_at: datetime = Field(
+        sa_column=Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    )
+
+
+class OrgSso(SQLModel, table=True):
+    """Inicio de sesión con el proveedor de identidad de la organización
+    (OIDC: Google Workspace, Microsoft Entra ID, Okta, Keycloak…)."""
+
+    __tablename__ = "org_sso"
+
+    id: uuid.UUID = Field(primary_key=True, default_factory=uuid.uuid4)
+    org_id: uuid.UUID = Field(
+        sa_column=Column(ForeignKey("organizations.id", ondelete="CASCADE"), unique=True, nullable=False)
+    )
+    issuer: str = Field(sa_column=Column(String, nullable=False))
+    client_id: str = Field(sa_column=Column(String, nullable=False))
+    # En claro, como `ai_providers.api_key`; nunca se devuelve completo.
+    client_secret: Optional[str] = Field(sa_column=Column(String), default=None)
+    # Dominios de email que entran por este proveedor (ej. ["escuela.edu"]).
+    domains: list = Field(sa_column=Column(JSON, nullable=False), default_factory=list)
+    enabled: bool = Field(sa_column=Column(Boolean, nullable=False, server_default="1"), default=True)
+    # Alta automática de quien entra por SSO, con este rol.
+    auto_provision: bool = Field(sa_column=Column(Boolean, nullable=False, server_default="1"), default=True)
+    default_role: str = Field(sa_column=Column(String, nullable=False, server_default="member"), default="member")
+    # Obligatorio: los de esos dominios no pueden entrar con contraseña.
+    enforce: bool = Field(sa_column=Column(Boolean, nullable=False, server_default="0"), default=False)
     created_at: datetime = Field(
         sa_column=Column(DateTime(timezone=True), nullable=False, default=_utcnow)
     )

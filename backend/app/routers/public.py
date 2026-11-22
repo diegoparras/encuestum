@@ -639,6 +639,18 @@ async def submit(
     # Anti-spam: tope de envíos por IP por encuesta.
     await rate_limit(request, f"submit:{slug}", limit=15, window_s=60)
     s = await _visible(slug, session)
+    # Reenvío de la misma respuesta (el navegador la guardó sin conexión y la
+    # manda de nuevo, o se perdió la confirmación): no se duplica.
+    envio = (payload.meta or {}).get("submission_id")
+    if isinstance(envio, str) and 8 <= len(envio) <= 64:
+        previa = (await session.scalars(
+            select(SurveyResponse).where(
+                SurveyResponse.survey_id == s.id,
+                SurveyResponse.meta["submission_id"].as_string() == envio,
+            ).limit(1)
+        )).first()
+        if previa is not None:
+            return {"id": str(previa.id), "status": "recorded", "duplicate": True}
     available, reason = await _availability(s, session)
     if not available:
         raise HTTPException(status_code=403, detail=reason or "Esta encuesta está cerrada.")

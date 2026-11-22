@@ -43,6 +43,7 @@ import { InsightsPanel } from "../../InsightsPanel";
 import { FunnelCard, SummaryPanel } from "../../SummaryPanel";
 import { ReportPanel } from "../../ReportPanel";
 import { ResponsesPanel } from "../../ResponsesPanel";
+import { ApprovalBanner, CommentsPanel } from "../../Colaboracion";
 import { themeToAccent } from "../../builder/model";
 
 export default function SurveyDetailPage() {
@@ -209,6 +210,10 @@ export default function SurveyDetailPage() {
           ? await surveyApi.close(id)
           : await surveyApi.publish(id);
       setSurvey(updated);
+      // Con aprobación obligatoria, "publicar" queda como pedido.
+      if (updated.status !== "published" && updated.approval?.state === "pending") {
+        toast.success(t("collab.approval.requested"));
+      }
     } catch (e: any) {
       setActionError(e?.message || t("surveys.detail.statusError"));
     } finally {
@@ -449,6 +454,17 @@ export default function SurveyDetailPage() {
         </button>
         <SaveTemplateButton surveyId={id} />
       </div>
+
+      <ApprovalBanner survey={survey} isAdmin={puedeBorrar} onChange={setSurvey} />
+
+      <details className="mt-4 rounded-lg border border-neutral-200 bg-white px-4 py-3 dark:border-neutral-800 dark:bg-neutral-900">
+        <summary className="cursor-pointer text-sm font-medium text-neutral-700 dark:text-neutral-300">
+          {t("collab.title")}
+        </summary>
+        <div className="mt-3">
+          <CommentsPanel surveyId={id} />
+        </div>
+      </details>
 
       {notice && <p className="mt-3 text-sm text-green-700">{notice}</p>}
       {actionError && <p className="mt-3 text-sm text-red-700">{actionError}</p>}
