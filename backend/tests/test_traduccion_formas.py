@@ -142,3 +142,21 @@ def test_exportar_qti():
     assert 'cardinality="ordered"' in orden and "<value>c1</value><value>c0</value>" in orden
     rio = z.read(next(n for n in nombres if "rio" in n)).decode()
     assert 'mapKey="Nilo"' in rio
+
+
+def test_la_forma_queda_en_la_respuesta_y_en_la_exportacion():
+    c = new_client(); register(c)
+    elementos = [{"type": "radiogroup", "name": "q", "title": "P", "choices": ["a", "b"]}]
+    ev = {"enabled": True, "questions": {"q": {"gradable": True, "grader": "auto", "correct": "a"}},
+          "integrity": {"forms": 2, "shuffleQuestions": True}}
+    s = c.post(f"{API}/surveys", json={"title": "Parcial", "json_schema": {"pages": [{"name": "p", "elements": elementos}]},
+                                       "evaluation": ev}).json()
+    c.post(f"{API}/surveys/{s['id']}/publish")
+    alu = new_client()
+    ex = alu.post(f"{API}/public/{s['slug']}/start", json={"visitor_id": "visitante-forma01"}).json()["exam"]
+    r = alu.post(f"{API}/public/{s['slug']}/submit", json={"answers": {"q": "a"}, "attempt_token": ex["attempt_token"],
+                                                         "meta": {"visitor_id": "visitante-forma01"}})
+    assert r.status_code == 201, r.text
+    assert c.get(f"{API}/surveys/{s['id']}/responses").json()[0]["meta"]["form"] == ex["form"] == "A"
+    csv = c.get(f"{API}/surveys/{s['id']}/export?format=csv").content.decode("utf-8-sig").splitlines()
+    assert csv[0].endswith("exam_form") and csv[1].endswith(",A")

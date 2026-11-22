@@ -14,7 +14,7 @@ from app.db import engine
 from app.logging_conf import configure_logging
 from app.routers import (
     admin, ai, assets, auth, bank, evaluation, files, folders, lti, modapi, orgs, panel,
-    comments_api, ext_api, mcp_api, privacy_api, public, sso_api, templates_api, translate_api, uploads, webhooks_api,
+    comments_api, ext_api, invitees_api, mcp_api, privacy_api, public, sso_api, templates_api, translate_api, uploads, webhooks_api,
 )
 
 LOGGER = logging.getLogger("encuestum")
@@ -213,6 +213,7 @@ app.include_router(bank.router, prefix=SURVEY)
 app.include_router(templates_api.router, prefix=SURVEY)
 app.include_router(translate_api.router, prefix=SURVEY)
 app.include_router(comments_api.router, prefix=SURVEY)
+app.include_router(invitees_api.router, prefix=SURVEY)
 
 
 @app.get("/api/health", tags=["ops"])

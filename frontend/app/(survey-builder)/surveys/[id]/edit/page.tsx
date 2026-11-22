@@ -54,6 +54,7 @@ import { GenerateDialog } from "../../../builder/GenerateDialog";
 import { WordingReviewDialog } from "../../../builder/WordingReview";
 import { LanguagesDialog } from "../../../builder/LanguagesDialog";
 import { CommentsPanel } from "../../../Colaboracion";
+import { useMe } from "../../../MeContext";
 import { VersionHistoryDialog } from "../../../builder/VersionHistory";
 import { BankDialog, type ElementsToInsert } from "../../../builder/BankDialog";
 
@@ -79,6 +80,10 @@ function PreviewLoading() {
 
 export default function SurveyEditorPage() {
   const { t } = useI18n();
+  // Un lector ve el editor (preguntas, corrección, diseño) pero no cambia nada:
+  // los controles quedan deshabilitados y no se guarda. Sí puede comentar.
+  const me = useMe();
+  const soloLectura = me.orgs.find((o) => o.id === me.active_org_id)?.role === "viewer";
   const { id } = useParams<{ id: string }>();
 
   const [state, setState] = useState<BuilderState | null>(null);
@@ -116,6 +121,8 @@ export default function SurveyEditorPage() {
   const [wordingOpen, setWordingOpen] = useState(false);
   const [langOpen, setLangOpen] = useState(false);
   const [commentsOpen, setCommentsOpen] = useState(false);
+  // Tablet/pantalla angosta: un panel por vez (en pantalla grande se ven los tres).
+  const [vista, setVista] = useState<"list" | "preview" | "props">("list");
   const [versionsOpen, setVersionsOpen] = useState(false);
   const [bankOpen, setBankOpen] = useState(false);
   const [designOpen, setDesignOpen] = useState(false);
@@ -379,7 +386,7 @@ export default function SurveyEditorPage() {
   // Guarda la encuesta. Con `silent: true` (autosave) no molesta al usuario:
   // sin alert de error (solo el indicador "Sin guardar") y sin tilde del botón.
   async function save(opts: { silent?: boolean; force?: boolean } = {}) {
-    if (!state || savingRef.current) return;
+    if (!state || savingRef.current || soloLectura) return;
     savingRef.current = true;
     const seqAtStart = changeSeqRef.current;
     setSaving(true);
@@ -536,14 +543,14 @@ export default function SurveyEditorPage() {
 
   // Warn on unload with unsaved changes.
   useEffect(() => {
-    if (!dirty) return;
+    if (!dirty || soloLectura) return;
     const handler = (e: BeforeUnloadEvent) => {
       e.preventDefault();
       e.returnValue = "";
     };
     window.addEventListener("beforeunload", handler);
     return () => window.removeEventListener("beforeunload", handler);
-  }, [dirty]);
+  }, [dirty, soloLectura]);
 
   if (loadStatus === "error") {
     return (
@@ -575,7 +582,20 @@ export default function SurveyEditorPage() {
   const accentFg = readableForeground(state.accent);
 
   return (
-    <div className="flex h-screen flex-col bg-neutral-50 dark:bg-neutral-950">
+    <>
+    {soloLectura && (
+      <div role="status" className="fixed bottom-4 left-1/2 z-[55] flex -translate-x-1/2 items-center gap-3 rounded-full bg-neutral-900 px-4 py-2 text-xs text-white shadow-lg dark:bg-neutral-100 dark:text-neutral-900">
+        {t("builder.readOnly")}
+        <button type="button" onClick={() => setCommentsOpen(true)} className="inline-flex items-center gap-1 font-semibold underline-offset-2 hover:underline">
+          <MessageSquare className="h-3.5 w-3.5" /> {t("builder.page.comments")}
+        </button>
+      </div>
+    )}
+    <fieldset disabled={soloLectura} className="contents">
+    {/* Alto = pantalla menos el header del panel (3.5rem) y el padding del
+        contenedor (py-6 / sm:py-8): con h-screen la página scrolleaba y, en
+        tablet, la barra del editor quedaba tapada por el header fijo. */}
+    <div className="flex h-[calc(100dvh-6.5rem)] flex-col bg-neutral-50 dark:bg-neutral-950 sm:h-[calc(100dvh-7.5rem)]">
       {/* Top bar */}
       <header className="flex items-center gap-3 px-4 h-14 border-b border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 shrink-0">
         <Link
@@ -588,13 +608,14 @@ export default function SurveyEditorPage() {
           value={state.title}
           onChange={(e) => mutate((prev) => ({ ...prev, title: e.target.value }))}
           placeholder={t("builder.page.titlePlaceholder")}
-          className="min-w-0 flex-1 text-sm font-semibold bg-transparent outline-none border-b border-transparent focus:border-neutral-300 dark:focus:border-neutral-600 py-1"
+          className="min-w-[9rem] flex-1 text-sm font-semibold bg-transparent outline-none border-b border-transparent focus:border-neutral-300 dark:focus:border-neutral-600 py-1"
         />
 
         <StatusBadge status={status} />
 
-        <div className="flex items-center gap-2 shrink-0">
-          <div className="inline-flex items-center rounded-lg border border-neutral-200 dark:border-neutral-800">
+        {/* La barra se desliza en horizontal si no entra (tablet). */}
+        <div className="flex min-w-0 max-w-[62vw] shrink items-center gap-2 overflow-x-auto whitespace-nowrap [scrollbar-width:thin] xl:max-w-none xl:shrink-0 [&>*]:shrink-0">
+          <div className="inline-flex shrink-0 items-center rounded-lg border border-neutral-200 dark:border-neutral-800">
             <button
               onClick={historia.undo}
               disabled={!historia.canUndo}
@@ -799,22 +820,42 @@ export default function SurveyEditorPage() {
           dejamos scroll horizontal: así, al reducir el zoom del navegador, los
           tres paneles conservan su tamaño y la vista previa sigue siendo legible
           (en vez de que el panel central se aplaste a una franja). */}
+      {/* Pantallas angostas (tablet en vertical): pestañas para ir de un panel a otro. */}
+      <nav className="flex shrink-0 border-b border-neutral-200 bg-white text-sm dark:border-neutral-800 dark:bg-neutral-900 lg:hidden"
+        aria-label={t("builder.panes.label")}>
+        {(["list", "preview", "props"] as const).map((v) => (
+          <button
+            key={v}
+            type="button"
+            aria-pressed={vista === v}
+            onClick={() => setVista(v)}
+            className={`flex-1 py-2.5 font-medium ${vista === v ? "border-b-2 text-neutral-900 dark:text-neutral-100" : "text-neutral-500 dark:text-neutral-400"}`}
+            style={vista === v ? { borderColor: state.accent } : undefined}
+          >
+            {t(`builder.panes.${v}`)}
+          </button>
+        ))}
+      </nav>
       <div className="flex flex-1 min-h-0 overflow-x-auto">
-        <div className="flex h-full w-full min-w-[900px]">
-        <aside className="w-[300px] shrink-0 border-r border-neutral-200 dark:border-neutral-800 bg-neutral-50 dark:bg-neutral-950">
+        <div className="flex h-full w-full lg:min-w-[900px]">
+        <aside className={`${vista === "list" ? "flex" : "hidden"} w-full flex-col shrink-0 border-r border-neutral-200 bg-neutral-50 dark:border-neutral-800 dark:bg-neutral-950 lg:flex lg:w-[260px] xl:w-[300px]`}>
           <QuestionListPanel
             questions={state.questions}
             selectedId={selectedId}
             accent={state.accent}
             onAdd={addQuestion}
             onReorder={reorder}
-            onSelect={setSelectedId}
+            onSelect={(qid) => {
+              setSelectedId(qid);
+              // En pantalla angosta, elegir una pregunta lleva a sus ajustes.
+              if (qid) setVista("props");
+            }}
             onDuplicate={duplicateQuestion}
             onDelete={deleteQuestion}
           />
         </aside>
 
-        <main className="flex-1 min-w-0">
+        <main className={`${vista === "preview" ? "block" : "hidden"} min-w-0 flex-1 lg:block`}>
           <LivePreview
             schema={schema}
             accent={state.accent}
@@ -823,7 +864,7 @@ export default function SurveyEditorPage() {
           />
         </main>
 
-        <aside className="w-[340px] shrink-0 border-l border-neutral-200 dark:border-neutral-800 bg-white dark:bg-neutral-900 overflow-y-auto">
+        <aside className={`${vista === "props" ? "block" : "hidden"} w-full shrink-0 overflow-y-auto border-l border-neutral-200 bg-white dark:border-neutral-800 dark:bg-neutral-900 lg:block lg:w-[300px] xl:w-[340px]`}>
           <PropertiesPanel
             question={selectedQuestion}
             questions={state.questions}
@@ -948,6 +989,23 @@ export default function SurveyEditorPage() {
         />
       )}
 
+      {langOpen && (
+        <LanguagesDialog
+          surveyId={id}
+          accent={state.accent}
+          beforeTranslate={() => save({ silent: true })}
+          onClose={() => setLangOpen(false)}
+          onUsage={sumarUso}
+        />
+      )}
+
+      {/* Se muestra al cerrar el generador o la revisión (encima los taparía),
+          con el consumo sumado de todas las llamadas de esa sesión. */}
+      {lastUsage && !genOpen && !wordingOpen && !langOpen && (
+        <UsageModal usage={lastUsage} onClose={() => setLastUsage(null)} />
+      )}
+    </div>
+    </fieldset>
       {commentsOpen && (
         <aside className="fixed bottom-4 right-4 top-20 z-50 flex w-[min(380px,calc(100vw-2rem))] flex-col rounded-2xl border border-neutral-200 bg-white shadow-2xl dark:border-neutral-800 dark:bg-neutral-900"
           aria-label={t("collab.title")}>
@@ -966,22 +1024,7 @@ export default function SurveyEditorPage() {
         </aside>
       )}
 
-      {langOpen && (
-        <LanguagesDialog
-          surveyId={id}
-          accent={state.accent}
-          beforeTranslate={() => save({ silent: true })}
-          onClose={() => setLangOpen(false)}
-          onUsage={sumarUso}
-        />
-      )}
-
-      {/* Se muestra al cerrar el generador o la revisión (encima los taparía),
-          con el consumo sumado de todas las llamadas de esa sesión. */}
-      {lastUsage && !genOpen && !wordingOpen && !langOpen && (
-        <UsageModal usage={lastUsage} onClose={() => setLastUsage(null)} />
-      )}
-    </div>
+    </>
   );
 }
 

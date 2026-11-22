@@ -173,6 +173,7 @@ export default function SurveyDetailPage() {
   // Borrar respuestas es irreversible: la UI solo lo ofrece a admin/owner (el
   // backend lo exige igual).
   const puedeBorrar = ["admin", "owner"].includes(activeOrg?.role ?? "");
+  const soloLectura = activeOrg?.role === "viewer";
   const brandedUrl =
     survey && activeOrg?.subdomain && me?.base_domain
       ? `https://${activeOrg.subdomain}.${me.base_domain}/s/${survey.slug}`
@@ -416,6 +417,8 @@ export default function SurveyDetailPage() {
         >
           <Pencil className="w-4 h-4" /> {t("surveys.visualEditor")}
         </Link>
+        {/* Un lector no publica, guarda ni duplica (el backend lo exige igual). */}
+        {!soloLectura && (<>
         <button
           onClick={save}
           disabled={saving || !!parsed.error}
@@ -453,6 +456,7 @@ export default function SurveyDetailPage() {
           {t("surveys.duplicate")}
         </button>
         <SaveTemplateButton surveyId={id} />
+        </>)}
       </div>
 
       <ApprovalBanner survey={survey} isAdmin={puedeBorrar} onChange={setSurvey} />

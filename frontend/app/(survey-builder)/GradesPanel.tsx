@@ -409,6 +409,12 @@ function ResponseRow({
             <AlertTriangle className="w-3 h-3" /> revisar
           </span>
         )}
+        {typeof response.meta?.form === "string" && (
+          <span className="rounded-full bg-neutral-100 px-2 py-0.5 text-[11px] font-medium text-neutral-600 dark:bg-neutral-800 dark:text-neutral-300"
+            title="Forma del examen que le tocó">
+            Forma {response.meta.form}
+          </span>
+        )}
         <IntegrityFlags meta={response.meta} compact />
         {grade?.overridden && (
           <span className="rounded-full bg-blue-100 text-blue-700 px-2 py-0.5 text-[11px] font-medium dark:bg-blue-950/40">

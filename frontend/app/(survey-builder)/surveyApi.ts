@@ -1007,6 +1007,8 @@ export const surveyApi = {
     request<SurveyDetail>(`/api/v1/survey/surveys/${id}/approval/approve`, { method: "POST", body: JSON.stringify({ note }) }),
   reject: (id: string, note?: string) =>
     request<SurveyDetail>(`/api/v1/survey/surveys/${id}/approval/reject`, { method: "POST", body: JSON.stringify({ note }) }),
+  createDemo: (kind: "survey" | "exam") =>
+    request<SurveyDetail>(`/api/v1/survey/surveys/demo?kind=${kind}`, { method: "POST" }),
   quotaStatus: (id: string) => request<QuotaStatus[]>(`/api/v1/survey/surveys/${id}/quotas`),
   listTemplates: () => request<OrgTemplate[]>(`/api/v1/survey/templates`),
   saveTemplate: (survey_id: string, extra: { title?: string; description?: string; category?: string } = {}) =>

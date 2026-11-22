@@ -263,3 +263,19 @@ def test_reenvio_sin_conexion_no_duplica():
     r2 = new_client().post(f"{API}/public/{s['slug']}/submit", json=cuerpo).json()
     assert r2["duplicate"] is True and r2["id"] == r1["id"]
     assert len(owner.get(f"{API}/surveys/{s['id']}/responses").json()) == 1
+
+
+def test_demo_de_onboarding():
+    c = new_client(); register(c)
+    enc = c.post(f"{API}/surveys/demo").json()
+    assert enc["status"] == "published" and "(demo)" in enc["title"]
+    resumen = c.get(f"{API}/surveys/{enc['id']}/summary", params={"segment_by": "canal"}).json()
+    assert resumen["total_responses"] == 120
+    nps = next(q for q in resumen["questions"] if q["name"] == "nps")
+    assert nps["significance"] is not None  # el teléfono anda peor: hay diferencia entre canales
+    ex = c.post(f"{API}/surveys/demo", params={"kind": "exam"}).json()
+    rs = c.get(f"{API}/surveys/{ex['id']}/responses").json()
+    assert len(rs) == 40 and all(r["score"] is not None for r in rs)
+    analisis = c.get(f"{API}/surveys/{ex['id']}/analytics").json()
+    assert analisis
+    assert c.post(f"{API}/surveys/demo", params={"kind": "otra"}).status_code == 422

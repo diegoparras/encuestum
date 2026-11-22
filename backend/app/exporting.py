@@ -16,7 +16,7 @@ _META = [
 # de quien ya tenga planillas armadas sobre el orden anterior.
 _AUDIT = [
     "survey_version", "graded_at", "graded_by", "model", "overridden",
-    "excluded", "is_test", "integrity_sha256",
+    "excluded", "is_test", "integrity_sha256", "exam_form",
 ]
 
 
@@ -79,7 +79,7 @@ def export_rows(
             # Una firma es una imagen en base64 (decenas de KB): en la planilla
             # va una marca, no la imagen.
             + ["[firmado]" if _es_firma(answers.get(name)) else cell(answers.get(name)) for (name, _t) in cols]
-            + [cell(((r.meta or {}).get("hidden") or {}).get(h)) for h in ocultos]
+            + [cell(((getattr(r, "meta", None) or {}).get("hidden") or {}).get(h)) for h in ocultos]
             + [
                 cell(versions.get(r.survey_version_id)),
                 r.graded_at.isoformat() if r.graded_at else "",
@@ -89,6 +89,7 @@ def export_rows(
                 "sí" if getattr(r, "excluded", False) else "no",
                 "sí" if getattr(r, "is_test", False) else "no",
                 cell(getattr(r, "integrity_hash", None)),
+                cell((getattr(r, "meta", None) or {}).get("form")),
             ]
         )
     return rows

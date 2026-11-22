@@ -5,7 +5,7 @@ import { BarChart3, Loader2 } from "lucide-react";
 import { getApiUrl } from "@/utils/api";
 import { useAsyncData } from "@/lib/useAsyncData";
 import { useI18n } from "@/lib/i18n";
-import { ChoiceChart, RatingChart } from "../../../(survey-builder)/SummaryPanel";
+import { ChoiceChart, RatingChart } from "../../../(survey-builder)/SummaryCharts";
 import type { SummaryQuestion } from "../../../(survey-builder)/surveyApi";
 
 interface PublicResultsData {

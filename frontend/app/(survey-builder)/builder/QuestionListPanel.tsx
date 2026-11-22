@@ -5,7 +5,8 @@ import {
   DndContext,
   closestCenter,
   KeyboardSensor,
-  PointerSensor,
+  MouseSensor,
+  TouchSensor,
   useSensor,
   useSensors,
   DragEndEvent,
@@ -96,7 +97,10 @@ export function QuestionListPanel({
   const [paletteClosed, togglePalette] = useCollapsed("builder.palette");
   const [q, setQ] = React.useState("");
   const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    // Mouse: arrastra al moverse unos píxeles. Táctil (tablet): mantener
+    // apretado un instante, así deslizar el dedo sigue haciendo scroll.
+    useSensor(MouseSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 220, tolerance: 6 } }),
     useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
   );
 

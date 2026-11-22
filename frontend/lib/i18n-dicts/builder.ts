@@ -3,6 +3,11 @@ import type { Lang } from "../i18n";
 // Diccionario de área: builder (el editor visual de encuestas).
 export const dict: Record<Lang, Record<string, string>> = {
   en: {
+    "builder.readOnly": "Read-only: your role can view and comment, not edit.",
+    "builder.panes.label": "Editor panels",
+    "builder.panes.list": "Questions",
+    "builder.panes.preview": "Preview",
+    "builder.panes.props": "Settings",
     "builder.page.comments": "Comments",
     "builder.exam.forms": "Fixed forms",
     "builder.exam.formsNone": "No: random order per student",
@@ -835,6 +840,11 @@ export const dict: Record<Lang, Record<string, string>> = {
     "builder.page.status.closed": "Closed",
   },
   es: {
+    "builder.readOnly": "Solo lectura: tu rol puede ver y comentar, no editar.",
+    "builder.panes.label": "Paneles del editor",
+    "builder.panes.list": "Preguntas",
+    "builder.panes.preview": "Vista previa",
+    "builder.panes.props": "Ajustes",
     "builder.page.comments": "Comentarios",
     "builder.exam.forms": "Formas fijas",
     "builder.exam.formsNone": "No: orden al azar por alumno",
@@ -1636,6 +1646,11 @@ export const dict: Record<Lang, Record<string, string>> = {
     "builder.page.status.closed": "Cerrada",
   },
   fr: {
+    "builder.readOnly": "Lecture seule : votre rôle permet de voir et de commenter, pas de modifier.",
+    "builder.panes.label": "Panneaux de l'éditeur",
+    "builder.panes.list": "Questions",
+    "builder.panes.preview": "Aperçu",
+    "builder.panes.props": "Réglages",
     "builder.exam.forms": "Versions fixes",
     "builder.exam.formsNone": "Non : ordre aléatoire par élève",
     "builder.exam.formsN": "{n} versions ({letters})",
@@ -2437,6 +2452,11 @@ export const dict: Record<Lang, Record<string, string>> = {
     "builder.page.status.closed": "Fermée",
   },
   pt: {
+    "builder.readOnly": "Somente leitura: seu papel pode ver e comentar, não editar.",
+    "builder.panes.label": "Painéis do editor",
+    "builder.panes.list": "Perguntas",
+    "builder.panes.preview": "Pré-visualização",
+    "builder.panes.props": "Configurações",
     "builder.exam.forms": "Versões fixas",
     "builder.exam.formsNone": "Não: ordem aleatória por aluno",
     "builder.exam.formsN": "{n} versões ({letters})",
@@ -3238,6 +3258,11 @@ export const dict: Record<Lang, Record<string, string>> = {
     "builder.page.status.closed": "Fechada",
   },
   it: {
+    "builder.readOnly": "Sola lettura: il tuo ruolo può vedere e commentare, non modificare.",
+    "builder.panes.label": "Pannelli dell'editor",
+    "builder.panes.list": "Domande",
+    "builder.panes.preview": "Anteprima",
+    "builder.panes.props": "Impostazioni",
     "builder.exam.forms": "Versioni fisse",
     "builder.exam.formsNone": "No: ordine casuale per studente",
     "builder.exam.formsN": "{n} versioni ({letters})",
@@ -4039,6 +4064,11 @@ export const dict: Record<Lang, Record<string, string>> = {
     "builder.page.status.closed": "Chiuso",
   },
   zh: {
+    "builder.readOnly": "只读：你的角色可以查看和评论，不能编辑。",
+    "builder.panes.label": "编辑器面板",
+    "builder.panes.list": "问题",
+    "builder.panes.preview": "预览",
+    "builder.panes.props": "设置",
     "builder.exam.forms": "固定试卷版本",
     "builder.exam.formsNone": "否：每位学生随机排序",
     "builder.exam.formsN": "{n} 个版本（{letters}）",
@@ -4840,6 +4870,11 @@ export const dict: Record<Lang, Record<string, string>> = {
     "builder.page.status.closed": "已关闭",
   },
   ja: {
+    "builder.readOnly": "閲覧のみ：あなたのロールは表示とコメントのみ可能で、編集はできません。",
+    "builder.panes.label": "エディターのパネル",
+    "builder.panes.list": "質問",
+    "builder.panes.preview": "プレビュー",
+    "builder.panes.props": "設定",
     "builder.exam.forms": "固定フォーム",
     "builder.exam.formsNone": "いいえ：受講者ごとにランダムな順序",
     "builder.exam.formsN": "{n} フォーム（{letters}）",
