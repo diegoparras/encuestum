@@ -965,6 +965,77 @@ def _elementos(schema: dict) -> list[dict]:
     ]
 
 
+@router.post("/{sid}/questions/import")
+async def import_questions(
+    sid: uuid.UUID,
+    file: Optional[UploadFile] = File(None),
+    text: Optional[str] = Form(None),
+    format: str = Form("auto"),
+    ctx: OrgContext = Depends(current_context),
+    session: AsyncSession = Depends(get_session),
+):
+    """Lee preguntas en GIFT, Aiken o Moodle XML y las devuelve listas para
+    sumar al editor (elemento de SurveyJS + su corrección). No escribe en la
+    encuesta: el editor las agrega y se guardan con el resto."""
+    from app.interchange import MAX_BYTES, InterchangeError, detect_and_parse
+
+    s = await _survey_or_404(sid, ctx.org.id, session)
+    if file is not None:
+        raw = await file.read(MAX_BYTES + 1)
+        if len(raw) > MAX_BYTES:
+            raise HTTPException(status_code=413, detail="El archivo supera los 5 MB.")
+        contenido = raw.decode("utf-8", errors="replace")
+        nombre = (file.filename or "").lower()
+        if format == "auto" and nombre.endswith(".xml"):
+            format = "moodle"
+    elif text:
+        contenido = text
+    else:
+        raise HTTPException(status_code=422, detail="Subí un archivo o pegá el texto.")
+    existentes = {el.get("name") for el in _elementos(s.json_schema) if el.get("name")}
+    try:
+        res = detect_and_parse(contenido, format, existentes)
+    except InterchangeError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    if not res.questions:
+        raise HTTPException(status_code=422, detail="; ".join(res.warnings) or "No se encontraron preguntas.")
+    return {
+        "elements": [q.element for q in res.questions],
+        "evaluation_questions": {q.element["name"]: q.grading for q in res.questions},
+        "warnings": res.warnings,
+    }
+
+
+@router.get("/{sid}/questions/export")
+async def export_questions(
+    sid: uuid.UUID,
+    format: str = "gift",
+    ctx: OrgContext = Depends(current_context),
+    session: AsyncSession = Depends(get_session),
+):
+    """Las preguntas (con su clave) en GIFT o Moodle XML, para llevarlas al
+    banco de preguntas de Moodle u otra plataforma."""
+    from fastapi.responses import Response as RawResponse
+
+    from app.interchange import export_gift, export_moodle_xml
+
+    s = await _survey_or_404(sid, ctx.org.id, session)
+    if format == "moodle":
+        body, avisos = export_moodle_xml(s.json_schema or {}, s.evaluation)
+        media, ext = "application/xml", "xml"
+    elif format == "gift":
+        body, avisos = export_gift(s.json_schema or {}, s.evaluation)
+        media, ext = "text/plain", "gift.txt"
+    else:
+        raise HTTPException(status_code=422, detail="Formato: gift o moodle")
+    nombre = f"{s.slug or 'preguntas'}.{ext}"
+    headers = {"Content-Disposition": f'attachment; filename="{nombre}"'}
+    if avisos:
+        # Lo que no se pudo exportar, para que el panel lo pueda avisar.
+        headers["X-Encuestum-Warnings"] = str(len(avisos))
+    return RawResponse(content=body, media_type=f"{media}; charset=utf-8", headers=headers)
+
+
 class ExplainRequest(BaseModel):
     """Pregunta a explicar. Se manda desde el editor, con lo que hay en pantalla:
     todavía puede no estar guardada."""

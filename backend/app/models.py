@@ -739,6 +739,39 @@ class SurveyDraft(SQLModel, table=True):
 DRAFT_TTL_DAYS = 30
 
 
+class BankItem(SQLModel, table=True):
+    """Una pregunta del banco de la organización, reutilizable entre encuestas.
+
+    Guarda el elemento de SurveyJS y su corrección tal cual. Al insertarla en
+    una encuesta, el elemento lleva `encBankId` con este id: así las
+    estadísticas del ítem se juntan de todos los exámenes donde se usó."""
+
+    __tablename__ = "bank_items"
+
+    id: uuid.UUID = Field(primary_key=True, default_factory=uuid.uuid4)
+    org_id: uuid.UUID = Field(
+        sa_column=Column(ForeignKey("organizations.id", ondelete="CASCADE"), index=True, nullable=False)
+    )
+    title: str = Field(sa_column=Column(String, nullable=False))
+    qtype: str = Field(sa_column=Column(String, nullable=False, index=True))
+    element: dict = Field(sa_column=Column(JSON, nullable=False), default_factory=dict)
+    grading: Optional[dict] = Field(sa_column=Column(JSON), default=None)
+    topic: Optional[str] = Field(sa_column=Column(String, index=True), default=None)
+    tags: list = Field(sa_column=Column(JSON, nullable=False), default_factory=list)
+    difficulty: Optional[str] = Field(sa_column=Column(String), default=None)
+    bloom: Optional[str] = Field(sa_column=Column(String), default=None)
+    source_survey_id: Optional[uuid.UUID] = Field(sa_column=Column(Uuid), default=None)
+    created_by: Optional[uuid.UUID] = Field(
+        sa_column=Column(ForeignKey("users.id", ondelete="SET NULL")), default=None
+    )
+    created_at: datetime = Field(
+        sa_column=Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    )
+    updated_at: datetime = Field(
+        sa_column=Column(DateTime(timezone=True), nullable=False, default=_utcnow, onupdate=_utcnow)
+    )
+
+
 JOB_PENDING = "pending"
 JOB_RUNNING = "running"
 JOB_DONE = "done"

@@ -13,7 +13,7 @@ from app.config import get_settings
 from app.db import engine
 from app.logging_conf import configure_logging
 from app.routers import (
-    admin, ai, assets, auth, evaluation, files, folders, lti, modapi, orgs, panel,
+    admin, ai, assets, auth, bank, evaluation, files, folders, lti, modapi, orgs, panel,
     public, uploads, webhooks_api,
 )
 
@@ -165,6 +165,7 @@ app.include_router(public.router, prefix=SURVEY)
 app.include_router(admin.router, prefix=SURVEY)
 app.include_router(evaluation.router, prefix=SURVEY)
 app.include_router(folders.router, prefix=SURVEY)
+app.include_router(bank.router, prefix=SURVEY)
 
 
 @app.get("/api/health", tags=["ops"])
