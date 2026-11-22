@@ -193,3 +193,33 @@ def test_la_significancia_de_una_escala_se_prueba_por_tramos():
     sig = _q(build_summary(SCHEMA, rs, segment_by="depto"), "nps")["significance"]
     # Con 11 valores sueltos no sería confiable; agrupada en tramos, sí.
     assert sig["reliable"] and sig["significant"] and sig["dof"] == 2
+
+
+def test_tipos_nuevos_numero_deslizador_y_firma():
+    from app.exporting import export_rows
+    from app.grading import extract_question_types, grade_deterministic
+
+    schema = {"pages": [{"elements": [
+        {"type": "text", "inputType": "number", "name": "edad", "title": "Edad"},
+        {"type": "slider", "name": "sl", "title": "Cuánto", "min": 0, "max": 100},
+        {"type": "signaturepad", "name": "firma", "title": "Firma"},
+    ]}]}
+    tipos = extract_question_types(schema)
+    assert tipos["edad"] == "number" and tipos["sl"] == "number"
+    ok = grade_deterministic({"points": 2, "correct": 50, "tolerance": 5}, "number", "53")
+    assert ok["awarded"] == 2
+    out = build_summary(schema, [_R({"edad": "30", "sl": 70, "firma": "data:image/png;base64,AAAA"})])
+    assert _q(out, "sl")["kind"] == "numeric" and _q(out, "sl")["average"] == 70
+    assert _q(out, "firma") == {**_q(out, "firma"), "kind": "signature", "signed": 1}
+
+    class S:
+        json_schema = schema
+
+    class Resp:
+        id = "r1"; submitted_at = None; completed = True; respondent_email = None
+        score = max_score = grade = None; needs_review = False; graded_at = None
+        survey_version_id = None; excluded = is_test = False; integrity_hash = None
+        answers = {"edad": "30", "sl": 70, "firma": "data:image/png;base64,AAAA"}
+
+    fila = export_rows(S(), [Resp()])[1]
+    assert "[firmado]" in fila and not any("base64" in str(c) for c in fila)

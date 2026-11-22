@@ -23,6 +23,11 @@ import {
   Paperclip,
   Rows3,
   GitBranch,
+  Hash,
+  SlidersHorizontal,
+  Phone,
+  PenLine,
+  ShieldCheck,
 } from "lucide-react";
 import {
   BuilderQuestion,
@@ -46,6 +51,11 @@ const ICON: Record<QuestionType, React.ComponentType<{ className?: string }>> = 
   ranking: ListOrdered,
   date: Calendar,
   fileupload: Paperclip,
+  number: Hash,
+  slider: SlidersHorizontal,
+  phone: Phone,
+  signature: PenLine,
+  consent: ShieldCheck,
   section: Rows3,
 };
 

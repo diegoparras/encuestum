@@ -141,6 +141,7 @@ export type SummaryQuestion =
       stdev: number | null;
       histogram: { from: number; to: number; count: number }[];
     })
+  | (SummaryQuestionBase & { kind: "signature"; signed: number })
   | (SummaryQuestionBase & {
       kind: "dates";
       n: number;
@@ -203,6 +204,17 @@ export interface ResponseDeletion {
   respondent: string | null;
   submitted_at: string | null;
   deleted_at: string;
+}
+
+/** Una versión del historial (estructura + corrección). */
+export interface SurveyVersionInfo {
+  id: string;
+  number: number;
+  label: string | null;
+  created_by_email: string | null;
+  created_at: string;
+  questions: number;
+  responses: number;
 }
 
 /** Una entrada del registro de actividad de la encuesta (solo admin). */
@@ -585,7 +597,7 @@ export const surveyApi = {
         | "redirect_url"
         | "require_captcha"
       >
-    > & { base_content_hash?: string | null }
+    > & { base_content_hash?: string | null; snapshot?: boolean }
   ) =>
     request<SurveyDetail>(`/api/v1/survey/surveys/${id}`, {
       method: "PUT",
@@ -655,6 +667,14 @@ export const surveyApi = {
       `/api/v1/survey/surveys/${id}/explain-options`,
       { method: "POST", body: JSON.stringify(body) }
     ),
+  listVersions: (id: string) =>
+    request<SurveyVersionInfo[]>(`/api/v1/survey/surveys/${id}/versions`),
+  getVersion: (id: string, vid: string) =>
+    request<{ id: string; number: number; label: string | null; json_schema: Record<string, unknown>; evaluation: Record<string, unknown> | null; created_at: string }>(
+      `/api/v1/survey/surveys/${id}/versions/${vid}`
+    ),
+  restoreVersion: (id: string, vid: string) =>
+    request<SurveyDetail>(`/api/v1/survey/surveys/${id}/versions/${vid}/restore`, { method: "POST" }),
   getAudit: (id: string) =>
     request<AuditEvent[]>(`/api/v1/survey/surveys/${id}/audit`),
   getResponseHistory: (id: string, rid: string) =>

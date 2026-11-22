@@ -26,6 +26,7 @@ import {
 } from "lucide-react";
 import { readableForeground } from "./model";
 import { useI18n } from "@/lib/i18n";
+import { useDialogA11y } from "@/lib/useDialogA11y";
 import {
   surveyApi,
   type GenerateBody,
@@ -82,6 +83,7 @@ export function GenerateDialog({
   const [items, setItems] = useState<Item[] | null>(null);
   const [notes, setNotes] = useState<{ dropped: number; truncated: boolean }>({ dropped: 0, truncated: false });
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const panelRef = useDialogA11y(onClose, open);
 
   if (!open) return null;
 
@@ -195,7 +197,11 @@ export function GenerateDialog({
 
   return (
     <div className="fixed inset-0 z-[60] grid place-items-center bg-black/40 p-4" role="dialog" aria-modal="true">
-      <div className={`w-full ${items ? "max-w-2xl" : "max-w-lg"} rounded-2xl bg-white shadow-2xl dark:bg-neutral-900`}>
+      <div
+        ref={panelRef}
+        tabIndex={-1}
+        className={`w-full ${items ? "max-w-2xl" : "max-w-lg"} rounded-2xl bg-white shadow-2xl outline-none dark:bg-neutral-900`}
+      >
         <div className="flex items-center justify-between border-b border-neutral-100 px-5 py-4 dark:border-neutral-800">
           <div className="flex items-center gap-2">
             <Sparkles className="h-5 w-5" style={{ color: accent }} />

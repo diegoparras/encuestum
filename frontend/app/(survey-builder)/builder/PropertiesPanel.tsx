@@ -11,6 +11,7 @@ import {
   EvaluationSettings,
   FeedbackTone,
   LogicOperator,
+  newChoice,
   RATE_PRESENTATIONS,
   RevealMode,
   Strictness,
@@ -20,6 +21,14 @@ import {
 import { useI18n } from "@/lib/i18n";
 import { useCollapsed } from "@/lib/useCollapsed";
 import { ChoicesEditor } from "./ChoicesEditor";
+
+// Escalas Likert balanceadas (dos polos simétricos y punto medio).
+const LIKERT: Record<string, string[]> = {
+  acuerdo: ["Muy en desacuerdo", "En desacuerdo", "Ni de acuerdo ni en desacuerdo", "De acuerdo", "Muy de acuerdo"],
+  frecuencia: ["Nunca", "Casi nunca", "A veces", "Casi siempre", "Siempre"],
+  satisfaccion: ["Muy insatisfecho/a", "Insatisfecho/a", "Neutral", "Satisfecho/a", "Muy satisfecho/a"],
+  importancia: ["Nada importante", "Poco importante", "Moderadamente importante", "Importante", "Muy importante"],
+};
 import { ImageChoicesEditor } from "./ImageChoicesEditor";
 import { GradingSection } from "./GradingSection";
 import { AssetPicker } from "./AssetPicker";
@@ -538,8 +547,51 @@ export function PropertiesPanel({
               choices={q.matrixColumns ?? []}
               onChange={(matrixColumns) => onQuestionChange({ matrixColumns })}
             />
+            {/* Escalas Likert de uso habitual, balanceadas y con punto medio. */}
+            <select
+              value=""
+              onChange={(e) => {
+                const escala = LIKERT[e.target.value];
+                if (escala) onQuestionChange({ matrixColumns: escala.map((x) => newChoice(x)) });
+              }}
+              className="mt-2 w-full rounded-md border border-neutral-200 bg-white px-2 py-1.5 text-xs text-neutral-600 dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-300"
+            >
+              <option value="">{t("builder.props.likert")}…</option>
+              {Object.keys(LIKERT).map((k) => (
+                <option key={k} value={k}>
+                  {t(`builder.props.likert.${k}`)}
+                </option>
+              ))}
+            </select>
           </Field>
         </>
+      )}
+
+      {(q.type === "number" || q.type === "slider") && (
+        <div className="grid grid-cols-3 gap-3">
+          {(
+            [
+              ["numMin", "builder.props.numMin"],
+              ["numMax", "builder.props.numMax"],
+              ["numStep", "builder.props.numStep"],
+            ] as const
+          ).map(([campo, etiqueta]) => (
+            <Field key={campo} label={t(etiqueta)}>
+              <input
+                type="number"
+                value={q[campo] ?? ""}
+                onChange={(e) =>
+                  onQuestionChange({ [campo]: e.target.value === "" ? undefined : Number(e.target.value) })
+                }
+                className="w-full rounded-md border border-neutral-200 px-2.5 py-2 text-sm outline-none focus:border-neutral-400 dark:bg-neutral-800 dark:border-neutral-700 dark:text-neutral-100"
+              />
+            </Field>
+          ))}
+        </div>
+      )}
+
+      {q.type === "consent" && (
+        <p className="text-[11px] text-neutral-400">{t("builder.props.consentHint")}</p>
       )}
 
       {q.type === "date" && (
@@ -589,7 +641,8 @@ export function PropertiesPanel({
         onChange={(v) => onQuestionChange({ isRequired: v })}
       />
 
-      {evaluation.enabled && (
+      {/* Firma, consentimiento y teléfono no tienen "respuesta correcta". */}
+      {evaluation.enabled && !["signature", "consent", "phone"].includes(q.type) && (
         <GradingSection question={q} accent={accent} onChange={onQuestionChange} surveyId={surveyId} />
       )}
 

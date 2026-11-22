@@ -92,6 +92,10 @@ def extract_question_types(json_schema: Optional[dict]) -> Dict[str, str]:
             t = el.get("type")
             if t == "text" and el.get("inputType") == "email":
                 t = "email"
+            elif t == "text" and el.get("inputType") == "number":
+                t = "number"
+            elif t == "slider":
+                t = "number"
             types[name] = t or "text"
     return types
 

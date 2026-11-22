@@ -37,6 +37,11 @@ import {
   ChevronRight,
   Search,
   X,
+  Hash,
+  SlidersHorizontal,
+  Phone,
+  PenLine,
+  ShieldCheck,
 } from "lucide-react";
 import { BuilderQuestion, QUESTION_TYPES, QuestionType } from "./model";
 import { SortableQuestion } from "./SortableQuestion";
@@ -58,6 +63,11 @@ const PALETTE_ICON: Record<QuestionType, React.ComponentType<{ className?: strin
   ranking: ListOrdered,
   date: Calendar,
   fileupload: Paperclip,
+  number: Hash,
+  slider: SlidersHorizontal,
+  phone: Phone,
+  signature: PenLine,
+  consent: ShieldCheck,
   section: Rows3,
 };
 

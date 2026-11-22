@@ -47,7 +47,7 @@ def _survey_content(s) -> dict:
     return {"schema": s.json_schema or {}, "evaluation": s.evaluation or None}
 
 
-async def ensure_survey_version(session: AsyncSession, s) -> SurveyVersion:
+async def ensure_survey_version(session: AsyncSession, s, *, label: str | None = None, actor=None) -> SurveyVersion:
     """La versión que corresponde al contenido ACTUAL de la encuesta.
 
     Perezosa: si ya hay una versión con el mismo contenido se reutiliza (aunque
@@ -73,12 +73,16 @@ async def ensure_survey_version(session: AsyncSession, s) -> SurveyVersion:
             .order_by(SurveyVersion.number.desc())
             .limit(1)
         )
+        actor_id, actor_email = _actor(actor)
         v = SurveyVersion(
             survey_id=s.id,
             number=(latest or 0) + 1,
             json_schema=copy.deepcopy(s.json_schema or {}),
             evaluation=copy.deepcopy(s.evaluation) if s.evaluation else None,
             content_hash=h,
+            label=label,
+            created_by=actor_id,
+            created_by_email=actor_email,
         )
         try:
             async with session.begin_nested():

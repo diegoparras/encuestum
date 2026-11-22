@@ -10,6 +10,7 @@
 import React, { useEffect, useState } from "react";
 import { Loader2, SpellCheck2, X, Check } from "lucide-react";
 import { useI18n } from "@/lib/i18n";
+import { useDialogA11y } from "@/lib/useDialogA11y";
 import { surveyApi, type UsageInfo, type WordingReview as Review } from "../surveyApi";
 import type { BuilderQuestion } from "./model";
 
@@ -29,6 +30,7 @@ export function WordingReviewDialog({
   onUsage?: (u: UsageInfo) => void;
 }) {
   const { t } = useI18n();
+  const panelRef = useDialogA11y(onClose);
   const [rows, setRows] = useState<Review[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [aplicadas, setAplicadas] = useState<Set<string>>(new Set());
@@ -64,7 +66,11 @@ export function WordingReviewDialog({
 
   return (
     <div className="fixed inset-0 z-[60] grid place-items-center bg-black/40 p-4" role="dialog" aria-modal="true">
-      <div className="flex max-h-[85vh] w-full max-w-2xl flex-col rounded-2xl bg-white shadow-2xl dark:bg-neutral-900">
+      <div
+        ref={panelRef}
+        tabIndex={-1}
+        className="flex max-h-[85vh] w-full max-w-2xl flex-col rounded-2xl bg-white shadow-2xl outline-none dark:bg-neutral-900"
+      >
         <header className="flex items-center gap-2 border-b border-neutral-100 px-5 py-4 dark:border-neutral-800">
           <SpellCheck2 className="h-5 w-5" style={{ color: accent }} />
           <div className="min-w-0 flex-1">

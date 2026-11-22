@@ -163,6 +163,7 @@ async def update_survey(
     # aviso. Sólo se controla cuando el pedido trae contenido editable, así que
     # cambiar el link o el acceso desde otra pantalla no bloquea al editor.
     base = data.pop("base_content_hash", None)
+    snapshot = bool(data.pop("snapshot", None))
     toca_contenido = bool({"json_schema", "evaluation", "theme", "title"} & set(data))
     if base and toca_contenido:
         from app.audit import survey_content_hash
@@ -206,7 +207,125 @@ async def update_survey(
             detail["status"] = s.status
         record_event(session, action="survey.updated", org_id=ctx.org.id, actor=ctx.user,
                      survey_id=s.id, detail=detail)
+    if {"json_schema", "evaluation"} & set(cambios):
+        await _snapshot_editor(session, s, ctx, manual=snapshot)
     session.add(s)
+    await session.commit()
+    await session.refresh(s)
+    return SurveyDetail.from_model(s)
+
+
+_AUTOSNAPSHOT_EVERY_S = 15 * 60
+
+
+async def _snapshot_editor(session, s, ctx, *, manual: bool) -> None:
+    """Versión para el historial del editor. Con guardado manual, siempre (si
+    el contenido es nuevo); con autoguardado, sólo si la última versión tiene
+    más de 15 minutos: el historial no se llena de cada tecla."""
+    from app.audit import ensure_survey_version
+    from app.models import SurveyVersion
+
+    if not manual:
+        ultima = await session.scalar(
+            select(SurveyVersion.created_at)
+            .where(SurveyVersion.survey_id == s.id)
+            .order_by(SurveyVersion.created_at.desc())
+            .limit(1)
+        )
+        if ultima is not None:
+            ultima = ultima if ultima.tzinfo else ultima.replace(tzinfo=timezone.utc)
+            if (datetime.now(timezone.utc) - ultima).total_seconds() < _AUTOSNAPSHOT_EVERY_S:
+                return
+    await ensure_survey_version(session, s, label="guardado" if manual else "autoguardado", actor=ctx.user)
+
+
+def _resumen_version(schema: dict) -> int:
+    from app.summarizing import count_questions
+
+    return count_questions(schema or {})
+
+
+@router.get("/{sid}/versions")
+async def list_versions(
+    sid: uuid.UUID,
+    ctx: OrgContext = Depends(current_context),
+    session: AsyncSession = Depends(get_session),
+):
+    """Historial de versiones (estructura + corrección), la más nueva primero,
+    con cuántas respuestas se dieron sobre cada una."""
+    from app.models import SurveyVersion
+
+    await _survey_or_404(sid, ctx.org.id, session)
+    versiones = (
+        await session.scalars(
+            select(SurveyVersion).where(SurveyVersion.survey_id == sid).order_by(SurveyVersion.number.desc())
+        )
+    ).all()
+    conteo = dict(
+        (
+            await session.execute(
+                select(SurveyResponse.survey_version_id, func.count(SurveyResponse.id))
+                .where(SurveyResponse.survey_id == sid)
+                .group_by(SurveyResponse.survey_version_id)
+            )
+        ).all()
+    )
+    return [
+        {
+            "id": str(v.id),
+            "number": v.number,
+            "label": v.label,
+            "created_by_email": v.created_by_email,
+            "created_at": v.created_at.isoformat(),
+            "questions": _resumen_version(v.json_schema),
+            "responses": int(conteo.get(v.id, 0)),
+        }
+        for v in versiones
+    ]
+
+
+@router.get("/{sid}/versions/{vid}")
+async def get_version(
+    sid: uuid.UUID,
+    vid: uuid.UUID,
+    ctx: OrgContext = Depends(current_context),
+    session: AsyncSession = Depends(get_session),
+):
+    from app.models import SurveyVersion
+
+    await _survey_or_404(sid, ctx.org.id, session)
+    v = await session.get(SurveyVersion, vid)
+    if v is None or v.survey_id != sid:
+        raise HTTPException(status_code=404, detail="Versión no encontrada")
+    return {"id": str(v.id), "number": v.number, "label": v.label, "json_schema": v.json_schema,
+            "evaluation": v.evaluation, "created_at": v.created_at.isoformat()}
+
+
+@router.post("/{sid}/versions/{vid}/restore", response_model=SurveyDetail)
+async def restore_version(
+    sid: uuid.UUID,
+    vid: uuid.UUID,
+    ctx: OrgContext = Depends(current_context),
+    session: AsyncSession = Depends(get_session),
+):
+    """Vuelve las preguntas y la corrección a las de una versión anterior. Lo
+    que había antes queda guardado como versión, así que restaurar también se
+    puede deshacer. Título, diseño y configuración no cambian."""
+    import copy
+
+    from app.audit import ensure_survey_version
+    from app.models import SurveyVersion
+
+    s = await _survey_or_404(sid, ctx.org.id, session)
+    v = await session.get(SurveyVersion, vid)
+    if v is None or v.survey_id != sid:
+        raise HTTPException(status_code=404, detail="Versión no encontrada")
+    antes = await ensure_survey_version(session, s, label="antes de restaurar", actor=ctx.user)
+    s.json_schema = copy.deepcopy(v.json_schema or {})
+    s.evaluation = copy.deepcopy(v.evaluation) if v.evaluation else None
+    session.add(s)
+    record_event(session, action="survey.version_restored", org_id=ctx.org.id, actor=ctx.user,
+                 survey_id=sid, detail={"restored": v.number, "previous": antes.number})
     await session.commit()
     await session.refresh(s)
     return SurveyDetail.from_model(s)
@@ -247,6 +366,9 @@ async def publish_survey(
 ):
     s = await _survey_or_404(sid, ctx.org.id, session)
     s.status = "published"
+    from app.audit import ensure_survey_version
+
+    await ensure_survey_version(session, s, label="publicada", actor=ctx.user)
     session.add(s)
     record_event(session, action="survey.published", org_id=ctx.org.id, actor=ctx.user, survey_id=s.id)
     await session.commit()

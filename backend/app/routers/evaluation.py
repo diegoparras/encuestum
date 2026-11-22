@@ -117,7 +117,7 @@ def _sin_ediciones_manuales(grade: dict | None) -> dict | None:
 async def _grade_and_store(s, r, session, *, source: str = "regrade", actor=None, discard_manual: bool = False):
     from app.audit import ensure_survey_version, record_grade_revision
 
-    version = await ensure_survey_version(session, s)
+    version = await ensure_survey_version(session, s, label="corrección")
     anterior = r.grade
     grade = await grade_response(
         evaluation=s.evaluation or {}, answers=r.answers or {},

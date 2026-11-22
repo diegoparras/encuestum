@@ -56,6 +56,9 @@ class SurveyUpdateRequest(BaseModel):
     # Control de concurrencia: el `content_hash` que el editor tenía al cargar o
     # al último guardado. Sin él no se controla (llamadores viejos, API).
     base_content_hash: Optional[str] = None
+    # Guardado manual (botón Guardar / Ctrl+S): deja una versión en el
+    # historial. El autoguardado deja una cada 15 minutos como mucho.
+    snapshot: Optional[bool] = None
 
 
 class SurveySummary(BaseModel):

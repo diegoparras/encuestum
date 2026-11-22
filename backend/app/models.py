@@ -628,6 +628,13 @@ class SurveyVersion(SQLModel, table=True):
     created_at: datetime = Field(
         sa_column=Column(DateTime(timezone=True), nullable=False, default=_utcnow)
     )
+    # Por qué existe: "respuesta", "corrección", "guardado", "publicada",
+    # "autoguardado", "restaurada" (ver `ensure_survey_version`).
+    label: Optional[str] = Field(sa_column=Column(String), default=None)
+    created_by: Optional[uuid.UUID] = Field(
+        sa_column=Column(ForeignKey("users.id", ondelete="SET NULL")), default=None
+    )
+    created_by_email: Optional[str] = Field(sa_column=Column(String), default=None)
 
 
 class GradeRevision(SQLModel, table=True):

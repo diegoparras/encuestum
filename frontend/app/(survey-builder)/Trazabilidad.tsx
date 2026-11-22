@@ -7,6 +7,7 @@
  */
 
 import React, { useEffect, useState } from "react";
+import { useDialogA11y } from "@/lib/useDialogA11y";
 import { History, Loader2, RotateCw, ShieldAlert, ShieldCheck, X } from "lucide-react";
 import {
   surveyApi,
@@ -114,6 +115,7 @@ function Dialogo({
   onClose: () => void;
   children: React.ReactNode;
 }) {
+  const panelRef = useDialogA11y(onClose);
   useEffect(() => {
     const onKey = (ev: KeyboardEvent) => ev.key === "Escape" && onClose();
     window.addEventListener("keydown", onKey);
@@ -128,7 +130,9 @@ function Dialogo({
       onClick={onClose}
     >
       <div
-        className="flex max-h-[80vh] w-full max-w-xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl dark:bg-neutral-900"
+        ref={panelRef}
+        tabIndex={-1}
+        className="flex max-h-[80vh] w-full max-w-xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl outline-none dark:bg-neutral-900"
         onClick={(e) => e.stopPropagation()}
       >
         <header className="flex items-center gap-3 border-b border-neutral-100 px-5 py-4 dark:border-neutral-800">

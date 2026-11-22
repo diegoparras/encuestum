@@ -25,6 +25,7 @@ import {
   Loader2,
   Sparkles,
   Send,
+  PenLine,
 } from "lucide-react";
 import {
   surveyApi,
@@ -707,6 +708,7 @@ function KindBadge({
     ranking: { icon: ListOrdered, label: "Ranking" },
     numeric: { icon: Hash, label: "Número" },
     dates: { icon: CalendarDays, label: "Fecha" },
+    signature: { icon: PenLine, label: "Firma" },
   };
   const { icon: Icon, label } = map[kind];
   return (
@@ -755,6 +757,15 @@ function QuestionChart({
       return <NumericChart q={q} accent={accent} />;
     case "dates":
       return <DatesChart q={q} accent={accent} />;
+    case "signature":
+      return (
+        <p className="text-sm text-neutral-600 dark:text-neutral-300">
+          <span className="text-2xl font-semibold tabular-nums" style={{ color: accent }}>
+            {q.signed}
+          </span>{" "}
+          {q.signed === 1 ? "persona firmó" : "personas firmaron"}. Las firmas se ven en la ficha de cada respuesta.
+        </p>
+      );
     default:
       return null;
   }

@@ -226,3 +226,28 @@ def test_un_miembro_no_ve_el_registro_de_auditoria():
     c, _, sid, _slug = _setup()
     # Sin sesión no hay acceso; el detalle de roles lo cubre test_orgs.
     assert new_client().get(f"{API}/surveys/{sid}/audit").status_code in (401, 403)
+
+
+def test_historial_de_versiones_guardar_publicar_y_restaurar():
+    c, email, sid, slug = _setup()  # ya publicada: versión "publicada"
+    otro = {"pages": [{"name": "p", "elements": [{"type": "comment", "name": "nueva", "title": "Otra cosa"}]}]}
+    r = c.put(f"{API}/surveys/{sid}", json={"json_schema": otro, "snapshot": True})
+    assert r.status_code == 200
+    vs = c.get(f"{API}/surveys/{sid}/versions").json()
+    assert [v["label"] for v in vs][:2] == ["guardado", "publicada"]
+    assert vs[0]["created_by_email"] == email and vs[0]["questions"] == 1
+
+    # Autoguardado enseguida después: no crea otra versión (cada 15 min como mucho).
+    otro2 = {"pages": [{"name": "p", "elements": [{"type": "comment", "name": "n2", "title": "Y otra"}]}]}
+    c.put(f"{API}/surveys/{sid}", json={"json_schema": otro2})
+    assert len(c.get(f"{API}/surveys/{sid}/versions").json()) == len(vs)
+
+    publicada = next(v for v in vs if v["label"] == "publicada")
+    r = c.post(f"{API}/surveys/{sid}/versions/{publicada['id']}/restore")
+    assert r.status_code == 200
+    assert r.json()["json_schema"] == SCHEMA
+    vs2 = c.get(f"{API}/surveys/{sid}/versions").json()
+    # Lo que había antes de restaurar quedó guardado: restaurar se puede deshacer.
+    assert vs2[0]["label"] == "antes de restaurar"
+    assert c.get(f"{API}/surveys/{sid}/versions/{vs2[0]['id']}").json()["json_schema"] == otro2
+    assert any(e["action"] == "survey.version_restored" for e in c.get(f"{API}/surveys/{sid}/audit").json())

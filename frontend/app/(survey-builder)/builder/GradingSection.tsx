@@ -137,7 +137,7 @@ export function GradingSection({ question: q, accent, onChange, surveyId }: Prop
             </Field>
           )}
 
-          {q.type === "rating" && (
+          {(q.type === "rating" || q.type === "number" || q.type === "slider") && (
             <div className="grid grid-cols-2 gap-3">
               <Field label={t("builder.grade.correctValue")}>
                 <input

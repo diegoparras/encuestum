@@ -260,7 +260,7 @@ def _aggregate(el: dict, answers: list[dict]) -> dict:
         items.sort(key=lambda it: (it["avg_position"] is None, it["avg_position"] or 0))
         return {**base, "kind": "ranking", "items": items}
 
-    if qtype in ("text", "number") and el.get("inputType") in ("number", "range") or qtype == "number":
+    if qtype in ("text", "number") and el.get("inputType") in ("number", "range") or qtype in ("number", "slider"):
         nums = []
         for v in vals:
             try:
@@ -292,6 +292,11 @@ def _aggregate(el: dict, answers: list[dict]) -> dict:
         if qtype != "email" and el.get("inputType") != "email":
             out["terms"] = stats.top_terms(texts)
         return out
+
+    if qtype == "signaturepad":
+        # La firma es una imagen en base64: no se lista (pesa y no se lee en un
+        # resumen); se cuenta cuántas personas firmaron.
+        return {**base, "kind": "signature", "signed": len(vals)}
 
     if qtype in ("videoresponse", "file"):
         files = [str(u) for v in vals for u in _as_list(v) if str(u)]

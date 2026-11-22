@@ -44,6 +44,10 @@ def cell(value) -> str:
     return str(value)
 
 
+def _es_firma(v) -> bool:
+    return isinstance(v, str) and v.startswith("data:image/")
+
+
 def export_rows(
     survey: Survey, responses: List[SurveyResponse], versions: Optional[dict] = None
 ) -> List[list]:
@@ -70,7 +74,9 @@ def export_rows(
                 cell(r.score), cell(r.max_score), cell(grade.get("percent")),
                 "sí" if r.needs_review else "no",
             ]
-            + [cell(answers.get(name)) for (name, _t) in cols]
+            # Una firma es una imagen en base64 (decenas de KB): en la planilla
+            # va una marca, no la imagen.
+            + ["[firmado]" if _es_firma(answers.get(name)) else cell(answers.get(name)) for (name, _t) in cols]
             + [
                 cell(versions.get(r.survey_version_id)),
                 r.graded_at.isoformat() if r.graded_at else "",

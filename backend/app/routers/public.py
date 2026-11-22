@@ -600,7 +600,7 @@ async def submit(
     from app.audit import ensure_survey_version, hash_ip, record_grade_revision, response_hash, sanitize_client_meta
     from app.ratelimit import _client_ip
 
-    version = await ensure_survey_version(session, s)
+    version = await ensure_survey_version(session, s, label="respuesta")
     meta = sanitize_client_meta(payload.meta)
     ajustes = get_settings()
     server_meta: dict = {

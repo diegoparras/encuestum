@@ -25,6 +25,7 @@ import { toast } from "sonner";
 import { surveyApi, SURVEY_ACCENT, type ResponseItem } from "./surveyApi";
 import { ActivityLog, ResponseHistoryPanel } from "./Trazabilidad";
 import { ConfirmarBorrado } from "./ConfirmarBorrado";
+import { useDialogA11y } from "@/lib/useDialogA11y";
 
 /**
  * Tabla de respuestas: una fila por persona, una columna por pregunta.
@@ -111,6 +112,8 @@ function cellText(value: any): string {
   if (value === undefined || value === null || value === "") return "—";
   // Las preguntas Sí/No llegan como booleano: "true"/"false" no se lee.
   if (typeof value === "boolean") return value ? "Sí" : "No";
+  // Firma: imagen en base64; en una celda de texto va una marca.
+  if (typeof value === "string" && value.startsWith("data:image/")) return "✍ Firmado";
   if (Array.isArray(value)) return value.join(", ");
   if (typeof value === "object") return JSON.stringify(value);
   return String(value);
@@ -1012,6 +1015,7 @@ function RespondentCard({
     if (q?.name) byQuestion[q.name] = q;
   }
   const percent = (response.grade as any)?.percent;
+  const panelRef = useDialogA11y(onClose);
 
   return (
     <div
@@ -1021,7 +1025,9 @@ function RespondentCard({
       onClick={onClose}
     >
       <div
-        className="flex max-h-[88vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl dark:bg-neutral-900"
+        ref={panelRef}
+        tabIndex={-1}
+        className="flex max-h-[88vh] w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl outline-none dark:bg-neutral-900"
         onClick={(e) => e.stopPropagation()}
       >
         <header className="flex items-start gap-3 border-b border-neutral-100 px-5 py-4 dark:border-neutral-800">
@@ -1066,9 +1072,19 @@ function RespondentCard({
                 <p className="text-xs font-medium uppercase tracking-wide text-neutral-400">
                   {c.title}
                 </p>
-                <p className="mt-1 whitespace-pre-wrap text-sm text-neutral-800 dark:text-neutral-200">
-                  {cellText(response.answers?.[c.name])}
-                </p>
+                {typeof response.answers?.[c.name] === "string" &&
+                response.answers[c.name].startsWith("data:image/") ? (
+                  // eslint-disable-next-line @next/next/no-img-element
+                  <img
+                    src={response.answers[c.name]}
+                    alt="Firma"
+                    className="mt-1 max-h-32 rounded border border-neutral-200 bg-white dark:border-neutral-700"
+                  />
+                ) : (
+                  <p className="mt-1 whitespace-pre-wrap text-sm text-neutral-800 dark:text-neutral-200">
+                    {cellText(response.answers?.[c.name])}
+                  </p>
+                )}
                 {g && (
                   <p className="mt-1 text-xs text-neutral-400">
                     {g.awarded} / {g.points} pts

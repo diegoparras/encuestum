@@ -18,6 +18,11 @@ export type QuestionType =
   | "ranking"
   | "date"
   | "fileupload"
+  | "number" // número (text inputType=number) con mínimo/máximo/paso
+  | "slider" // control deslizante nativo de SurveyJS
+  | "phone" // teléfono (text inputType=tel) con validación
+  | "signature" // firma dibujada (signaturepad de SurveyJS)
+  | "consent" // casilla de consentimiento obligatoria (boolean como checkbox)
   | "section"; // separador con título: agrupa las preguntas que le siguen
 
 export interface Choice {
@@ -94,6 +99,11 @@ export interface BuilderQuestion {
   // ---- date (fecha) ----
   dateMin?: string; // fecha mínima permitida (YYYY-MM-DD), opcional
   dateMax?: string; // fecha máxima permitida (YYYY-MM-DD), opcional
+
+  // ---- number / slider ----
+  numMin?: number;
+  numMax?: number;
+  numStep?: number;
 
   // ---- fileupload (subir archivo genérico) ----
   fileMultiple?: boolean; // permitir subir varios archivos
@@ -615,6 +625,11 @@ export const QUESTION_TYPES: QuestionTypeMeta[] = [
   { type: "ranking", label: "Ranking", hint: "Ordenar opciones", hasChoices: true },
   { type: "date", label: "Fecha", hint: "Selector de fecha", hasChoices: false },
   { type: "fileupload", label: "Subir archivo", hint: "Adjuntar archivo", hasChoices: false },
+  { type: "number", label: "Número", hint: "Con mínimo y máximo", hasChoices: false },
+  { type: "slider", label: "Deslizador", hint: "Elegir un valor", hasChoices: false },
+  { type: "phone", label: "Teléfono", hint: "Con validación", hasChoices: false },
+  { type: "signature", label: "Firma", hint: "Dibujar a mano", hasChoices: false },
+  { type: "consent", label: "Consentimiento", hint: "Casilla obligatoria", hasChoices: false },
   { type: "section", label: "Sección", hint: "Agrupa preguntas", hasChoices: false },
 ];
 
@@ -755,6 +770,14 @@ export function createQuestion(type: QuestionType, index: number): BuilderQuesti
   if (type === "ranking") {
     base.choices = [newChoice("Opción 1"), newChoice("Opción 2"), newChoice("Opción 3")];
   }
+  if (type === "slider") {
+    base.numMin = 0;
+    base.numMax = 100;
+    base.numStep = 1;
+  }
+  if (type === "consent") {
+    base.isRequired = true;
+  }
   if (type === "fileupload") {
     base.fileMultiple = false;
     base.fileAccept = "";
@@ -852,6 +875,16 @@ function defaultTitle(type: QuestionType): string {
       return "Elegí una fecha";
     case "fileupload":
       return "Subí un archivo";
+    case "number":
+      return "Ingresá un número";
+    case "slider":
+      return "Elegí un valor";
+    case "phone":
+      return "Tu teléfono";
+    case "signature":
+      return "Firmá acá";
+    case "consent":
+      return "Leí y acepto los términos y condiciones";
     default:
       return "Pregunta";
   }
@@ -925,11 +958,15 @@ function questionToElement(q: BuilderQuestion): Record<string, any> {
   // email y date se serializan como un "text" de SurveyJS con inputType propio;
   // fileupload es el "file" nativo de SurveyJS.
   const surveyType =
-    q.type === "email" || q.type === "date"
+    q.type === "email" || q.type === "date" || q.type === "number" || q.type === "phone"
       ? "text"
       : q.type === "fileupload"
         ? "file"
-        : q.type;
+        : q.type === "signature"
+          ? "signaturepad"
+          : q.type === "consent"
+            ? "boolean"
+            : q.type;
   const el: Record<string, any> = {
     type: surveyType,
     name: q.name,
@@ -996,6 +1033,46 @@ function questionToElement(q: BuilderQuestion): Record<string, any> {
     el.columns = (q.matrixColumns ?? [])
       .map((c) => ({ value: c.text, text: c.text }))
       .filter((c) => c.text.trim() !== "");
+  }
+  if (q.type === "number") {
+    el.inputType = "number";
+    if (typeof q.numMin === "number") el.min = q.numMin;
+    if (typeof q.numMax === "number") el.max = q.numMax;
+    if (typeof q.numStep === "number" && q.numStep > 0) el.step = q.numStep;
+  }
+  if (q.type === "slider") {
+    el.min = q.numMin ?? 0;
+    el.max = q.numMax ?? 100;
+    el.step = q.numStep && q.numStep > 0 ? q.numStep : 1;
+    el.sliderType = "single";
+  }
+  if (q.type === "phone") {
+    el.inputType = "tel";
+    el.autocomplete = "tel";
+    // Dígitos, espacios, guiones, paréntesis y un "+" inicial; 7 a 20 caracteres.
+    el.validators = [
+      { type: "regex", regex: "^\\+?[0-9 ()\\-]{7,20}$", text: "Ingresá un teléfono válido." },
+    ];
+    el.encType = "phone";
+  }
+  if (q.type === "signature") {
+    el.signatureWidth = 500;
+    el.signatureHeight = 180;
+    el.penColor = "#111827";
+    el.dataFormat = "png";
+  }
+  if (q.type === "consent") {
+    // Consentimiento = boolean como casilla y obligatorio: no se puede enviar
+    // sin marcarla. Qué texto aceptó la persona queda en la versión de la
+    // encuesta que contestó (ver backend: survey_versions).
+    // SurveyJS sólo muestra el texto junto a la casilla con el título oculto:
+    // la frase del título ("Leí y acepto…") pasa a ser el texto de la casilla.
+    el.renderAs = "checkbox";
+    el.titleLocation = "hidden";
+    el.label = q.title;
+    el.isRequired = true;
+    el.requiredErrorText = "Tenés que aceptar para continuar.";
+    el.encConsent = true;
   }
   if (q.type === "date") {
     // Fecha: text de SurveyJS con inputType date (+ min/max opcionales).
@@ -1194,6 +1271,9 @@ function elementToQuestion(el: Record<string, any>, index: number): BuilderQuest
     (el?._encVideo === true ||
       (typeof el?.acceptedTypes === "string" && el.acceptedTypes.includes("video")));
   const isFileUpload = rawType === "file" && !isLegacyVideo;
+  const isNumber = rawType === "text" && el?.inputType === "number";
+  const isPhone = rawType === "text" && (el?.inputType === "tel" || el?.encType === "phone");
+  const isConsent = rawType === "boolean" && (el?.encConsent === true || el?.renderAs === "checkbox");
   const type: QuestionType = (
     rawType === "videoresponse" || isLegacyVideo
       ? "videoresponse"
@@ -1203,7 +1283,15 @@ function elementToQuestion(el: Record<string, any>, index: number): BuilderQuest
           ? "email"
           : isDate
             ? "date"
-            : rawType
+            : isNumber
+              ? "number"
+              : isPhone
+                ? "phone"
+                : isConsent
+                  ? "consent"
+                  : rawType === "signaturepad"
+                    ? "signature"
+                    : rawType
   ) as QuestionType;
 
   const supported: QuestionType[] = [
@@ -1221,6 +1309,11 @@ function elementToQuestion(el: Record<string, any>, index: number): BuilderQuest
     "ranking",
     "date",
     "fileupload",
+    "number",
+    "slider",
+    "phone",
+    "signature",
+    "consent",
   ];
   if (!supported.includes(type)) return null;
 
@@ -1288,6 +1381,14 @@ function elementToQuestion(el: Record<string, any>, index: number): BuilderQuest
   if (type === "fileupload") {
     q.fileMultiple = !!el.allowMultiple;
     q.fileAccept = typeof el.acceptedTypes === "string" ? el.acceptedTypes : "";
+  }
+  if (type === "number" || type === "slider") {
+    q.numMin = typeof el.min === "number" ? el.min : undefined;
+    q.numMax = typeof el.max === "number" ? el.max : undefined;
+    q.numStep = typeof el.step === "number" ? el.step : undefined;
+  }
+  if (type === "consent") {
+    q.isRequired = true;
   }
   return q;
 }
@@ -1443,8 +1544,9 @@ function hydrateGrading(
       q.correctChoices = Array.isArray(correct) ? correct.map(String) : [];
     } else if (q.type === "boolean") {
       q.correctBool = !!correct;
-    } else if (q.type === "rating") {
+    } else if (q.type === "rating" || q.type === "number" || q.type === "slider") {
       q.correctNumber = typeof correct === "number" ? correct : undefined;
+      q.tolerance = typeof c.tolerance === "number" ? c.tolerance : undefined;
     } else {
       q.correctText = Array.isArray(correct)
         ? correct.map(String)
@@ -1499,7 +1601,7 @@ export function builderToEvaluation(
         cfg.partialCredit = !!q.partialCredit;
       } else if (q.type === "boolean") {
         cfg.correct = !!q.correctBool;
-      } else if (q.type === "rating") {
+      } else if (q.type === "rating" || q.type === "number" || q.type === "slider") {
         cfg.correct = q.correctNumber ?? null;
         cfg.tolerance = q.tolerance ?? 0;
       } else {

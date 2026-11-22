@@ -14,7 +14,8 @@ import {
   ListChecks,
   Check,
 } from "lucide-react";
-import { GraduationCap, Sparkles, Palette, SpellCheck2 } from "lucide-react";
+import { GraduationCap, Sparkles, Palette, SpellCheck2, Undo2, Redo2, Keyboard, History } from "lucide-react";
+import { useUndoHistory } from "@/lib/useUndoHistory";
 import {
   surveyApi,
   type UsageInfo,
@@ -25,6 +26,7 @@ import { toast } from "sonner";
 import { useAsyncData } from "@/lib/useAsyncData";
 import { LoadError } from "@/components/LoadError";
 import { useI18n } from "@/lib/i18n";
+import { useDialogA11y } from "@/lib/useDialogA11y";
 import { AccessSettings } from "../../../builder/AccessSettings";
 import { UsageModal } from "../../../builder/UsageModal";
 import {
@@ -50,6 +52,7 @@ import { AccentPicker } from "../../../builder/AccentPicker";
 import { DesignPanel } from "../../../builder/DesignPanel";
 import { GenerateDialog } from "../../../builder/GenerateDialog";
 import { WordingReviewDialog } from "../../../builder/WordingReview";
+import { VersionHistoryDialog } from "../../../builder/VersionHistory";
 
 // SurveyJS es pesado: diferimos la vista previa a un chunk perezoso (ssr:false)
 // para que no entre en el bundle inicial del editor. El registro del tipo de
@@ -108,6 +111,7 @@ export default function SurveyEditorPage() {
   const changeSeqRef = useRef(0);
   const [genOpen, setGenOpen] = useState(false);
   const [wordingOpen, setWordingOpen] = useState(false);
+  const [versionsOpen, setVersionsOpen] = useState(false);
   const [designOpen, setDesignOpen] = useState(false);
   const [lastUsage, setLastUsage] = useState<UsageInfo | null>(null);
   const sumarUso = useCallback(
@@ -149,25 +153,6 @@ export default function SurveyEditorPage() {
     return { survey: s, built };
   }, [id]);
 
-  // Inicializa el estado editable cuando llega (o se recarga) la encuesta.
-  useEffect(() => {
-    if (!loaded) return;
-    const s = loaded.survey;
-    contentHashRef.current = s.content_hash ?? null;
-    setAutoStatus((a) => (a === "conflict" ? "idle" : a));
-    setState(loaded.built);
-    setStatus(s.status);
-    setSlug(s.slug);
-    setTimezone(s.timezone ?? "UTC");
-    setLanguage(s.language ?? "es");
-    setAccessMode(s.access_mode ?? "public");
-    setAccessPin(s.access_pin ?? null);
-    setResultsMode(s.results_mode ?? "immediate");
-    setResultsReleased(s.results_released ?? false);
-    setNotifyEmails(s.notify_emails ?? "");
-    setRequireCaptcha(s.require_captcha ?? false);
-    setDirty(false);
-  }, [loaded]);
 
   // Mutations ---------------------------------------------------------------
   // Marca cambios pendientes e incrementa la secuencia (para que un save en
@@ -247,6 +232,54 @@ export default function SurveyEditorPage() {
     [markDirty]
   );
 
+  // Deshacer / rehacer (Ctrl+Z / Ctrl+Shift+Z): observa los cambios de
+  // `state`, así no hace falta tocar cada mutación.
+  const historia = useUndoHistory(state, setState as (s: BuilderState) => void, {
+    onChange: markDirty,
+    // Se agrupa sólo lo que no cambia la estructura (escribir en un campo):
+    // agregar, borrar o mover una pregunta es siempre un paso propio.
+    canCoalesce: (a, b) =>
+      a.questions.length === b.questions.length &&
+      a.questions.every((q, i) => q.id === b.questions[i]?.id),
+  });
+  const resetHistoria = historia.reset;
+
+  // Inicializa el estado editable cuando llega (o se recarga) la encuesta.
+  useEffect(() => {
+    if (!loaded) return;
+    const s = loaded.survey;
+    contentHashRef.current = s.content_hash ?? null;
+    setAutoStatus((a) => (a === "conflict" ? "idle" : a));
+    resetHistoria();
+    setState(loaded.built);
+    setStatus(s.status);
+    setSlug(s.slug);
+    setTimezone(s.timezone ?? "UTC");
+    setLanguage(s.language ?? "es");
+    setAccessMode(s.access_mode ?? "public");
+    setAccessPin(s.access_pin ?? null);
+    setResultsMode(s.results_mode ?? "immediate");
+    setResultsReleased(s.results_released ?? false);
+    setNotifyEmails(s.notify_emails ?? "");
+    setRequireCaptcha(s.require_captcha ?? false);
+    setDirty(false);
+  }, [loaded, resetHistoria]);
+
+  const moveSelected = useCallback(
+    (delta: number) => {
+      if (!selectedId) return;
+      mutate((prev) => {
+        const i = prev.questions.findIndex((q) => q.id === selectedId);
+        const j = i + delta;
+        if (i < 0 || j < 0 || j >= prev.questions.length) return prev;
+        const qs = [...prev.questions];
+        [qs[i], qs[j]] = [qs[j], qs[i]];
+        return { ...prev, questions: qs };
+      });
+    },
+    [selectedId, mutate]
+  );
+
   const reorder = useCallback(
     (questions: BuilderQuestion[]) => mutate((prev) => ({ ...prev, questions })),
     [mutate]
@@ -307,6 +340,8 @@ export default function SurveyEditorPage() {
     try {
       const updated = await surveyApi.update(id, {
         base_content_hash: opts.force ? null : contentHashRef.current,
+        // Guardado a mano: deja una versión en el historial.
+        snapshot: !opts.silent,
         title: state.title,
         json_schema: builderToSchema(state),
         theme: designToTheme(state.accent, state.design),
@@ -361,6 +396,48 @@ export default function SurveyEditorPage() {
   useEffect(() => {
     saveRef.current = save;
   });
+
+  // Atajos de teclado del editor. Ctrl+Z / Ctrl+Shift+Z también dentro de los
+  // campos de texto: la historia agrupa lo tipeado en ráfagas, así que deshacer
+  // vuelve atrás la palabra (y además lo hace sobre TODO el editor, no sólo el
+  // campo). Duplicar/borrar/mover sólo con una pregunta elegida y fuera de un
+  // campo de texto, para no pelear con la edición.
+  const [atajosOpen, setAtajosOpen] = useState(false);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const mod = e.ctrlKey || e.metaKey;
+      const el = e.target as HTMLElement | null;
+      const escribiendo =
+        !!el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT" || el.isContentEditable);
+      const k = e.key.toLowerCase();
+      if (mod && k === "z") {
+        e.preventDefault();
+        if (e.shiftKey) historia.redo();
+        else historia.undo();
+      } else if (mod && k === "y") {
+        e.preventDefault();
+        historia.redo();
+      } else if (mod && k === "s") {
+        e.preventDefault();
+        void saveRef.current();
+      } else if (mod && k === "d" && selectedId && !escribiendo) {
+        e.preventDefault();
+        duplicateQuestion(selectedId);
+      } else if (e.altKey && (e.key === "ArrowUp" || e.key === "ArrowDown") && selectedId) {
+        e.preventDefault();
+        moveSelected(e.key === "ArrowUp" ? -1 : 1);
+      } else if ((e.key === "Delete" || e.key === "Backspace") && selectedId && !escribiendo && !mod) {
+        e.preventDefault();
+        deleteQuestion(selectedId); // se puede deshacer con Ctrl+Z
+      } else if (e.key === "?" && !escribiendo) {
+        setAtajosOpen((o) => !o);
+      } else if (e.key === "Escape" && atajosOpen) {
+        setAtajosOpen(false);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [historia, selectedId, duplicateQuestion, deleteQuestion, moveSelected, atajosOpen]);
 
   // Autosave con debounce: ~2.5s después del último cambio. Cada edición
   // reinicia el timer (el efecto depende de `state`). Se pausa mientras el
@@ -467,6 +544,42 @@ export default function SurveyEditorPage() {
         <StatusBadge status={status} />
 
         <div className="flex items-center gap-2 shrink-0">
+          <div className="inline-flex items-center rounded-lg border border-neutral-200 dark:border-neutral-800">
+            <button
+              onClick={historia.undo}
+              disabled={!historia.canUndo}
+              title={`${t("builder.page.undo")} (Ctrl+Z)`}
+              aria-label={t("builder.page.undo")}
+              className="p-1.5 text-neutral-600 hover:bg-neutral-50 disabled:opacity-30 dark:text-neutral-300 dark:hover:bg-neutral-800"
+            >
+              <Undo2 className="w-4 h-4" />
+            </button>
+            <button
+              onClick={historia.redo}
+              disabled={!historia.canRedo}
+              title={`${t("builder.page.redo")} (Ctrl+Shift+Z)`}
+              aria-label={t("builder.page.redo")}
+              className="p-1.5 text-neutral-600 hover:bg-neutral-50 disabled:opacity-30 dark:text-neutral-300 dark:hover:bg-neutral-800"
+            >
+              <Redo2 className="w-4 h-4" />
+            </button>
+            <button
+              onClick={() => setVersionsOpen(true)}
+              title={t("builder.versions.title")}
+              aria-label={t("builder.versions.title")}
+              className="p-1.5 text-neutral-500 hover:bg-neutral-50 dark:text-neutral-400 dark:hover:bg-neutral-800"
+            >
+              <History className="w-4 h-4" />
+            </button>
+            <button
+              onClick={() => setAtajosOpen(true)}
+              title={`${t("builder.page.shortcuts")} (?)`}
+              aria-label={t("builder.page.shortcuts")}
+              className="p-1.5 text-neutral-500 hover:bg-neutral-50 dark:text-neutral-400 dark:hover:bg-neutral-800"
+            >
+              <Keyboard className="w-4 h-4" />
+            </button>
+          </div>
           <Link
             href={`/surveys/${id}`}
             className="inline-flex items-center gap-1.5 rounded-lg border border-neutral-200 dark:border-neutral-800 px-2.5 py-1.5 text-xs font-medium text-neutral-600 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800"
@@ -708,6 +821,20 @@ export default function SurveyEditorPage() {
         onUsage={sumarUso}
       />
 
+      {atajosOpen && <ShortcutsDialog onClose={() => setAtajosOpen(false)} />}
+
+      {versionsOpen && (
+        <VersionHistoryDialog
+          surveyId={id}
+          currentSchema={schema}
+          accent={state.accent}
+          onClose={() => setVersionsOpen(false)}
+          // Recarga la encuesta restaurada (y limpia deshacer: lo anterior
+          // quedó guardado como versión).
+          onRestored={reload}
+        />
+      )}
+
       {wordingOpen && (
         <WordingReviewDialog
           surveyId={id}
@@ -745,5 +872,50 @@ function StatusBadge({ status }: { status: "draft" | "published" | "closed" }) {
     <span className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-medium ${cls}`}>
       {t(key)}
     </span>
+  );
+}
+
+function ShortcutsDialog({ onClose }: { onClose: () => void }) {
+  const { t } = useI18n();
+  const panelRef = useDialogA11y(onClose);
+  const filas: [string, string][] = [
+    ["Ctrl + Z", t("builder.page.undo")],
+    ["Ctrl + Shift + Z", t("builder.page.redo")],
+    ["Ctrl + S", t("builder.page.save")],
+    ["Ctrl + D", t("builder.keys.duplicate")],
+    ["Alt + ↑ / ↓", t("builder.keys.move")],
+    ["Supr", t("builder.keys.delete")],
+    ["?", t("builder.page.shortcuts")],
+  ];
+  return (
+    <div
+      className="fixed inset-0 z-[70] grid place-items-center bg-black/40 p-4"
+      role="dialog"
+      aria-modal="true"
+      aria-label={t("builder.page.shortcuts")}
+      onClick={onClose}
+    >
+      <div
+        ref={panelRef}
+        tabIndex={-1}
+        className="w-full max-w-sm rounded-2xl bg-white p-5 shadow-2xl outline-none dark:bg-neutral-900"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <h2 className="mb-3 text-sm font-semibold dark:text-neutral-100">{t("builder.page.shortcuts")}</h2>
+        <dl className="space-y-1.5 text-sm">
+          {filas.map(([k, v]) => (
+            <div key={k} className="flex items-center justify-between gap-3">
+              <dt className="text-neutral-600 dark:text-neutral-300">{v}</dt>
+              <dd>
+                <kbd className="rounded border border-neutral-200 bg-neutral-50 px-1.5 py-0.5 font-mono text-xs dark:border-neutral-700 dark:bg-neutral-800">
+                  {k}
+                </kbd>
+              </dd>
+            </div>
+          ))}
+        </dl>
+        <p className="mt-3 text-xs text-neutral-400">{t("builder.keys.hint")}</p>
+      </div>
+    </div>
   );
 }
