@@ -60,6 +60,10 @@ export interface SurveyDetail {
   retention_action?: RetentionAction | null;
   // Recordatorios automáticos a invitados que no respondieron.
   reminders?: ReminderConfig | null;
+  // Campos ocultos de la URL, cupos y link público de resultados.
+  hidden_fields?: string[] | null;
+  quotas?: Quota[] | null;
+  public_results?: PublicResultsConfig | null;
   created_at: string;
   updated_at: string;
   /** Huella del contenido editable: el editor la devuelve al guardar para que
@@ -89,6 +93,10 @@ interface SummaryQuestionBase {
   by_segment?: Record<string, SummaryQuestion>;
   /** Prueba chi² de la diferencia entre segmentos (si aplica). */
   significance?: Significance | null;
+  /** Mediana de segundos que llevó responderla (lo mide el navegador). */
+  timing?: { median_seconds: number; n: number };
+  /** Es un campo oculto de la URL (`@nombre`), no una pregunta. */
+  hidden_field?: boolean;
 }
 
 export interface Significance {
@@ -355,6 +363,33 @@ export interface QualityReport {
 
 // Invitado (modo lista): cada uno con su código de acceso único.
 export type RetentionAction = "anonymize" | "delete";
+export interface Quota {
+  question: string;
+  values: string[];
+  limit: number;
+  message?: string | null;
+}
+export interface QuotaStatus extends Quota {
+  used: number;
+  full: boolean;
+}
+export interface PublicResultsConfig {
+  enabled: boolean;
+  token: string;
+  show_text: boolean;
+  min_responses: number;
+}
+export interface OrgTemplate {
+  id: string;
+  title: string;
+  description: string | null;
+  category: string | null;
+  questions: number;
+  is_evaluation: boolean;
+  language: string | null;
+  uses: number;
+  created_at: string;
+}
 export interface ReminderConfig {
   enabled: boolean;
   every_days: number;
@@ -662,8 +697,14 @@ export const surveyApi = {
         | "retention_days"
         | "retention_action"
         | "reminders"
+        | "hidden_fields"
+        | "quotas"
       >
-    > & { base_content_hash?: string | null; snapshot?: boolean }
+    > & {
+      base_content_hash?: string | null;
+      snapshot?: boolean;
+      public_results?: Partial<PublicResultsConfig> & { regenerate?: boolean };
+    }
   ) =>
     request<SurveyDetail>(`/api/v1/survey/surveys/${id}`, {
       method: "PUT",
@@ -916,6 +957,17 @@ export const surveyApi = {
       `/api/v1/survey/surveys/${id}/invitees/send?only_unsent=true`,
       { method: "POST" }
     ),
+  quotaStatus: (id: string) => request<QuotaStatus[]>(`/api/v1/survey/surveys/${id}/quotas`),
+  listTemplates: () => request<OrgTemplate[]>(`/api/v1/survey/templates`),
+  saveTemplate: (survey_id: string, extra: { title?: string; description?: string; category?: string } = {}) =>
+    request<OrgTemplate>(`/api/v1/survey/templates`, {
+      method: "POST",
+      body: JSON.stringify({ survey_id, ...extra }),
+    }),
+  useTemplate: (tid: string) =>
+    request<SurveyDetail>(`/api/v1/survey/templates/${tid}/use`, { method: "POST" }),
+  deleteTemplate: (tid: string) =>
+    request<void>(`/api/v1/survey/templates/${tid}`, { method: "DELETE" }),
   inviteTracking: (id: string) =>
     request<InviteTracking>(`/api/v1/survey/surveys/${id}/invitees/tracking`),
   remindInvitees: (id: string) =>

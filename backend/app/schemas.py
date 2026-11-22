@@ -58,6 +58,10 @@ class SurveyUpdateRequest(BaseModel):
     retention_days: Optional[int] = None  # 0 = sin retención
     retention_action: Optional[str] = None  # anonymize | delete
     reminders: Optional[dict[str, Any]] = None
+    # Campos ocultos de la URL, cupos y link público de resultados (app/fields.py).
+    hidden_fields: Optional[List[str]] = None
+    quotas: Optional[List[dict[str, Any]]] = None
+    public_results: Optional[dict[str, Any]] = None
     # Control de concurrencia: el `content_hash` que el editor tenía al cargar o
     # al último guardado. Sin él no se controla (llamadores viejos, API).
     base_content_hash: Optional[str] = None
@@ -114,6 +118,9 @@ class SurveyDetail(BaseModel):
     retention_days: Optional[int] = None
     retention_action: Optional[str] = None
     reminders: Optional[dict[str, Any]] = None
+    hidden_fields: Optional[List[str]] = None
+    quotas: Optional[List[dict[str, Any]]] = None
+    public_results: Optional[dict[str, Any]] = None
     created_at: datetime
     updated_at: datetime
     # Huella del contenido editable (preguntas, corrección, diseño, título).
@@ -145,6 +152,9 @@ class SurveyDetail(BaseModel):
             retention_days=getattr(s, "retention_days", None),
             retention_action=getattr(s, "retention_action", None),
             reminders=getattr(s, "reminders", None),
+            hidden_fields=getattr(s, "hidden_fields", None),
+            quotas=getattr(s, "quotas", None),
+            public_results=getattr(s, "public_results", None),
             created_at=s.created_at, updated_at=s.updated_at,
             content_hash=survey_content_hash(s),
         )
@@ -169,6 +179,8 @@ class PublicSurvey(BaseModel):
     redirect_url: Optional[str] = None
     # Anti-bot: when true the public page must solve a proof-of-work before submit.
     require_captcha: bool = False
+    # Parámetros de la URL que se guardan con la respuesta (campos ocultos).
+    hidden_fields: List[str] = []
 
 
 class SubmitResponseRequest(BaseModel):

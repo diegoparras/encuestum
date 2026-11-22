@@ -450,19 +450,29 @@ def build_summary(
     segment_by: Optional[str] = None,
     date_from: Optional[date] = None,
     date_to: Optional[date] = None,
+    hidden_fields: Optional[list[str]] = None,
 ) -> dict:
     """Resumen por pregunta. Con `filters` restringe el universo de respuestas;
     con `date_from`/`date_to` (inclusive, UTC) lo acota en el tiempo; con
     `segment_by` agrega además un desglose por cada valor de esa pregunta, con
-    una prueba chi² que dice si la diferencia entre segmentos es real o ruido."""
+    una prueba chi² que dice si la diferencia entre segmentos es real o ruido.
+
+    Los campos ocultos (`hidden_fields`) entran como preguntas `@nombre`, así
+    que se pueden segmentar y filtrar igual que las demás."""
+    from app import fields as fields_mod
+
+    extra = fields_mod.hidden_elements(hidden_fields, responses)
+    if extra:
+        schema = {**(schema or {}), "pages": list((schema or {}).get("pages") or []) + [{"name": "__hidden", "elements": extra}]}
     by_name = {el["name"]: el for el in _elements(schema) if el.get("name")}
     filters = [f for f in (filters or []) if f.get("name") in by_name]
 
     total = len(responses)
     universe = [r for r in responses if _in_range(r, date_from, date_to)]
     if filters:
-        universe = [r for r in universe if _matches_filters(r.answers or {}, filters, by_name)]
-    rows = [r.answers or {} for r in universe]
+        universe = [r for r in universe if _matches_filters(fields_mod.answers_with_hidden(r), filters, by_name)]
+    rows = [fields_mod.answers_with_hidden(r) for r in universe]
+    tiempos = fields_mod.timing_by_question(universe)
 
     seg_el = by_name.get(segment_by) if segment_by else None
     if seg_el is not None and seg_el.get("type") not in _SEGMENTABLE:
@@ -501,6 +511,10 @@ def build_summary(
         if not name or qtype in _SKIP_TYPES:
             continue
         q = _aggregate(el, rows)
+        if el.get("encHidden"):
+            q["hidden_field"] = True
+        if name in tiempos:
+            q["timing"] = tiempos[name]
         if seg_meta is not None and name != seg_meta["name"] and q["kind"] in ("choice", "rating"):
             q["by_segment"] = {
                 sv["value"]: _aggregate(el, seg_rows.get(sv["value"], []))

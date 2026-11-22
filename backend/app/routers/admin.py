@@ -200,6 +200,22 @@ async def update_survey(
             raise HTTPException(status_code=422, detail=str(exc))
     if data.get("anonymous") is None:
         data.pop("anonymous", None)
+    from app import fields as fields_mod
+
+    try:
+        if "hidden_fields" in data:
+            data["hidden_fields"] = fields_mod.clean_hidden_fields(data["hidden_fields"])
+        if "quotas" in data:
+            esquema = data.get("json_schema") or s.json_schema or {}
+            ocultos = data.get("hidden_fields", s.hidden_fields) or []
+            nombres = {el.get("name") for p in esquema.get("pages", []) or [] if isinstance(p, dict)
+                       for el in p.get("elements", []) or [] if isinstance(el, dict) and el.get("name")}
+            nombres |= {fields_mod.HIDDEN_PREFIX + n for n in ocultos}
+            data["quotas"] = fields_mod.clean_quotas(data["quotas"], valid_names=nombres)
+        if "public_results" in data:
+            data["public_results"] = fields_mod.clean_public_results(data["public_results"], s.public_results)
+    except ValueError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
     # org_id / created_by / slug are handled explicitly, never via the generic loop.
     data.pop("org_id", None)
     data.pop("created_by", None)
@@ -370,6 +386,7 @@ async def duplicate_survey(
         anonymous=bool(getattr(s, "anonymous", False)),
         retention_days=s.retention_days, retention_action=s.retention_action,
         reminders=s.reminders,
+        hidden_fields=s.hidden_fields, quotas=s.quotas,
         status="draft",  # copies start unpublished
     )
     session.add(copy)
@@ -717,6 +734,7 @@ async def _summary_for(sid, ctx, session, *, segment_by, filters, date_from, dat
     return s, build_summary(
         s.json_schema or {}, responses, filters=_parse_summary_filters(filters),
         segment_by=segment_by, date_from=date_from, date_to=date_to,
+        hidden_fields=s.hidden_fields,
     )
 
 
@@ -1301,6 +1319,22 @@ async def send_invitee_links(
                  survey_id=sid, detail={"count": len(outbox)})
     await session.commit()
     return {"sent": len(outbox), "total": len(rows)}
+
+
+@router.get("/{sid}/quotas")
+async def quotas_status(
+    sid: uuid.UUID,
+    ctx: OrgContext = Depends(current_context),
+    session: AsyncSession = Depends(get_session),
+):
+    """Cuánto lleva cada cupo."""
+    from app import fields as fields_mod
+
+    s = await _survey_or_404(sid, ctx.org.id, session)
+    previas = (await session.scalars(
+        counted_only(select(SurveyResponse).where(SurveyResponse.survey_id == sid))
+    )).all()
+    return fields_mod.quota_status(s.quotas, [fields_mod.answers_with_hidden(r) for r in previas])
 
 
 @router.get("/{sid}/invitees/tracking")

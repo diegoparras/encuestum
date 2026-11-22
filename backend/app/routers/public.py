@@ -276,6 +276,7 @@ def _public_payload(s: Survey, available: bool, reason: str | None, gated: bool)
         redirect_url=getattr(s, "redirect_url", None),
         require_captcha=bool(getattr(s, "require_captcha", False))
         and get_settings().captcha_enabled,
+        hidden_fields=list(getattr(s, "hidden_fields", None) or []),
     )
 
 
@@ -293,6 +294,37 @@ async def track_open(token: str, session: AsyncSession = Depends(get_session)):
         LOGGER.debug("píxel de apertura: %s", exc)
     return Response(content=PIXEL_GIF, media_type="image/gif",
                     headers={"Cache-Control": "no-store, max-age=0"})
+
+
+@router.get("/results/{token}")
+async def public_results(token: str, session: AsyncSession = Depends(get_session)):
+    """Resultados de solo lectura para compartir (si el dueño lo habilitó).
+    Sin preguntas que identifiquen, sin firmas ni archivos, y con un mínimo de
+    respuestas para mostrar algo."""
+    from app import fields as fields_mod
+    from app.privacy import identifying_questions
+    from app.summarizing import build_summary
+
+    if not token or len(token) > 64:
+        raise HTTPException(status_code=404, detail="Resultados no encontrados")
+    candidatas = (await session.scalars(
+        select(Survey).where(Survey.public_results.is_not(None), Survey.deleted_at.is_(None))
+    )).all()
+    s = next((x for x in candidatas
+              if (x.public_results or {}).get("enabled") and (x.public_results or {}).get("token") == token), None)
+    if s is None:
+        raise HTTPException(status_code=404, detail="Resultados no encontrados")
+    cfg = s.public_results
+    responses = (await session.scalars(
+        counted_only(select(SurveyResponse).where(SurveyResponse.survey_id == s.id))
+    )).all()
+    base = {"title": s.title, "language": s.language, "theme": s.theme,
+            "min_responses": cfg["min_responses"], "total_responses": len(responses)}
+    if len(responses) < cfg["min_responses"]:
+        return {**base, "enough": False, "summary": None}
+    resumen = build_summary(s.json_schema or {}, responses, hidden_fields=s.hidden_fields)
+    return {**base, "enough": True, "summary": fields_mod.public_summary(
+        resumen, identifying=identifying_questions(s.json_schema or {}), show_text=cfg.get("show_text", False))}
 
 
 @router.get("/{slug}", response_model=PublicSurvey)
@@ -758,6 +790,30 @@ async def submit(
         if senales:
             server_meta["flags"] = senales
     meta["server"] = server_meta
+
+    # Campos ocultos (de la URL) y tiempo por pregunta, acotados por el servidor.
+    from app import fields as fields_mod
+
+    ocultos = fields_mod.extract_hidden(getattr(s, "hidden_fields", None), (payload.meta or {}).get("hidden"))
+    if ocultos:
+        meta["hidden"] = ocultos
+    nombres_preg = {el.get("name") for el in _elementos_publicos(s.json_schema) if el.get("name")}
+    tiempos = fields_mod.sanitize_timing((payload.meta or {}).get("timing"), nombres_preg)
+    if tiempos:
+        meta["timing"] = tiempos
+
+    # Cupos: si el grupo al que pertenece esta respuesta ya se llenó, no entra.
+    if getattr(s, "quotas", None):
+        previas = (await session.scalars(
+            counted_only(select(SurveyResponse).where(SurveyResponse.survey_id == s.id))
+        )).all()
+        propias = {**(payload.answers or {}), **{fields_mod.HIDDEN_PREFIX + k: v for k, v in ocultos.items()}}
+        lleno = fields_mod.quota_hit(s.quotas, propias, [fields_mod.answers_with_hidden(x) for x in previas])
+        if lleno is not None:
+            raise HTTPException(status_code=409, detail={
+                "code": "quota_full",
+                "message": lleno.get("message") or "Ya se completó el cupo para tu grupo. ¡Gracias por tu interés!",
+            })
 
     r = SurveyResponse(
         survey_id=s.id, answers=payload.answers or {}, completed=payload.completed, meta=meta,

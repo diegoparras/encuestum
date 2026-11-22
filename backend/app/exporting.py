@@ -59,7 +59,9 @@ def export_rows(
     # Quién respondió: el invitado si lo hay; si no, lo que contestó (nombre/mail).
     fields = identity_fields(schema)
     versions = versions or {}
-    rows: List[list] = [_META + [title for (_n, title) in cols] + _AUDIT]
+    # Campos ocultos (de la URL) a continuación de las preguntas.
+    ocultos = list(getattr(survey, "hidden_fields", None) or [])
+    rows: List[list] = [_META + [title for (_n, title) in cols] + [f"@{h}" for h in ocultos] + _AUDIT]
     for r in responses:
         answers = r.answers or {}
         grade = r.grade or {}
@@ -77,6 +79,7 @@ def export_rows(
             # Una firma es una imagen en base64 (decenas de KB): en la planilla
             # va una marca, no la imagen.
             + ["[firmado]" if _es_firma(answers.get(name)) else cell(answers.get(name)) for (name, _t) in cols]
+            + [cell(((r.meta or {}).get("hidden") or {}).get(h)) for h in ocultos]
             + [
                 cell(versions.get(r.survey_version_id)),
                 r.graded_at.isoformat() if r.graded_at else "",

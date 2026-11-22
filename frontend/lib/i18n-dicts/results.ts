@@ -3,6 +3,8 @@ import type { Lang } from "../i18n";
 // Diccionario de área: results (reporte de una respuesta / corrección).
 export const dict: Record<Lang, Record<string, string>> = {
   en: {
+    "summary.hiddenField": "hidden field",
+    "summary.medianTime": "median time {s}",
     "results.loading": "Loading report…",
     "results.back": "Back",
     "results.downloadPdf": "Download PDF",
@@ -53,6 +55,8 @@ export const dict: Record<Lang, Record<string, string>> = {
     "results.feedback": "Feedback:",
   },
   es: {
+    "summary.hiddenField": "campo oculto",
+    "summary.medianTime": "tiempo mediano {s}",
     "results.loading": "Cargando reporte…",
     "results.back": "Volver",
     "results.downloadPdf": "Descargar PDF",
@@ -103,6 +107,8 @@ export const dict: Record<Lang, Record<string, string>> = {
     "results.feedback": "Devolución:",
   },
   fr: {
+    "summary.hiddenField": "champ masqué",
+    "summary.medianTime": "temps médian {s}",
     "results.loading": "Chargement du rapport…",
     "results.back": "Retour",
     "results.downloadPdf": "Télécharger le PDF",
@@ -153,6 +159,8 @@ export const dict: Record<Lang, Record<string, string>> = {
     "results.feedback": "Retour :",
   },
   pt: {
+    "summary.hiddenField": "campo oculto",
+    "summary.medianTime": "tempo mediano {s}",
     "results.loading": "Carregando relatório…",
     "results.back": "Voltar",
     "results.downloadPdf": "Baixar PDF",
@@ -203,6 +211,8 @@ export const dict: Record<Lang, Record<string, string>> = {
     "results.feedback": "Devolutiva:",
   },
   it: {
+    "summary.hiddenField": "campo nascosto",
+    "summary.medianTime": "tempo mediano {s}",
     "results.loading": "Caricamento del report…",
     "results.back": "Indietro",
     "results.downloadPdf": "Scarica PDF",
@@ -253,6 +263,8 @@ export const dict: Record<Lang, Record<string, string>> = {
     "results.feedback": "Riscontro:",
   },
   zh: {
+    "summary.hiddenField": "隐藏字段",
+    "summary.medianTime": "中位用时 {s}",
     "results.loading": "正在加载报告…",
     "results.back": "返回",
     "results.downloadPdf": "下载 PDF",
@@ -303,6 +315,8 @@ export const dict: Record<Lang, Record<string, string>> = {
     "results.feedback": "反馈：",
   },
   ja: {
+    "summary.hiddenField": "非表示フィールド",
+    "summary.medianTime": "所要時間の中央値 {s}",
     "results.loading": "レポートを読み込み中…",
     "results.back": "戻る",
     "results.downloadPdf": "PDF をダウンロード",

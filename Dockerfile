@@ -43,6 +43,14 @@ COPY --from=frontend /app/frontend/.next/standalone /app/frontend/
 COPY --from=frontend /app/frontend/.next/static /app/frontend/.next/static
 COPY --from=frontend /app/frontend/public /app/frontend/public
 
+# Usuario sin privilegios para los procesos de la app (FastAPI y Next.js), que
+# son los que procesan lo que llega de afuera. nginx sigue arrancando como root
+# para escuchar en el 80 (sus workers bajan a `nobody`), pero un fallo en el
+# backend o el frontend ya no le da root a nadie. Ver start.sh.
+RUN useradd --system --uid 10001 --home-dir /app --shell /usr/sbin/nologin encuestum \
+  && mkdir -p /app/frontend/.next/cache \
+  && chown -R encuestum:encuestum /app/frontend/.next
+
 # nginx + entrypoint
 COPY nginx.conf /etc/nginx/nginx.conf
 COPY start.sh /start.sh

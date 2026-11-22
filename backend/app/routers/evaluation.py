@@ -931,7 +931,8 @@ async def ask_endpoint(sid: uuid.UUID, payload: AskRequest, request: Request, ct
         raise HTTPException(status_code=409, detail="Todavía no hay respuestas para analizar.")
     contexto = build_report_context(s.json_schema or {}, responses)
     if payload.segment_by:
-        cruce = build_summary(s.json_schema or {}, responses, segment_by=payload.segment_by)
+        cruce = build_summary(s.json_schema or {}, responses, segment_by=payload.segment_by,
+                              hidden_fields=s.hidden_fields)
         if cruce.get("segment"):
             contexto["segment"] = {
                 "by": cruce["segment"]["title"],

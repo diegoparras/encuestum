@@ -569,10 +569,16 @@ function QuestionCard({
       <div className="mb-4 flex items-start justify-between gap-3">
         <div className="min-w-0">
           <h3 className="font-medium text-neutral-900 dark:text-neutral-100">
+            {q.hidden_field && (
+              <span className="mr-1.5 rounded bg-neutral-100 px-1.5 py-0.5 font-mono text-[10px] font-normal text-neutral-500 dark:bg-neutral-800 dark:text-neutral-400">
+                {t("summary.hiddenField")}
+              </span>
+            )}
             {q.title || q.name}
           </h3>
           <p className="mt-0.5 text-xs text-neutral-400 dark:text-neutral-500">
             {t("summary.answeredCount", { n: q.answered })}
+            {q.timing ? ` · ${t("summary.medianTime", { s: formatSeconds(q.timing.median_seconds) })}` : ""}
             {q.kind === "choice" && q.multi ? ` · ${t("summary.multi")}` : ""}
             {segmented ? ` · ${t("summary.byLabel", { seg: segment!.title })}` : ""}
           </p>
@@ -772,7 +778,13 @@ function QuestionChart({
 }
 
 /** Barras horizontales por opción, proporcionales al count (n y %). */
-function ChoiceChart({
+function formatSeconds(s: number): string {
+  if (s < 60) return `${s} s`;
+  const m = Math.floor(s / 60);
+  return `${m} min ${s % 60} s`;
+}
+
+export function ChoiceChart({
   options,
   accent,
 }: {
@@ -816,7 +828,7 @@ function ChoiceChart({
 }
 
 /** Histograma de barras verticales por valor min..max + promedio grande. */
-function RatingChart({
+export function RatingChart({
   min,
   max,
   average,

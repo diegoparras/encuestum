@@ -22,6 +22,7 @@ import {
   Smartphone,
   Mail,
   Share2,
+  LayoutTemplate,
 } from "lucide-react";
 import { QRCodeSVG } from "qrcode.react";
 import { toast } from "sonner";
@@ -446,6 +447,7 @@ export default function SurveyDetailPage() {
           )}
           {t("surveys.duplicate")}
         </button>
+        <SaveTemplateButton surveyId={id} />
       </div>
 
       {notice && <p className="mt-3 text-sm text-green-700">{notice}</p>}
@@ -762,5 +764,31 @@ function ShareButtons({ url, title }: { url: string; title: string }) {
         </button>
       )}
     </div>
+  );
+}
+
+function SaveTemplateButton({ surveyId }: { surveyId: string }) {
+  const { t } = useI18n();
+  const [saving, setSaving] = useState(false);
+  return (
+    <button
+      onClick={async () => {
+        setSaving(true);
+        try {
+          await surveyApi.saveTemplate(surveyId);
+          toast.success(t("surveys.templateSaved"));
+        } catch (e) {
+          toast.error((e as Error)?.message || t("surveys.templateError"));
+        } finally {
+          setSaving(false);
+        }
+      }}
+      disabled={saving}
+      className="inline-flex items-center gap-2 rounded-lg border border-neutral-300 px-4 py-2 text-sm font-medium hover:bg-neutral-50 disabled:opacity-60 dark:border-neutral-700 dark:hover:bg-neutral-800"
+      title={t("surveys.saveAsTemplateHint")}
+    >
+      {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <LayoutTemplate className="h-4 w-4" />}
+      {t("surveys.saveAsTemplate")}
+    </button>
   );
 }

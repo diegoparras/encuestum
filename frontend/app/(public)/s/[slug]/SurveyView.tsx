@@ -76,6 +76,7 @@ interface PublicSurvey {
   redirect_url?: string | null;
   // Anti-bot: exige resolver un proof-of-work antes de enviar.
   require_captcha?: boolean;
+  hidden_fields?: string[];
 }
 
 // Sólo permitimos redirigir a URLs http(s) absolutas; cualquier otra cosa se
@@ -148,6 +149,38 @@ function ahora(): number {
  *  al enviar, sin re-renderizar. */
 const INTEGRIDAD = { tab_switches: 0, hidden_seconds: 0, pastes: [] as { question: string; chars: number }[] };
 
+/** Segundos que llevó contestar cada pregunta: desde que se mostró la página
+ *  (o desde la respuesta anterior en la misma página) hasta que se respondió.
+ *  Fuera de React por lo mismo que INTEGRIDAD. */
+const TIEMPOS = { porPregunta: {} as Record<string, number>, marca: 0 };
+function reiniciarTiempos() {
+  TIEMPOS.porPregunta = {};
+  TIEMPOS.marca = ahora();
+}
+function marcarPagina() {
+  TIEMPOS.marca = ahora();
+}
+function registrarRespuesta(nombre: string) {
+  const n = ahora();
+  TIEMPOS.porPregunta[nombre] = (TIEMPOS.porPregunta[nombre] || 0) + Math.max(0, (n - TIEMPOS.marca) / 1000);
+  TIEMPOS.marca = n;
+}
+function tiemposRedondeados(): Record<string, number> {
+  return Object.fromEntries(Object.entries(TIEMPOS.porPregunta).map(([k, v]) => [k, Math.round(v)]));
+}
+
+/** Los campos ocultos declarados, tal como vinieron en la URL del link. */
+function camposOcultos(nombres?: string[]): Record<string, string> {
+  if (!nombres?.length || typeof window === "undefined") return {};
+  const q = new URLSearchParams(window.location.search);
+  const out: Record<string, string> = {};
+  for (const n of nombres) {
+    const v = q.get(n);
+    if (v) out[n] = v;
+  }
+  return out;
+}
+
 function trackVisit(slug: string, event: "view" | "progress", question?: string) {
   const vid = getVisitorId();
   if (!vid) return;
@@ -181,6 +214,7 @@ export default function SurveyView({ slug }: { slug: string }) {
   const [completed, setCompleted] = useState(false);
   // Redirección al terminar: mostramos "Redirigiendo…" antes de navegar.
   const [redirecting, setRedirecting] = useState(false);
+  const [rejected, setRejected] = useState<string | null>(null);
   // Access token for gated (pin/list) surveys; set once the access gate passes.
   const [accessToken, setAccessToken] = useState<string | null>(null);
   // Post-submit screen for list-mode surveys (thank-you + result lookup).
@@ -383,6 +417,11 @@ export default function SurveyView({ slug }: { slug: string }) {
     // Funnel: primer valor respondido = "comenzó"; cada cambio de página marca
     // la última pregunta vista (punto de abandono si no termina).
     let startedTracked = false;
+    reiniciarTiempos();
+    survey.onCurrentPageChanged.add(marcarPagina);
+    survey.onValueChanged.add((_s, opt) => {
+      if (opt?.name) registrarRespuesta(opt.name);
+    });
     survey.onValueChanged.add((_s, opt: any) => {
       if (!startedTracked) {
         startedTracked = true;
@@ -635,11 +674,20 @@ export default function SurveyView({ slug }: { slug: string }) {
                 referrer: typeof document !== "undefined" ? document.referrer : null,
                 visitor_id: getVisitorId(),
                 ...(examen?.signals ? { integrity: INTEGRIDAD } : {}),
+                hidden: camposOcultos(data.hidden_fields),
+                timing: tiemposRedondeados(),
               },
             }),
           }
         );
         const body = await res.json().catch(() => null);
+        if (!res.ok) {
+          // Cupo lleno u otro rechazo del servidor: se muestra el motivo en vez
+          // de un "gracias" que haría creer que la respuesta quedó guardada.
+          const d = body?.detail;
+          setRejected(typeof d === "string" ? d : typeof d?.message === "string" ? d.message : "");
+          return;
+        }
         // Redirección al terminar: si hay una URL válida y NO hay cuenta
         // regresiva configurada, saltamos directo (mostrando "Redirigiendo…").
         // Con cuenta regresiva, dejamos que la pantalla de gracias la muestre.
@@ -749,6 +797,14 @@ export default function SurveyView({ slug }: { slug: string }) {
         reason={reason}
         footer={t("public.closed.thanks")}
       />
+    );
+  }
+
+  if (rejected !== null) {
+    return (
+      <Centered>
+        <p className="max-w-md text-center text-base">{rejected || t("public.submit.rejected")}</p>
+      </Centered>
     );
   }
 

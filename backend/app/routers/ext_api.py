@@ -112,6 +112,7 @@ class ResponseOut(BaseModel):
     needs_review: bool
     survey_version_id: Optional[uuid.UUID]
     integrity_ok: Optional[bool]
+    hidden: dict[str, str] = {}
 
 
 class ResponsesPage(BaseModel):
@@ -184,6 +185,7 @@ async def ext_list_responses(
         answers=r.answers or {}, respondent_email=r.respondent_email, score=r.score, max_score=r.max_score,
         percent=(r.grade or {}).get("percent"), needs_review=bool(r.needs_review),
         survey_version_id=r.survey_version_id, integrity_ok=verify_response(r),
+        hidden=(r.meta or {}).get("hidden") or {},
     ) for r in rows]
     nxt = offset + len(items)
     return ResponsesPage(items=items, total=total or 0, next_offset=nxt if nxt < (total or 0) else None)
@@ -203,7 +205,8 @@ async def ext_summary(
     responses = (await session.scalars(
         counted_only(select(SurveyResponse).where(SurveyResponse.survey_id == sid))
     )).all()
-    return build_summary(s.json_schema or {}, responses, date_from=date_from, date_to=date_to)
+    return build_summary(s.json_schema or {}, responses, date_from=date_from, date_to=date_to,
+                         hidden_fields=s.hidden_fields)
 
 
 class InviteeIn(BaseModel):

@@ -522,6 +522,8 @@ function TemplateGallery({
           </button>
         </div>
 
+        <OrgTemplates disabled={!!creatingId} />
+
         <div className="grid grid-cols-1 gap-3 p-6 sm:grid-cols-2">
           {SURVEY_TEMPLATES.map((tpl) => {
             const isLoading = creatingId === tpl.id;
@@ -557,6 +559,60 @@ function TemplateGallery({
             );
           })}
         </div>
+      </div>
+    </div>
+  );
+}
+
+/** Plantillas guardadas por la organización (arriba de las de Encuestum). */
+function OrgTemplates({ disabled }: { disabled: boolean }) {
+  const { t } = useI18n();
+  const router = useRouter();
+  const { data, setData } = useAsyncData(() => surveyApi.listTemplates().catch(() => []), []);
+  const [busy, setBusy] = useState<string | null>(null);
+  if (!data?.length) return null;
+  return (
+    <div className="border-b border-neutral-200 px-6 py-4 dark:border-neutral-800">
+      <h3 className="mb-2 text-sm font-semibold text-neutral-700 dark:text-neutral-300">{t("surveys.orgTemplates")}</h3>
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+        {data.map((tpl) => (
+          <div key={tpl.id} className="flex items-start gap-2 rounded-xl border border-neutral-200 p-3 dark:border-neutral-800">
+            <button
+              type="button"
+              disabled={disabled || !!busy}
+              onClick={async () => {
+                setBusy(tpl.id);
+                try {
+                  const s = await surveyApi.useTemplate(tpl.id);
+                  router.push(`/surveys/${s.id}/edit`);
+                } catch (e) {
+                  toast.error((e as Error)?.message || t("surveys.templateError"));
+                  setBusy(null);
+                }
+              }}
+              className="min-w-0 flex-1 text-left disabled:opacity-50"
+            >
+              <div className="font-medium text-neutral-900 dark:text-neutral-100">{tpl.title}</div>
+              <p className="mt-0.5 text-xs text-neutral-500 dark:text-neutral-400">
+                {tpl.description || t("surveys.templateMeta", { n: tpl.questions, uses: tpl.uses })}
+              </p>
+              {busy === tpl.id && <Loader2 className="mt-1 h-3.5 w-3.5 animate-spin" />}
+            </button>
+            <button
+              type="button"
+              aria-label={t("surveys.deleteTemplate")}
+              title={t("surveys.deleteTemplate")}
+              onClick={async () => {
+                if (!window.confirm(t("surveys.deleteTemplateConfirm", { name: tpl.title }))) return;
+                await surveyApi.deleteTemplate(tpl.id).catch(() => {});
+                setData((cur) => (cur ?? []).filter((x) => x.id !== tpl.id));
+              }}
+              className="text-neutral-300 hover:text-red-600 dark:text-neutral-600"
+            >
+              <Trash2 className="h-4 w-4" />
+            </button>
+          </div>
+        ))}
       </div>
     </div>
   );

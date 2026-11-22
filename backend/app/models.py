@@ -301,6 +301,11 @@ class Survey(SQLModel, table=True):
     # Recordatorios a invitados que no respondieron:
     # {"enabled": true, "every_days": 3, "max": 2}
     reminders: Optional[dict] = Field(sa_column=Column(JSON), default=None)
+    # Campos ocultos que llegan en la URL, cupos por grupo y link público de
+    # resultados (ver app/fields.py).
+    hidden_fields: Optional[list] = Field(sa_column=Column(JSON), default=None)
+    quotas: Optional[list] = Field(sa_column=Column(JSON), default=None)
+    public_results: Optional[dict] = Field(sa_column=Column(JSON), default=None)
     # Papelera (soft-delete): al borrar se marca la fecha en vez de destruir la
     # encuesta y sus respuestas. Una encuesta en la papelera no se lista, no se
     # edita y — crítico — deja de responderse desde su link público. Se puede
@@ -564,6 +569,34 @@ class SurveyInvitee(SQLModel, table=True):
     )
     last_reminded_at: Optional[datetime] = Field(
         sa_column=Column(DateTime(timezone=True)), default=None
+    )
+    created_at: datetime = Field(
+        sa_column=Column(DateTime(timezone=True), nullable=False, default=_utcnow)
+    )
+
+
+class SurveyTemplate(SQLModel, table=True):
+    """Plantilla propia de una organización: una encuesta guardada para
+    reutilizar (preguntas, corrección y diseño), sin respuestas."""
+
+    __tablename__ = "survey_templates"
+
+    id: uuid.UUID = Field(primary_key=True, default_factory=uuid.uuid4)
+    org_id: uuid.UUID = Field(
+        sa_column=Column(
+            ForeignKey("organizations.id", ondelete="CASCADE"), index=True, nullable=False
+        )
+    )
+    title: str = Field(sa_column=Column(String, nullable=False))
+    description: Optional[str] = Field(sa_column=Column(String), default=None)
+    category: Optional[str] = Field(sa_column=Column(String), default=None)
+    json_schema: dict = Field(sa_column=Column(JSON, nullable=False), default_factory=dict)
+    evaluation: Optional[dict] = Field(sa_column=Column(JSON), default=None)
+    theme: Optional[dict] = Field(sa_column=Column(JSON), default=None)
+    language: Optional[str] = Field(sa_column=Column(String), default=None)
+    uses: int = Field(sa_column=Column(Integer, nullable=False, server_default="0"), default=0)
+    created_by: Optional[uuid.UUID] = Field(
+        sa_column=Column(ForeignKey("users.id", ondelete="SET NULL")), default=None
     )
     created_at: datetime = Field(
         sa_column=Column(DateTime(timezone=True), nullable=False, default=_utcnow)
