@@ -24,6 +24,7 @@ import {
 import { toast } from "sonner";
 import { surveyApi, SURVEY_ACCENT, type ResponseItem } from "./surveyApi";
 import { ActivityLog, ResponseHistoryPanel } from "./Trazabilidad";
+import { IntegrityFlags } from "./Examenes";
 import { ConfirmarBorrado } from "./ConfirmarBorrado";
 import { useDialogA11y } from "@/lib/useDialogA11y";
 
@@ -1094,6 +1095,7 @@ function RespondentCard({
               </div>
             );
           })}
+          <IntegrityFlags meta={response.meta} />
           <ResponseHistoryPanel key={response.id} surveyId={surveyId} responseId={response.id} />
         </div>
 

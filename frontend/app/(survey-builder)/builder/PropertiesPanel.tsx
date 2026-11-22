@@ -241,6 +241,7 @@ export function PropertiesPanel({
           evaluation={evaluation}
           onChange={onEvaluationChange}
           accent={accent}
+          questions={questions}
         />
 
         <p className="mt-6 text-xs text-neutral-400 dark:text-neutral-500 leading-relaxed">
@@ -641,6 +642,17 @@ export function PropertiesPanel({
         onChange={(v) => onQuestionChange({ isRequired: v })}
       />
 
+      {evaluation.enabled && (
+        <Field label={t("builder.exam.group")}>
+          <input
+            value={q.group ?? ""}
+            onChange={(e) => onQuestionChange({ group: e.target.value || undefined })}
+            placeholder={t("builder.exam.groupPlaceholder")}
+            className="w-full rounded-md border border-neutral-200 px-2.5 py-2 text-sm outline-none focus:border-neutral-400 dark:bg-neutral-800 dark:border-neutral-700 dark:text-neutral-100"
+          />
+        </Field>
+      )}
+
       {/* Firma, consentimiento y teléfono no tienen "respuesta correcta". */}
       {evaluation.enabled && !["signature", "consent", "phone"].includes(q.type) && (
         <GradingSection question={q} accent={accent} onChange={onQuestionChange} surveyId={surveyId} />
@@ -985,10 +997,12 @@ function ExamSettings({
   evaluation,
   onChange,
   accent,
+  questions,
 }: {
   evaluation: EvaluationSettings;
   onChange: (e: EvaluationSettings) => void;
   accent: string;
+  questions: BuilderQuestion[];
 }) {
   const { t } = useI18n();
   if (!evaluation.enabled) {
@@ -1079,6 +1093,32 @@ function ExamSettings({
           label={t("builder.exam.shuffleChoices")}
           checked={evaluation.integrity.shuffleChoices}
           onChange={(v) => setIntegrity({ shuffleChoices: v })}
+        />
+        <Field label={t("builder.exam.timeLimit")}>
+          <input
+            type="number"
+            min={0}
+            step={5}
+            value={evaluation.integrity.timeLimitSec ? Math.round(evaluation.integrity.timeLimitSec / 60) : ""}
+            placeholder={t("builder.exam.noLimit")}
+            onChange={(e) => {
+              const min = Number(e.target.value);
+              setIntegrity({ timeLimitSec: min > 0 ? Math.round(min * 60) : null });
+            }}
+            className="w-full rounded-md border border-neutral-200 px-2.5 py-2 text-sm outline-none focus:border-neutral-400 dark:bg-neutral-800 dark:border-neutral-700 dark:text-neutral-100"
+          />
+          <p className="mt-1 text-[11px] text-neutral-400">{t("builder.exam.timeLimitHint")}</p>
+        </Field>
+        <ToggleRow
+          label={t("builder.exam.signals")}
+          hint={t("builder.exam.signalsHint")}
+          checked={!!evaluation.integrity.signals}
+          onChange={(v) => setIntegrity({ signals: v })}
+        />
+        <GroupsEditor
+          questions={questions}
+          groups={evaluation.integrity.groups ?? {}}
+          onChange={(groups) => setIntegrity({ groups })}
         />
       </div>
 
@@ -1396,6 +1436,53 @@ function ToggleRow({
         {hint && <div className="text-[11px] text-neutral-400 dark:text-neutral-500">{hint}</div>}
       </div>
       <Switch checked={checked} onCheckedChange={onChange} />
+    </div>
+  );
+}
+
+/** Cuántas preguntas sortear de cada grupo (los grupos se ponen en cada
+ *  pregunta: "Grupo de sorteo"). Vacío = se muestran todas las del grupo. */
+function GroupsEditor({
+  questions,
+  groups,
+  onChange,
+}: {
+  questions: BuilderQuestion[];
+  groups: Record<string, number>;
+  onChange: (g: Record<string, number>) => void;
+}) {
+  const { t } = useI18n();
+  const conteo: Record<string, number> = {};
+  for (const q of questions) if (q.group?.trim()) conteo[q.group.trim()] = (conteo[q.group.trim()] ?? 0) + 1;
+  const nombres = Object.keys(conteo).sort();
+  if (!nombres.length) return <p className="text-[11px] text-neutral-400">{t("builder.exam.groupsEmpty")}</p>;
+  return (
+    <div>
+      <p className="mb-1.5 text-xs font-medium text-neutral-600 dark:text-neutral-300">{t("builder.exam.groups")}</p>
+      <div className="space-y-1.5">
+        {nombres.map((g) => (
+          <label key={g} className="flex items-center gap-2 text-xs text-neutral-600 dark:text-neutral-300">
+            <span className="min-w-0 flex-1 truncate font-medium">{g}</span>
+            {t("builder.exam.show")}
+            <input
+              type="number"
+              min={1}
+              max={conteo[g]}
+              value={groups[g] ?? ""}
+              placeholder={String(conteo[g])}
+              onChange={(e) => {
+                const n = Number(e.target.value);
+                const next = { ...groups };
+                if (n > 0 && n < conteo[g]) next[g] = n;
+                else delete next[g];
+                onChange(next);
+              }}
+              className="w-14 rounded-md border border-neutral-200 px-1.5 py-1 text-xs dark:border-neutral-700 dark:bg-neutral-800"
+            />
+            {t("builder.exam.ofN", { n: conteo[g] })}
+          </label>
+        ))}
+      </div>
     </div>
   );
 }

@@ -100,6 +100,12 @@ export interface BuilderQuestion {
   dateMin?: string; // fecha mínima permitida (YYYY-MM-DD), opcional
   dateMax?: string; // fecha máxima permitida (YYYY-MM-DD), opcional
 
+  // Grupo de sorteo del examen (encGroup): de las preguntas del mismo grupo
+  // se muestran N al azar a cada persona (ver evaluation.integrity.groups).
+  group?: string;
+  // Viene del banco de preguntas (encBankId): junta sus estadísticas.
+  bankId?: string;
+
   // ---- number / slider ----
   numMin?: number;
   numMax?: number;
@@ -206,6 +212,10 @@ export interface EvaluationSettings {
     shuffleChoices: boolean;
     timeLimitSec: number | null;
     maxAttempts: number;
+    // Sorteo: de cada grupo (encGroup de las preguntas), cuántas se muestran.
+    groups?: Record<string, number>;
+    // Registrar señales de integridad (pestaña, pegado, fuera de tiempo).
+    signals?: boolean;
   };
 }
 
@@ -1003,6 +1013,8 @@ function questionToElement(q: BuilderQuestion): Record<string, any> {
   if (q.branching && q.branching.length) {
     el.encBranching = q.branching;
   }
+  if (q.group && q.group.trim()) el.encGroup = q.group.trim();
+  if (q.bankId) el.encBankId = q.bankId;
   if (q.type === "imagepicker") {
     el.choices = (q.choices ?? [])
       .map((c) => ({ value: c.text, text: c.text, imageLink: c.imageUrl || undefined }))
@@ -1330,6 +1342,8 @@ function elementToQuestion(el: Record<string, any>, index: number): BuilderQuest
     boxOpacity:
       typeof el.encBoxOpacity === "number" ? el.encBoxOpacity : undefined,
     align: el.encAlign === "left" || el.encAlign === "center" ? el.encAlign : undefined,
+    group: typeof el.encGroup === "string" && el.encGroup ? el.encGroup : undefined,
+    bankId: typeof el.encBankId === "string" && el.encBankId ? el.encBankId : undefined,
   };
 
   if (el.encVisibility && typeof el.encVisibility === "object" && el.encVisibility.questionName) {
@@ -1515,6 +1529,8 @@ function hydrateEvaluationSettings(
       shuffleChoices: !!evaluation.integrity?.shuffleChoices,
       timeLimitSec: evaluation.integrity?.timeLimitSec ?? null,
       maxAttempts: evaluation.integrity?.maxAttempts ?? 1,
+      groups: evaluation.integrity?.groups ?? {},
+      signals: !!evaluation.integrity?.signals,
     },
   };
 }

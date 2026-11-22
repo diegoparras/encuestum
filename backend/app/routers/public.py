@@ -854,11 +854,16 @@ async def submit(
     # Whether the respondent sees their correction now depends on results_mode.
     results_mode = getattr(s, "results_mode", "immediate")
     if results_mode == "immediate":
-        return {"id": str(r.id), "status": "graded",
-                "result": _respondent_view(
-                    grade, evaluation, s.json_schema or {}, r.answers,
-                    cerrada=await _ya_cerro(s, session),
-                )}
+        vista = _respondent_view(
+            grade, evaluation, s.json_schema or {}, r.answers,
+            cerrada=await _ya_cerro(s, session),
+        )
+        # Con identidad de invitado se puede pedir revisión desde ya (con su
+        # email y código, igual que al consultar el resultado después).
+        if getattr(s, "access_mode", "public") == "list" and resp_code:
+            vista["can_appeal"] = True
+            vista["appeals"] = []
+        return {"id": str(r.id), "status": "graded", "result": vista}
     if results_mode == "on_release":
         return {"id": str(r.id), "status": "recorded", "results_pending": True,
                 "can_check": getattr(s, "access_mode", "public") == "list"}
@@ -905,13 +910,20 @@ async def lookup_result(
     reclamos = (await session.scalars(
         select(GradeAppeal).where(GradeAppeal.response_id == r.id).order_by(GradeAppeal.created_at)
     )).all()
+    vista = _respondent_view(
+        r.grade, s.evaluation or {}, s.json_schema or {}, r.answers,
+        cerrada=await _ya_cerro(s, session),
+    )
+    # Reclamos de esta persona (estado y respuesta del docente), y que se
+    # pueden hacer: el resultado se consultó con email y código.
+    vista["appeals"] = [
+        {"question": a.question, "status": a.status, "reply": a.reply}
+        for a in reclamos
+    ]
+    vista["can_appeal"] = True
     return {
         "status": "graded",
-        "result": _respondent_view(
-            r.grade, s.evaluation or {}, s.json_schema or {}, r.answers,
-            cerrada=await _ya_cerro(s, session),
-        ),
-        # Reclamos de esta persona: estado y respuesta del docente.
+        "result": vista,
         "appeals": [
             {"question": a.question, "status": a.status, "reply": a.reply,
              "created_at": a.created_at.isoformat()}

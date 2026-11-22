@@ -137,7 +137,9 @@ def analyze(schema: dict, evaluation: dict, graded: list) -> dict:
                     if ps >= 0.1 and ps > pi:
                         atrae.append({"option": o, "upper": round(ps, 2), "lower": round(pi, 2)})
             item["distractors"] = {"never_chosen": nunca, "attracts_top": atrae}
-            if nunca:
+            # Con pocas respuestas, que nadie haya elegido una opción no dice
+            # nada (con una sola respuesta, todas menos una "nadie las eligió").
+            if nunca and len(con) >= _MIN_N:
                 flags.append("distractor_inutil")
             if atrae:
                 flags.append("distractor_ambiguo")

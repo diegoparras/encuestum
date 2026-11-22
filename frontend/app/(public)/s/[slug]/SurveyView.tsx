@@ -54,6 +54,8 @@ interface EvaluationMeta {
     shuffleChoices?: boolean;
     timeLimitSec?: number | null;
     maxAttempts?: number;
+    groups?: Record<string, number>;
+    signals?: boolean;
   };
 }
 
@@ -85,12 +87,16 @@ function safeRedirectUrl(url?: string | null): string | null {
 }
 
 interface GradedResult {
+  /** Reclamos hechos (estado y respuesta) y si se pueden hacer. */
+  appeals?: { question: string; status: string; reply: string | null }[];
+  can_appeal?: boolean;
   total?: number;
   max?: number;
   percent?: number;
   passed?: boolean | null;
   needs_review?: boolean;
   questions: {
+    name?: string;
     title: string;
     verdict: string;
     awarded: number;
@@ -136,6 +142,11 @@ function getVisitorId(): string | null {
 function ahora(): number {
   return Date.now();
 }
+
+/** Señales de integridad del examen en curso. Una por página (hay un solo
+ *  formulario), fuera de React: se acumulan en eventos del documento y se leen
+ *  al enviar, sin re-renderizar. */
+const INTEGRIDAD = { tab_switches: 0, hidden_seconds: 0, pastes: [] as { question: string; chars: number }[] };
 
 function trackVisit(slug: string, event: "view" | "progress", question?: string) {
   const vid = getVisitorId();
@@ -250,6 +261,86 @@ export default function SurveyView({ slug }: { slug: string }) {
     };
   }, [slug]);
 
+  // Examen con intento en el servidor (tiempo límite, sorteo o señales): se
+  // pide el intento ANTES de armar el formulario, porque define qué preguntas
+  // ve esta persona y cuánto tiempo le queda. Ver backend/app/exam.py.
+  const integ = data?.evaluation?.integrity;
+  const necesitaIntento =
+    !!data?.evaluation?.enabled &&
+    !!(integ?.timeLimitSec || (integ?.groups && Object.keys(integ.groups).length) || integ?.signals);
+  const listoParaIntento =
+    status === "ready" && !!data && data.available !== false && !(data.gated === true && !accessToken);
+  const [examen, setExamen] = useState<{
+    status: "loading" | "ready" | "error";
+    token?: string;
+    secondsLeft?: number | null;
+    schema?: Record<string, unknown>;
+    signals?: boolean;
+    error?: string;
+  } | null>(null);
+  useEffect(() => {
+    if (!necesitaIntento || !listoParaIntento) return;
+    let cancel = false;
+    fetch(`${apiBase()}/api/v1/survey/public/${encodeURIComponent(slug)}/start`, {
+      method: "POST",
+      credentials: "include",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ visitor_id: getVisitorId(), ...(accessToken ? { access_token: accessToken } : {}) }),
+    })
+      .then(async (r) => {
+        const j = await r.json().catch(() => null);
+        if (cancel) return;
+        if (!r.ok) {
+          setExamen({ status: "error", error: typeof j?.detail === "string" ? j.detail : undefined });
+          return;
+        }
+        if (!j?.exam) {
+          setExamen({ status: "ready" });
+          return;
+        }
+        setExamen({
+          status: "ready",
+          token: j.exam.attempt_token,
+          secondsLeft: j.exam.seconds_left,
+          schema: j.exam.json_schema,
+          signals: !!j.exam.signals,
+        });
+      })
+      .catch(() => !cancel && setExamen({ status: "error" }));
+    return () => {
+      cancel = true;
+    };
+  }, [necesitaIntento, listoParaIntento, slug, accessToken]);
+
+  // Señales de integridad (sólo si el examen las pide): cuántas veces salió de
+  // la pestaña, cuánto tiempo estuvo afuera y textos largos pegados. Se
+  // mandan con la respuesta; el servidor las registra para el docente.
+  useEffect(() => {
+    if (!examen?.signals) return;
+    const integridad = { current: INTEGRIDAD };
+    let ocultoDesde: number | null = null;
+    const onVis = () => {
+      if (document.visibilityState === "hidden") {
+        integridad.current.tab_switches += 1;
+        ocultoDesde = Date.now();
+      } else if (ocultoDesde) {
+        integridad.current.hidden_seconds += Math.round((Date.now() - ocultoDesde) / 1000);
+        ocultoDesde = null;
+      }
+    };
+    const onPaste = (e: ClipboardEvent) => {
+      const texto = e.clipboardData?.getData("text") ?? "";
+      const nombre = (e.target as HTMLElement | null)?.closest("[data-name]")?.getAttribute("data-name") ?? "";
+      if (texto.length) integridad.current.pastes.push({ question: nombre, chars: texto.length });
+    };
+    document.addEventListener("visibilitychange", onVis);
+    document.addEventListener("paste", onPaste, true);
+    return () => {
+      document.removeEventListener("visibilitychange", onVis);
+      document.removeEventListener("paste", onPaste, true);
+    };
+  }, [examen?.signals]);
+
   // Funnel: una vista por visitante al cargar la encuesta (disponible o no gated).
   useEffect(() => {
     if (status === "ready" && data && data.available !== false) {
@@ -260,9 +351,10 @@ export default function SurveyView({ slug }: { slug: string }) {
 
   const model = useMemo(() => {
     if (!data) return null;
+    if (necesitaIntento && listoParaIntento && examen?.status !== "ready") return null;
     const evalMeta = data.evaluation || {};
     const isExam = !!evalMeta.enabled;
-    const survey = new Model(absolutizeAssets(data.json_schema || {}));
+    const survey = new Model(absolutizeAssets(examen?.schema || data.json_schema || {}));
     survey.locale = data.language || "es";
     // The custom video-response recorder reads this to upload to the right survey.
     survey.setVariable("encSlug", slug);
@@ -467,7 +559,14 @@ export default function SurveyView({ slug }: { slug: string }) {
           if ("choicesOrder" in q) q.choicesOrder = "random";
         });
       }
-      if (integ.timeLimitSec) survey.maxTimeToFinish = integ.timeLimitSec;
+      // El tiempo que queda lo calcula el SERVIDOR (desde que empezó el
+      // intento): recargar la página no reinicia el reloj.
+      const restante = examen?.secondsLeft ?? integ.timeLimitSec;
+      if (restante) {
+        survey.maxTimeToFinish = Math.max(1, restante);
+        survey.showTimer = true;
+        survey.timerLocation = "top";
+      }
       // We render our own results screen for exams.
       survey.showCompletedPage = evalMeta.feedbackTiming === "never";
     }
@@ -530,10 +629,12 @@ export default function SurveyView({ slug }: { slug: string }) {
               // Gated surveys require the access token obtained at the gate.
               ...(accessToken ? { access_token: accessToken } : {}),
               ...(captchaSolution ? { captcha: captchaSolution } : {}),
+              ...(examen?.token ? { attempt_token: examen.token } : {}),
               meta: {
                 locale: sender.locale || data.language || null,
                 referrer: typeof document !== "undefined" ? document.referrer : null,
                 visitor_id: getVisitorId(),
+                ...(examen?.signals ? { integrity: INTEGRIDAD } : {}),
               },
             }),
           }
@@ -577,7 +678,7 @@ export default function SurveyView({ slug }: { slug: string }) {
     });
 
     return survey;
-  }, [data, slug, accessToken, magic]);
+  }, [data, slug, accessToken, magic, examen, necesitaIntento, listoParaIntento]);
 
   const design = useMemo(() => themeToDesign(data?.theme), [data]);
   useEffect(() => {
@@ -606,6 +707,15 @@ export default function SurveyView({ slug }: { slug: string }) {
   );
 
   if (status === "loading") return <Centered>{t("public.loading")}</Centered>;
+  if (necesitaIntento && listoParaIntento && examen?.status === "error")
+    return (
+      <Centered>
+        <h1 className="text-xl font-semibold">{t("public.error.title")}</h1>
+        <p className="text-sm opacity-70 mt-2">{examen.error || t("public.error.body")}</p>
+      </Centered>
+    );
+  if (necesitaIntento && listoParaIntento && examen?.status !== "ready")
+    return <Centered>{t("public.loading")}</Centered>;
   if (status === "notfound")
     return (
       <Centered>
@@ -1126,6 +1236,16 @@ function ResultsScreen({
                       {q.explanation || q.feedback}
                     </div>
                   )}
+                  {results.can_appeal && certCreds && q.name && (
+                    <Appeal
+                      slug={slug}
+                      apiBase={apiBase}
+                      creds={certCreds}
+                      question={q.name}
+                      accent={accent}
+                      previo={results.appeals?.filter((a) => a.question === q.name).at(-1)}
+                    />
+                  )}
                 </div>
                 <div className="text-xs font-semibold text-neutral-400 shrink-0">
                   {q.awarded}/{q.points}
@@ -1292,6 +1412,94 @@ function StateScreen({
           {footer}
         </p>
       )}
+    </div>
+  );
+}
+
+/** Pedir que se revise la corrección de una pregunta (y ver la respuesta). */
+function Appeal({
+  slug,
+  apiBase,
+  creds,
+  question,
+  accent,
+  previo,
+}: {
+  slug: string;
+  apiBase: () => string;
+  creds: { email: string; code: string };
+  question: string;
+  accent: string;
+  previo?: { status: string; reply: string | null };
+}) {
+  const { t } = useI18n();
+  const [abierto, setAbierto] = useState(false);
+  const [msg, setMsg] = useState("");
+  const [estado, setEstado] = useState<"idle" | "sending" | "sent" | "error">("idle");
+  const [error, setError] = useState<string | null>(null);
+
+  if (previo && estado !== "sent") {
+    return (
+      <div className="mt-1.5 rounded-lg bg-neutral-50 px-2.5 py-1.5 text-xs text-neutral-600">
+        <span className="font-medium">{t(`public.appeal.status.${previo.status}`)}</span>
+        {previo.reply && (
+          <>
+            {" · "}
+            {t("public.appeal.reply")} {previo.reply}
+          </>
+        )}
+      </div>
+    );
+  }
+  if (estado === "sent") return <p className="mt-1.5 text-xs text-green-700">{t("public.appeal.sent")}</p>;
+  if (!abierto)
+    return (
+      <button onClick={() => setAbierto(true)} className="mt-1.5 text-xs underline" style={{ color: accent }}>
+        {t("public.appeal.ask")}
+      </button>
+    );
+
+  async function enviar() {
+    setEstado("sending");
+    setError(null);
+    try {
+      const r = await fetch(`${apiBase()}/api/v1/survey/public/${encodeURIComponent(slug)}/appeal`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ...creds, question, message: msg.trim() }),
+      });
+      const j = await r.json().catch(() => null);
+      if (!r.ok) {
+        setError(typeof j?.detail === "string" ? j.detail : t("public.access.error.unexpected"));
+        setEstado("error");
+        return;
+      }
+      setEstado("sent");
+    } catch {
+      setError(t("public.access.error.connect"));
+      setEstado("error");
+    }
+  }
+
+  return (
+    <div className="mt-2 space-y-1.5">
+      <textarea
+        value={msg}
+        onChange={(e) => setMsg(e.target.value)}
+        rows={3}
+        maxLength={2000}
+        placeholder={t("public.appeal.placeholder")}
+        className="w-full rounded-lg border border-neutral-200 px-2.5 py-1.5 text-xs outline-none"
+      />
+      {error && <p className="text-xs text-red-600">{error}</p>}
+      <button
+        onClick={enviar}
+        disabled={msg.trim().length < 5 || estado === "sending"}
+        className="rounded-md px-2.5 py-1 text-xs font-medium text-white disabled:opacity-50"
+        style={{ backgroundColor: accent }}
+      >
+        {t("public.appeal.send")}
+      </button>
     </div>
   );
 }

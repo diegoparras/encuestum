@@ -206,6 +206,40 @@ export interface ResponseDeletion {
   deleted_at: string;
 }
 
+/** Reclamo de nota de un alumno sobre una pregunta. */
+export interface GradeAppeal {
+  id: string;
+  response_id: string;
+  question: string;
+  question_title: string;
+  respondent: string | null;
+  answer: unknown;
+  awarded: number | null;
+  points: number | null;
+  message: string;
+  status: "open" | "accepted" | "rejected";
+  reply: string | null;
+  award_before: number | null;
+  award_after: number | null;
+  resolved_by_email: string | null;
+  created_at: string;
+  resolved_at: string | null;
+}
+
+/** Una pregunta del banco de la organización. */
+export interface BankItem {
+  id: string;
+  title: string;
+  type: string;
+  element: Record<string, unknown>;
+  grading: Record<string, unknown> | null;
+  topic: string | null;
+  tags: string[];
+  difficulty: string | null;
+  bloom: string | null;
+  created_at: string;
+}
+
 /** Una versión del historial (estructura + corrección). */
 export interface SurveyVersionInfo {
   id: string;
@@ -667,6 +701,45 @@ export const surveyApi = {
       `/api/v1/survey/surveys/${id}/explain-options`,
       { method: "POST", body: JSON.stringify(body) }
     ),
+  // ---- Banco de preguntas e intercambio (GIFT / Aiken / Moodle XML) ----
+  listBank: (params: { q?: string; topic?: string; tag?: string } = {}) => {
+    const qs = new URLSearchParams(Object.entries(params).filter(([, v]) => v) as [string, string][]);
+    return request<BankItem[]>(`/api/v1/survey/bank${qs.toString() ? `?${qs}` : ""}`);
+  },
+  bankFacets: () =>
+    request<{ total: number; topics: { value: string; count: number }[]; tags: { value: string; count: number }[] }>(
+      "/api/v1/survey/bank/facets"
+    ),
+  saveToBank: (items: { element: Record<string, unknown>; grading?: Record<string, unknown> | null; topic?: string; tags?: string[]; source_survey_id?: string }[]) =>
+    request<{ created: number }>("/api/v1/survey/bank", { method: "POST", body: JSON.stringify({ items }) }),
+  deleteBankItem: (iid: string) => request<void>(`/api/v1/survey/bank/${iid}`, { method: "DELETE" }),
+  bankItemStats: (iid: string) =>
+    request<{ used_in: number; responses: number; difficulty: number | null }>(`/api/v1/survey/bank/${iid}/stats`),
+  importQuestions: async (id: string, src: { file?: File; text?: string }) => {
+    const fd = new FormData();
+    if (src.file) fd.append("file", src.file);
+    if (src.text) fd.append("text", src.text);
+    const res = await fetch(getApiUrl(`/api/v1/survey/surveys/${id}/questions/import`), {
+      method: "POST",
+      credentials: "include",
+      body: fd,
+    });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(typeof j?.detail === "string" ? j.detail : `Error ${res.status}`);
+    return j as {
+      elements: Record<string, unknown>[];
+      evaluation_questions: Record<string, Record<string, unknown>>;
+      warnings: string[];
+    };
+  },
+  exportQuestionsUrl: (id: string, format: "gift" | "moodle") =>
+    getApiUrl(`/api/v1/survey/surveys/${id}/questions/export?format=${format}`),
+  listAppeals: (id: string) => request<GradeAppeal[]>(`/api/v1/survey/surveys/${id}/appeals`),
+  resolveAppeal: (id: string, aid: string, body: { decision: "accept" | "reject"; reply: string; award?: number }) =>
+    request<{ status: string }>(`/api/v1/survey/surveys/${id}/appeals/${aid}/resolve`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
   listVersions: (id: string) =>
     request<SurveyVersionInfo[]>(`/api/v1/survey/surveys/${id}/versions`),
   getVersion: (id: string, vid: string) =>

@@ -155,6 +155,8 @@ def vista_de_repaso(
         texto_comentario = comentario(q, evaluation, grade)
 
         item = {
+            # El nombre interno: hace falta para pedir revisión de ESTA pregunta.
+            "name": nombre,
             "title": titles.get(nombre, nombre),
             "verdict": q.get("verdict"),
             "awarded": q.get("awarded"),

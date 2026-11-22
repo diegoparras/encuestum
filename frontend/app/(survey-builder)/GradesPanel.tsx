@@ -21,6 +21,7 @@ import {
 } from "./surveyApi";
 import { questionTypeLabel } from "./builder/model";
 import { DesglosePregunta } from "./DesglosePregunta";
+import { AppealsPanel, IntegrityFlags } from "./Examenes";
 
 interface Props {
   surveyId: string;
@@ -190,6 +191,8 @@ export function GradesPanel({ surveyId, accent = SURVEY_ACCENT }: Props) {
           </span>
         </div>
       )}
+
+      <AppealsPanel surveyId={surveyId} accent={accent} onResolved={load} />
 
       {/* Distribution + actions */}
       <div className="flex flex-wrap items-end justify-between gap-4">
@@ -406,6 +409,7 @@ function ResponseRow({
             <AlertTriangle className="w-3 h-3" /> revisar
           </span>
         )}
+        <IntegrityFlags meta={response.meta} compact />
         {grade?.overridden && (
           <span className="rounded-full bg-blue-100 text-blue-700 px-2 py-0.5 text-[11px] font-medium dark:bg-blue-950/40">
             ajustada

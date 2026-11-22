@@ -14,7 +14,7 @@ import {
   ListChecks,
   Check,
 } from "lucide-react";
-import { GraduationCap, Sparkles, Palette, SpellCheck2, Undo2, Redo2, Keyboard, History } from "lucide-react";
+import { GraduationCap, Sparkles, Palette, SpellCheck2, Undo2, Redo2, Keyboard, History, Library } from "lucide-react";
 import { useUndoHistory } from "@/lib/useUndoHistory";
 import {
   surveyApi,
@@ -53,6 +53,7 @@ import { DesignPanel } from "../../../builder/DesignPanel";
 import { GenerateDialog } from "../../../builder/GenerateDialog";
 import { WordingReviewDialog } from "../../../builder/WordingReview";
 import { VersionHistoryDialog } from "../../../builder/VersionHistory";
+import { BankDialog, type ElementsToInsert } from "../../../builder/BankDialog";
 
 // SurveyJS es pesado: diferimos la vista previa a un chunk perezoso (ssr:false)
 // para que no entre en el bundle inicial del editor. El registro del tipo de
@@ -112,6 +113,7 @@ export default function SurveyEditorPage() {
   const [genOpen, setGenOpen] = useState(false);
   const [wordingOpen, setWordingOpen] = useState(false);
   const [versionsOpen, setVersionsOpen] = useState(false);
+  const [bankOpen, setBankOpen] = useState(false);
   const [designOpen, setDesignOpen] = useState(false);
   const [lastUsage, setLastUsage] = useState<UsageInfo | null>(null);
   const sumarUso = useCallback(
@@ -301,6 +303,50 @@ export default function SurveyEditorPage() {
       evaluation: { ...prev.evaluation, enabled: !prev.evaluation.enabled },
     }));
   }, [mutate]);
+
+  // Preguntas que llegan como elementos de SurveyJS + su corrección (banco de
+  // preguntas, importación GIFT/Aiken/Moodle). Los nombres se renombran si
+  // chocan con los del editor; con `group`, quedan como grupo de sorteo.
+  const insertElements = useCallback(
+    (x: ElementsToInsert) => {
+      setState((prev) => {
+        if (!prev) return prev;
+        const usados = new Set(prev.questions.map((q) => q.name));
+        const renombre: Record<string, string> = {};
+        const els = x.elements.map((el) => {
+          const base = String(el.name || "pregunta");
+          let nombre = base;
+          for (let i = 2; usados.has(nombre); i++) nombre = `${base}_${i}`;
+          usados.add(nombre);
+          renombre[base] = nombre;
+          return { ...el, name: nombre, ...(x.group ? { encGroup: x.group.name } : {}) };
+        });
+        const ev: Record<string, Record<string, unknown>> = {};
+        for (const [k, v] of Object.entries(x.evaluationQuestions)) ev[renombre[k] ?? k] = v;
+        const built = schemaToBuilder({ pages: [{ name: "p", elements: els }] }, "", prev.accent, {
+          enabled: true,
+          questions: ev,
+        });
+        const conCorreccion = Object.keys(ev).length > 0;
+        return {
+          ...prev,
+          questions: [...prev.questions, ...built.questions],
+          evaluation: {
+            ...prev.evaluation,
+            enabled: prev.evaluation.enabled || conCorreccion,
+            integrity: x.group
+              ? {
+                  ...prev.evaluation.integrity,
+                  groups: { ...(prev.evaluation.integrity.groups ?? {}), [x.group.name]: x.group.count },
+                }
+              : prev.evaluation.integrity,
+          },
+        };
+      });
+      markDirty();
+    },
+    [markDirty]
+  );
 
   const insertGenerated = useCallback((gens: any[]) => {
     setState((prev) => {
@@ -614,6 +660,14 @@ export default function SurveyEditorPage() {
           </button>
 
           <button
+            onClick={() => setBankOpen(true)}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-neutral-200 dark:border-neutral-800 px-2.5 py-1.5 text-xs font-medium text-neutral-600 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800"
+            title={t("builder.bank.title")}
+          >
+            <Library className="w-4 h-4" /> {t("builder.page.bank")}
+          </button>
+
+          <button
             onClick={() => setWordingOpen(true)}
             disabled={!state.questions.length}
             className="inline-flex items-center gap-1.5 rounded-lg border border-neutral-200 dark:border-neutral-800 px-2.5 py-1.5 text-xs font-medium text-neutral-600 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 disabled:opacity-50"
@@ -822,6 +876,27 @@ export default function SurveyEditorPage() {
       />
 
       {atajosOpen && <ShortcutsDialog onClose={() => setAtajosOpen(false)} />}
+
+      {bankOpen && (
+        <BankDialog
+          surveyId={id}
+          accent={state.accent}
+          onClose={() => setBankOpen(false)}
+          onInsert={insertElements}
+          editorItems={(() => {
+            const els = ((schema as { pages?: { elements?: Record<string, unknown>[] }[] }).pages ?? []).flatMap(
+              (p) => p.elements ?? []
+            );
+            const ev = (builderToEvaluation(state)?.questions ?? {}) as Record<string, Record<string, unknown>>;
+            return state.questions
+              .map((q) => {
+                const el = els.find((e) => e.name === q.name);
+                return el ? { name: q.name, title: q.title, element: el, grading: ev[q.name] ?? null } : null;
+              })
+              .filter((x): x is NonNullable<typeof x> => x !== null);
+          })()}
+        />
+      )}
 
       {versionsOpen && (
         <VersionHistoryDialog
