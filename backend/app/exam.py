@@ -7,7 +7,14 @@ editor para mezclar preguntas y opciones):
      "shuffleChoices": true,        # orden aleatorio de opciones
      "timeLimitSec": 2400,          # tiempo límite, controlado por el SERVIDOR
      "groups": {"unidad1": 3},      # de las preguntas del grupo, 3 al azar
-     "signals": true}               # registrar señales (pestaña, pegado)
+     "signals": true,               # registrar señales (pestaña, pegado)
+     "forms": 2}                    # formas fijas A, B (en vez de azar por persona)
+
+Formas fijas: con `forms` ≥ 2 cada intento recibe una forma (A, B, …) por
+turnos, así quedan parejas. Todos los de la misma forma ven las MISMAS
+preguntas sorteadas, en el MISMO orden y con las opciones en el mismo orden:
+como las versiones impresas de un parcial, se pueden revisar y comparar entre
+sí, cosa que con un orden distinto por alumno no se puede.
 
 Las preguntas sorteables llevan `encGroup` en su elemento. Cada persona tiene
 un intento (`SurveyAttempt`) con su hora de inicio y las preguntas que le
@@ -26,6 +33,7 @@ import random
 from typing import Optional
 
 GRACE_S = 45  # tolerancia de red al vencer el tiempo
+_MAX_FORMS = 6
 _LONG_PASTE = 200  # caracteres pegados de una vez que vale la pena señalar
 
 
@@ -46,14 +54,19 @@ def settings(evaluation: Optional[dict]) -> Optional[dict]:
                 grupos[str(k)] = int(v)
         except (TypeError, ValueError):
             continue
+    try:
+        formas = max(0, min(_MAX_FORMS, int(ex.get("forms") or 0)))
+    except (TypeError, ValueError):
+        formas = 0
     out = {
+        "forms": formas if formas >= 2 else 0,
         "timeLimitSec": limite if limite > 0 else None,
         "shuffleQuestions": bool(ex.get("shuffleQuestions")),
         "shuffleChoices": bool(ex.get("shuffleChoices")),
         "groups": grupos,
         "signals": bool(ex.get("signals")),
     }
-    activo = out["timeLimitSec"] or grupos or out["signals"]
+    activo = out["timeLimitSec"] or grupos or out["signals"] or out["forms"]
     return out if activo else None
 
 
@@ -95,11 +108,67 @@ def excluded(schema: dict, drawn: Optional[list[str]]) -> set[str]:
     return todas - set(drawn)
 
 
-def personal_schema(schema: dict, drawn: Optional[list[str]], cfg: dict) -> dict:
+def form_letter(index: int) -> str:
+    return chr(ord("A") + index)
+
+
+def form_for(cfg: dict, previous_attempts: int) -> Optional[str]:
+    """La forma del próximo intento, por turnos sobre los intentos de la
+    encuesta (A, B, A, B…)."""
+    return form_letter(previous_attempts % cfg["forms"]) if cfg.get("forms") else None
+
+
+def _orden_fijo(page: dict, rng: random.Random, mezclar_opciones: bool) -> None:
+    """Orden determinístico de la forma: las preguntas se mezclan en bloque
+    con su imagen/video acompañante, y las opciones (si se pidió) también."""
+    # Cada pregunta viaja con su imagen/video acompañante (`<nombre>__img`).
+    bloques: dict[str, list[dict]] = {}
+    for el in page.get("elements", []) or []:
+        nombre = el.get("name", "") if isinstance(el, dict) else ""
+        base = nombre[:-5] if nombre.endswith(("__img", "__vid")) else nombre
+        bloques.setdefault(base or str(id(el)), []).append(el)
+    bloques = list(bloques.values())
+    rng.shuffle(bloques)
+    page["elements"] = [el for b in bloques for el in b]
+    page.pop("questionsOrder", None)
+    if mezclar_opciones:
+        for el in page["elements"]:
+            if isinstance(el, dict) and isinstance(el.get("choices"), list):
+                opciones = list(el["choices"])
+                rng.shuffle(opciones)
+                el["choices"] = opciones
+                el["choicesOrder"] = "none"
+
+
+def personal_schema(schema: dict, drawn: Optional[list[str]], cfg: dict, form: Optional[str] = None) -> dict:
     """El esquema que ve esta persona: sin las preguntas que no le tocaron (ni
-    sus imágenes o videos acompañantes) y con el orden aleatorio pedido."""
+    sus imágenes o videos acompañantes) y con el orden pedido (al azar por
+    persona, o fijo por forma)."""
     fuera = excluded(schema, drawn)
     s = copy.deepcopy(schema or {})
+    if form:
+        rng = random.Random(f"forma:{form}")
+        for p in s.get("pages", []) or []:
+            if not isinstance(p, dict):
+                continue
+            p["elements"] = [
+                el for el in p.get("elements", []) or []
+                if not (isinstance(el, dict) and (
+                    el.get("name") in fuera
+                    or any(el.get("name") == f"{n}{suf}" for n in fuera for suf in ("__img", "__vid"))
+                ))
+            ]
+            if cfg.get("shuffleQuestions") or cfg.get("shuffleChoices"):
+                if cfg.get("shuffleQuestions"):
+                    _orden_fijo(p, rng, bool(cfg.get("shuffleChoices")))
+                elif cfg.get("shuffleChoices"):
+                    for el in p["elements"]:
+                        if isinstance(el, dict) and isinstance(el.get("choices"), list):
+                            opciones = list(el["choices"])
+                            rng.shuffle(opciones)
+                            el["choices"] = opciones
+                            el["choicesOrder"] = "none"
+        return s
     for p in s.get("pages", []) or []:
         if not isinstance(p, dict):
             continue

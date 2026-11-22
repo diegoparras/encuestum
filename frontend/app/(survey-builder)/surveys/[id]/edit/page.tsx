@@ -14,7 +14,7 @@ import {
   ListChecks,
   Check,
 } from "lucide-react";
-import { GraduationCap, Sparkles, Palette, SpellCheck2, Undo2, Redo2, Keyboard, History, Library } from "lucide-react";
+import { GraduationCap, Sparkles, Palette, SpellCheck2, Undo2, Redo2, Keyboard, History, Library, Languages } from "lucide-react";
 import { useUndoHistory } from "@/lib/useUndoHistory";
 import {
   surveyApi,
@@ -52,6 +52,7 @@ import { AccentPicker } from "../../../builder/AccentPicker";
 import { DesignPanel } from "../../../builder/DesignPanel";
 import { GenerateDialog } from "../../../builder/GenerateDialog";
 import { WordingReviewDialog } from "../../../builder/WordingReview";
+import { LanguagesDialog } from "../../../builder/LanguagesDialog";
 import { VersionHistoryDialog } from "../../../builder/VersionHistory";
 import { BankDialog, type ElementsToInsert } from "../../../builder/BankDialog";
 
@@ -112,6 +113,7 @@ export default function SurveyEditorPage() {
   const changeSeqRef = useRef(0);
   const [genOpen, setGenOpen] = useState(false);
   const [wordingOpen, setWordingOpen] = useState(false);
+  const [langOpen, setLangOpen] = useState(false);
   const [versionsOpen, setVersionsOpen] = useState(false);
   const [bankOpen, setBankOpen] = useState(false);
   const [designOpen, setDesignOpen] = useState(false);
@@ -668,6 +670,15 @@ export default function SurveyEditorPage() {
           </button>
 
           <button
+            onClick={() => setLangOpen(true)}
+            disabled={!state.questions.length}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-neutral-200 dark:border-neutral-800 px-2.5 py-1.5 text-xs font-medium text-neutral-600 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 disabled:opacity-50"
+            title={t("builder.lang.title")}
+          >
+            <Languages className="w-4 h-4" /> {t("builder.page.languages")}
+          </button>
+
+          <button
             onClick={() => setWordingOpen(true)}
             disabled={!state.questions.length}
             className="inline-flex items-center gap-1.5 rounded-lg border border-neutral-200 dark:border-neutral-800 px-2.5 py-1.5 text-xs font-medium text-neutral-600 dark:text-neutral-300 hover:bg-neutral-50 dark:hover:bg-neutral-800 disabled:opacity-50"
@@ -926,9 +937,19 @@ export default function SurveyEditorPage() {
         />
       )}
 
+      {langOpen && (
+        <LanguagesDialog
+          surveyId={id}
+          accent={state.accent}
+          beforeTranslate={() => save({ silent: true })}
+          onClose={() => setLangOpen(false)}
+          onUsage={sumarUso}
+        />
+      )}
+
       {/* Se muestra al cerrar el generador o la revisión (encima los taparía),
           con el consumo sumado de todas las llamadas de esa sesión. */}
-      {lastUsage && !genOpen && !wordingOpen && (
+      {lastUsage && !genOpen && !wordingOpen && !langOpen && (
         <UsageModal usage={lastUsage} onClose={() => setLastUsage(null)} />
       )}
     </div>

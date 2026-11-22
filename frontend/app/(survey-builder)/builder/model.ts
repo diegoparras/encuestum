@@ -62,6 +62,8 @@ export interface BuilderQuestion {
   // deterministic (grader = auto)
   correctText?: string[]; // radiogroup/dropdown/text/email/comment: acceptable values
   correctChoices?: string[]; // checkbox: correct option texts
+  correctOrder?: string[]; // ranking: orden correcto (textos)
+  correctMatrix?: Record<string, string>; // matrix: fila → columna correcta
   correctBool?: boolean; // boolean
   correctNumber?: number; // rating
   tolerance?: number; // rating
@@ -216,6 +218,8 @@ export interface EvaluationSettings {
     groups?: Record<string, number>;
     // Registrar señales de integridad (pestaña, pegado, fuera de tiempo).
     signals?: boolean;
+    // Formas fijas (A, B, …): 0 = orden al azar por persona.
+    forms?: number;
   };
 }
 
@@ -800,7 +804,7 @@ export function createQuestion(type: QuestionType, index: number): BuilderQuesti
 export function generatedToQuestion(gen: any, index: number): BuilderQuestion {
   const rawType = String(gen?.type || "comment");
   const type: QuestionType = (
-    ["radiogroup", "checkbox", "dropdown", "comment", "text", "boolean", "rating"].includes(rawType)
+    ["radiogroup", "checkbox", "dropdown", "comment", "text", "boolean", "rating", "ranking", "matrix"].includes(rawType)
       ? rawType
       : "comment"
   ) as QuestionType;
@@ -819,7 +823,27 @@ export function generatedToQuestion(gen: any, index: number): BuilderQuestion {
     ? gen.correctIndices
     : [];
 
-  if (type === "radiogroup" || type === "dropdown") {
+  if (type === "ranking") {
+    // La IA devuelve los elementos en el orden correcto: se muestran
+    // corridos (rotación) para no regalar la respuesta, y el orden correcto
+    // queda en la clave.
+    q.grader = "auto";
+    q.correctOrder = [...choiceTexts];
+    const k = choiceTexts.length > 1 ? 1 + (index % (choiceTexts.length - 1)) : 0;
+    q.choices = [...choiceTexts.slice(k), ...choiceTexts.slice(0, k)].map((x) => newChoice(x));
+    q.partialCredit = true;
+  } else if (type === "matrix") {
+    const filas: string[] = Array.isArray(gen?.rows) ? gen.rows.map(String) : [];
+    const cols: string[] = Array.isArray(gen?.columns) ? gen.columns.map(String) : [];
+    const idx: number[] = Array.isArray(gen?.correctColumns) ? gen.correctColumns : [];
+    q.matrixRows = filas.map((x) => newChoice(x));
+    q.matrixColumns = cols.map((x) => newChoice(x));
+    q.grader = "auto";
+    q.partialCredit = true;
+    q.correctMatrix = Object.fromEntries(
+      filas.map((f, i) => [f, cols[idx[i]]]).filter(([, c]) => c !== undefined)
+    );
+  } else if (type === "radiogroup" || type === "dropdown") {
     q.grader = "auto";
     q.correctText = correctIdx.length ? [choiceTexts[correctIdx[0]]].filter(Boolean) : [];
   } else if (type === "checkbox") {
@@ -1531,6 +1555,7 @@ function hydrateEvaluationSettings(
       maxAttempts: evaluation.integrity?.maxAttempts ?? 1,
       groups: evaluation.integrity?.groups ?? {},
       signals: !!evaluation.integrity?.signals,
+      forms: Number(evaluation.integrity?.forms) || 0,
     },
   };
 }
@@ -1558,6 +1583,13 @@ function hydrateGrading(
       q.partialCredit = !!c.partialCredit;
     } else if (q.type === "checkbox") {
       q.correctChoices = Array.isArray(correct) ? correct.map(String) : [];
+    } else if (q.type === "ranking") {
+      q.correctOrder = Array.isArray(correct) ? correct.map(String) : [];
+    } else if (q.type === "matrix") {
+      q.correctMatrix =
+        correct && typeof correct === "object" && !Array.isArray(correct)
+          ? Object.fromEntries(Object.entries(correct).map(([k, v]) => [k, String(v)]))
+          : {};
     } else if (q.type === "boolean") {
       q.correctBool = !!correct;
     } else if (q.type === "rating" || q.type === "number" || q.type === "slider") {
@@ -1579,6 +1611,15 @@ function hydrateGrading(
       ? c.rubric.map((r: any) => newRubricItem(r.label ?? "", Number(r.points) || 0))
       : [];
   }
+}
+
+/** El orden correcto de un ranking: el configurado, limitado a las opciones
+ *  que existen (una opción borrada no puede seguir siendo parte de la clave) y
+ *  completado con las nuevas al final. */
+export function rankingCorrectOrder(q: BuilderQuestion): string[] {
+  const textos = (q.choices ?? []).map((c) => c.text).filter((x) => x.trim());
+  const base = (q.correctOrder ?? []).filter((x) => textos.includes(x));
+  return [...base, ...textos.filter((x) => !base.includes(x))];
 }
 
 // Build the server-side evaluation payload (answer keys + rubrics + settings).
@@ -1614,6 +1655,12 @@ export function builderToEvaluation(
         if (q.multiSelect) cfg.partialCredit = !!q.partialCredit;
       } else if (q.type === "checkbox") {
         cfg.correct = q.correctChoices ?? [];
+        cfg.partialCredit = !!q.partialCredit;
+      } else if (q.type === "ranking") {
+        cfg.correct = rankingCorrectOrder(q);
+        cfg.partialCredit = !!q.partialCredit;
+      } else if (q.type === "matrix") {
+        cfg.correct = q.correctMatrix ?? {};
         cfg.partialCredit = !!q.partialCredit;
       } else if (q.type === "boolean") {
         cfg.correct = !!q.correctBool;

@@ -262,11 +262,21 @@ def _respondent_view(
     return view
 
 
+def _idiomas(s: Survey) -> list[str]:
+    from app.translation import coverage
+
+    traducidos = [c["language"] for c in coverage(s.json_schema or {}, s.translations) if c["translated"]]
+    return [s.language or "es", *traducidos] if traducidos else []
+
+
 def _public_payload(s: Survey, available: bool, reason: str | None, gated: bool) -> PublicSurvey:
+    from app.translation import localize
+
     show_form = available and not gated
     return PublicSurvey(
         slug=s.slug, title=s.title, language=s.language,
-        json_schema=(s.json_schema or {}) if show_form else {},
+        json_schema=localize(s.json_schema or {}, s.translations) if show_form else {},
+        languages=_idiomas(s),
         theme=s.theme,  # theme carries branding; safe to show on the gate
         evaluation=public_evaluation_meta(s.evaluation) if show_form else None,
         available=available, closed_reason=reason,
@@ -416,6 +426,7 @@ async def start_attempt(slug: str, payload: StartRequest, request: Request, sess
     el reloj ni cambia las preguntas."""
     from app import exam
     from app.models import SurveyAttempt
+    from app.translation import localize
 
     await rate_limit(request, f"start:{slug}", limit=60, window_s=60)
     s = await _visible(slug, session)
@@ -444,10 +455,19 @@ async def start_attempt(slug: str, payload: StartRequest, request: Request, sess
             select(func.count(SurveyAttempt.id)).where(SurveyAttempt.survey_id == s.id, SurveyAttempt.key == key)
         ) or 0)
         ahora = _utcnow()
+        # Formas fijas: por turnos sobre todos los intentos de la encuesta, y el
+        # sorteo de preguntas es el de la forma (igual para todos los que la tienen).
+        forma = None
+        if cfg["forms"]:
+            total = int(await session.scalar(
+                select(func.count(SurveyAttempt.id)).where(SurveyAttempt.survey_id == s.id)
+            ) or 0)
+            forma = exam.form_for(cfg, total)
+        semilla = f"{s.id}:forma:{forma}" if forma else f"{s.id}:{key}:{previos}"
         att = SurveyAttempt(
-            survey_id=s.id, key=key, started_at=ahora,
+            survey_id=s.id, key=key, started_at=ahora, form=forma,
             deadline=ahora + timedelta(seconds=cfg["timeLimitSec"]) if cfg["timeLimitSec"] else None,
-            drawn=exam.draw(s.json_schema or {}, cfg["groups"], f"{s.id}:{key}:{previos}") if cfg["groups"] else None,
+            drawn=exam.draw(s.json_schema or {}, cfg["groups"], semilla) if cfg["groups"] else None,
         )
         session.add(att)
         await session.commit()
@@ -466,7 +486,8 @@ async def start_attempt(slug: str, payload: StartRequest, request: Request, sess
             "deadline": deadline.isoformat() if deadline else None,
             "seconds_left": restan,
             "signals": cfg["signals"],
-            "json_schema": exam.personal_schema(s.json_schema or {}, att.drawn, cfg),
+            "json_schema": localize(exam.personal_schema(s.json_schema or {}, att.drawn, cfg, att.form), s.translations),
+            "form": att.form,
         }
     }
 
@@ -780,6 +801,8 @@ async def submit(
                 late = max(0, int((ahora - dl).total_seconds()) - exam_mod.GRACE_S)
             if intento.drawn is not None:
                 meta["drawn"] = list(intento.drawn)
+            if intento.form:
+                meta["form"] = intento.form
         else:
             server_meta["no_attempt"] = True
         integridad = exam_mod.sanitize_integrity((payload.meta or {}).get("integrity")) if exam_cfg["signals"] else None

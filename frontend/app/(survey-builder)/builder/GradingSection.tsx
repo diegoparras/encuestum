@@ -2,7 +2,7 @@
 
 import React from "react";
 import { Switch } from "@/components/ui/switch";
-import { BuilderQuestion, Choice, RevealMode, newRubricItem } from "./model";
+import { BuilderQuestion, Choice, RevealMode, newRubricItem, rankingCorrectOrder } from "./model";
 import { RubricEditor } from "./RubricEditor";
 import { resolveAssetUrl } from "./design";
 import { useI18n } from "@/lib/i18n";
@@ -95,6 +95,26 @@ export function GradingSection({ question: q, accent, onChange, surveyId }: Prop
               value={q.correctChoices ?? []}
               partial={!!q.partialCredit}
               onChange={(vals) => onChange({ correctChoices: vals })}
+              onPartial={(v) => onChange({ partialCredit: v })}
+            />
+          )}
+
+          {q.type === "ranking" && (
+            <RankingCorrect
+              order={rankingCorrectOrder(q)}
+              partial={!!q.partialCredit}
+              onChange={(v) => onChange({ correctOrder: v })}
+              onPartial={(v) => onChange({ partialCredit: v })}
+            />
+          )}
+
+          {q.type === "matrix" && (
+            <MatrixCorrect
+              rows={(q.matrixRows ?? []).map((r) => r.text).filter((x) => x.trim())}
+              columns={(q.matrixColumns ?? []).map((c) => c.text).filter((x) => x.trim())}
+              value={q.correctMatrix ?? {}}
+              partial={!!q.partialCredit}
+              onChange={(v) => onChange({ correctMatrix: v })}
               onPartial={(v) => onChange({ partialCredit: v })}
             />
           )}
@@ -688,5 +708,92 @@ function SuggestRubricButton({
         </p>
       )}
     </div>
+  );
+}
+
+function RankingCorrect({
+  order,
+  partial,
+  onChange,
+  onPartial,
+}: {
+  order: string[];
+  partial: boolean;
+  onChange: (v: string[]) => void;
+  onPartial: (v: boolean) => void;
+}) {
+  const { t } = useI18n();
+  if (order.length < 2) return <Hint>{t("builder.grade.addOptionsMulti")}</Hint>;
+  function mover(i: number, d: number) {
+    const j = i + d;
+    if (j < 0 || j >= order.length) return;
+    const v = [...order];
+    [v[i], v[j]] = [v[j], v[i]];
+    onChange(v);
+  }
+  return (
+    <Field label={t("builder.grade.correctOrder")}>
+      <ol className="space-y-1">
+        {order.map((c, i) => (
+          <li key={c} className="flex items-center gap-2 rounded-md border border-neutral-200 px-2 py-1 text-sm dark:border-neutral-700">
+            <span className="w-4 text-xs tabular-nums text-neutral-400">{i + 1}</span>
+            <span className="flex-1">{c}</span>
+            <button type="button" aria-label={t("builder.grade.moveUp")} disabled={i === 0} onClick={() => mover(i, -1)} className="px-1 text-neutral-400 hover:text-neutral-800 disabled:opacity-30">↑</button>
+            <button type="button" aria-label={t("builder.grade.moveDown")} disabled={i === order.length - 1} onClick={() => mover(i, 1)} className="px-1 text-neutral-400 hover:text-neutral-800 disabled:opacity-30">↓</button>
+          </li>
+        ))}
+      </ol>
+      <label className="mt-2 flex items-center gap-2 text-xs text-neutral-600 dark:text-neutral-300">
+        <input type="checkbox" checked={partial} onChange={(e) => onPartial(e.target.checked)} />
+        {t("builder.grade.partialRanking")}
+      </label>
+    </Field>
+  );
+}
+
+function MatrixCorrect({
+  rows,
+  columns,
+  value,
+  partial,
+  onChange,
+  onPartial,
+}: {
+  rows: string[];
+  columns: string[];
+  value: Record<string, string>;
+  partial: boolean;
+  onChange: (v: Record<string, string>) => void;
+  onPartial: (v: boolean) => void;
+}) {
+  const { t } = useI18n();
+  if (!rows.length || !columns.length) return <Hint>{t("builder.grade.addRowsColumns")}</Hint>;
+  return (
+    <Field label={t("builder.grade.correctPerRow")}>
+      <div className="space-y-1.5">
+        {rows.map((r) => (
+          <label key={r} className="flex items-center gap-2 text-sm">
+            <span className="min-w-0 flex-1 truncate">{r}</span>
+            <select
+              value={value[r] ?? ""}
+              onChange={(e) => {
+                const v = { ...value };
+                if (e.target.value) v[r] = e.target.value;
+                else delete v[r];
+                onChange(v);
+              }}
+              className="rounded-md border border-neutral-200 bg-white px-1.5 py-1 text-sm dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
+            >
+              <option value="">—</option>
+              {columns.map((c) => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </label>
+        ))}
+      </div>
+      <label className="mt-2 flex items-center gap-2 text-xs text-neutral-600 dark:text-neutral-300">
+        <input type="checkbox" checked={partial} onChange={(e) => onPartial(e.target.checked)} />
+        {t("builder.grade.partialMatrix")}
+      </label>
+    </Field>
   );
 }

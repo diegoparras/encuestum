@@ -379,6 +379,13 @@ export interface PublicResultsConfig {
   show_text: boolean;
   min_responses: number;
 }
+export interface TranslationCoverage {
+  language: string;
+  total: number;
+  translated: number;
+  missing: number;
+  unused: number;
+}
 export interface OrgTemplate {
   id: string;
   title: string;
@@ -537,6 +544,9 @@ export interface GeneratedQuestion {
   choices: string[];
   correctIndices: number[];
   acceptableAnswers?: string[];
+  rows?: string[];
+  columns?: string[];
+  correctColumns?: number[];
   modelAnswer: string;
   keyConcepts: string[];
   rubric: { label: string; points: number }[];
@@ -805,7 +815,7 @@ export const surveyApi = {
       warnings: string[];
     };
   },
-  exportQuestionsUrl: (id: string, format: "gift" | "moodle") =>
+  exportQuestionsUrl: (id: string, format: "gift" | "moodle" | "qti") =>
     getApiUrl(`/api/v1/survey/surveys/${id}/questions/export?format=${format}`),
   listAppeals: (id: string) => request<GradeAppeal[]>(`/api/v1/survey/surveys/${id}/appeals`),
   resolveAppeal: (id: string, aid: string, body: { decision: "accept" | "reject"; reply: string; award?: number }) =>
@@ -956,6 +966,22 @@ export const surveyApi = {
     request<{ sent: number; total: number }>(
       `/api/v1/survey/surveys/${id}/invitees/send?only_unsent=true`,
       { method: "POST" }
+    ),
+  translations: (id: string) =>
+    request<{ source_language: string; languages: TranslationCoverage[] }>(`/api/v1/survey/surveys/${id}/translations`),
+  translationTexts: (id: string, lang: string) =>
+    request<{ source: string; text: string | null }[]>(`/api/v1/survey/surveys/${id}/translations/${lang}`),
+  editTranslation: (id: string, lang: string, items: Record<string, string>) =>
+    request<TranslationCoverage[]>(`/api/v1/survey/surveys/${id}/translations/${lang}`, {
+      method: "PUT",
+      body: JSON.stringify({ items }),
+    }),
+  deleteTranslation: (id: string, lang: string) =>
+    request<void>(`/api/v1/survey/surveys/${id}/translations/${lang}`, { method: "DELETE" }),
+  translate: (id: string, languages: string[], only_missing = true) =>
+    request<{ translated: Record<string, number>; languages: TranslationCoverage[]; usage?: UsageInfo }>(
+      `/api/v1/survey/surveys/${id}/translate`,
+      { method: "POST", body: JSON.stringify({ languages, only_missing }) }
     ),
   quotaStatus: (id: string) => request<QuotaStatus[]>(`/api/v1/survey/surveys/${id}/quotas`),
   listTemplates: () => request<OrgTemplate[]>(`/api/v1/survey/templates`),

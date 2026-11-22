@@ -46,7 +46,7 @@ interface Props {
   onUsage?: (usage: UsageInfo) => void;
 }
 
-const TYPE_OPTIONS = ["radiogroup", "checkbox", "dropdown", "boolean", "text", "comment"];
+const TYPE_OPTIONS = ["radiogroup", "checkbox", "dropdown", "boolean", "text", "comment", "ranking", "matrix"];
 const BLOOM = ["recordar", "comprender", "aplicar", "analizar", "evaluar", "crear"];
 
 type Item = { q: GeneratedQuestion; selected: boolean; busy?: boolean };
@@ -510,7 +510,21 @@ function ReviewCard({
             )}
           </div>
 
-          {q.choices?.length > 0 && (
+          {q.type === "ranking" && q.choices?.length > 0 && (
+            <ol className="mt-2 list-decimal space-y-0.5 pl-5 text-sm text-neutral-600 dark:text-neutral-300">
+              {q.choices.map((c, i) => <li key={i}>{c}</li>)}
+            </ol>
+          )}
+          {q.type === "matrix" && !!q.rows?.length && (
+            <ul className="mt-2 space-y-0.5 text-sm text-neutral-600 dark:text-neutral-300">
+              {q.rows.map((r, i) => (
+                <li key={i}>
+                  {r} → <span className="font-medium text-emerald-700 dark:text-emerald-400">{q.columns?.[q.correctColumns?.[i] ?? -1] ?? "?"}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+          {q.type !== "ranking" && q.choices?.length > 0 && (
             <ul className="mt-2 space-y-0.5 text-sm">
               {q.choices.map((c, i) => (
                 <li

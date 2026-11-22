@@ -400,3 +400,131 @@ def export_moodle_xml(schema: dict, evaluation: Optional[dict]) -> tuple[str, li
             avisos.append(f"«{el.get('title') or el['name']}» ({t}) no tiene equivalente en Moodle XML")
     ET.indent(quiz)
     return '<?xml version="1.0" encoding="UTF-8"?>\n' + ET.tostring(quiz, encoding="unicode") + "\n", avisos
+
+
+# ── QTI 2.1 (paquete IMS Content Packaging) ─────────────────────────────────
+
+_QTI_NS = "http://www.imsglobal.org/xsd/imsqti_v2p1"
+
+
+def _x(s) -> str:
+    from xml.sax.saxutils import escape
+
+    return escape(str(s), {'"': "&quot;"})
+
+
+def _qti_item(ident: str, title: str, body: str, response_decl: str, processing: str, points: float) -> str:
+    return (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        f'<assessmentItem xmlns="{_QTI_NS}" identifier="{ident}" title="{_x(title[:200])}" '
+        'adaptive="false" timeDependent="false">\n'
+        f"{response_decl}"
+        '  <outcomeDeclaration identifier="SCORE" cardinality="single" baseType="float">'
+        "<defaultValue><value>0</value></defaultValue></outcomeDeclaration>\n"
+        f'  <outcomeDeclaration identifier="MAXSCORE" cardinality="single" baseType="float">'
+        f"<defaultValue><value>{points:g}</value></defaultValue></outcomeDeclaration>\n"
+        f"  <itemBody>\n{body}  </itemBody>\n"
+        f"{processing}"
+        "</assessmentItem>\n"
+    )
+
+
+def _qti_match_correct(points: float) -> str:
+    # Plantilla estándar "match_correct", con el puntaje de la pregunta.
+    return (
+        "  <responseProcessing>\n"
+        "    <responseCondition><responseIf><match><variable identifier=\"RESPONSE\"/>"
+        "<correct identifier=\"RESPONSE\"/></match>"
+        f"<setOutcomeValue identifier=\"SCORE\"><baseValue baseType=\"float\">{points:g}</baseValue></setOutcomeValue>"
+        "</responseIf></responseCondition>\n"
+        "  </responseProcessing>\n"
+    )
+
+
+def export_qti(schema: dict, evaluation: Optional[dict], title: str = "Encuestum") -> tuple[bytes, list[str]]:
+    """Un .zip QTI 2.1 (items + imsmanifest.xml) que importan Canvas,
+    Blackboard, Brightspace, Moodle (con el plugin QTI) y otros.
+
+    Opción única/múltiple, verdadero/falso, respuesta corta, ordenar y
+    abierta. La matriz no tiene equivalente directo y se avisa."""
+    import io
+    import zipfile
+
+    items: list[tuple[str, str]] = []
+    avisos: list[str] = []
+    for n, (el, c) in enumerate(_items(schema, evaluation), 1):
+        t = el.get("type")
+        titulo = el.get("title") or el["name"]
+        ident = f"item{n}_{_slug(el['name'], 30) or n}"
+        pts = float(c.get("points", 1) or 1)
+        prompt = f"<prompt>{_x(titulo)}</prompt>"
+        if t in ("radiogroup", "dropdown", "checkbox", "boolean"):
+            if t == "boolean":
+                opciones = [el.get("labelTrue") or "Verdadero", el.get("labelFalse") or "Falso"]
+                correctas = [opciones[0] if c.get("correct") else opciones[1]] if "correct" in c else []
+            else:
+                opciones = _choice_texts(el)
+                correctas = [str(x) for x in _as_list(c.get("correct"))]
+            ids = {o: f"c{i}" for i, o in enumerate(opciones)}
+            multiple = t == "checkbox"
+            card = "multiple" if multiple else "single"
+            ok = "".join(f"<value>{ids[o]}</value>" for o in correctas if o in ids)
+            decl = (f'  <responseDeclaration identifier="RESPONSE" cardinality="{card}" baseType="identifier">'
+                    + (f"<correctResponse>{ok}</correctResponse>" if ok else "") + "</responseDeclaration>\n")
+            choices = "".join(f'      <simpleChoice identifier="{ids[o]}">{_x(o)}</simpleChoice>\n' for o in opciones)
+            body = (f'    <choiceInteraction responseIdentifier="RESPONSE" shuffle="false" '
+                    f'maxChoices="{0 if multiple else 1}">\n      {prompt}\n{choices}    </choiceInteraction>\n')
+            items.append((ident, _qti_item(ident, titulo, body, decl, _qti_match_correct(pts) if ok else "", pts)))
+        elif t == "ranking":
+            opciones = _choice_texts(el)
+            orden = [str(x) for x in _as_list(c.get("correct"))] or opciones
+            ids = {o: f"c{i}" for i, o in enumerate(opciones)}
+            ok = "".join(f"<value>{ids[o]}</value>" for o in orden if o in ids)
+            decl = ('  <responseDeclaration identifier="RESPONSE" cardinality="ordered" baseType="identifier">'
+                    f"<correctResponse>{ok}</correctResponse></responseDeclaration>\n")
+            choices = "".join(f'      <simpleChoice identifier="{ids[o]}">{_x(o)}</simpleChoice>\n' for o in opciones)
+            body = (f'    <orderInteraction responseIdentifier="RESPONSE" shuffle="true">\n      {prompt}\n'
+                    f"{choices}    </orderInteraction>\n")
+            items.append((ident, _qti_item(ident, titulo, body, decl, _qti_match_correct(pts), pts)))
+        elif t == "text" and c.get("grader", "auto") == "auto" and _as_list(c.get("correct")):
+            aceptadas = [str(x) for x in _as_list(c.get("correct"))]
+            base = "float" if el.get("inputType") == "number" else "string"
+            sensible = ""
+            if base == "string":
+                sensible = f' caseSensitive="{"true" if c.get("caseSensitive") else "false"}"'
+            mapping = "".join(f'<mapEntry mapKey="{_x(a)}" mappedValue="{pts:g}"{sensible}/>' for a in aceptadas)
+            decl = (f'  <responseDeclaration identifier="RESPONSE" cardinality="single" baseType="{base}">'
+                    f"<correctResponse><value>{_x(aceptadas[0])}</value></correctResponse>"
+                    f'<mapping defaultValue="0">{mapping}</mapping></responseDeclaration>\n')
+            body = (f"    <p>{_x(titulo)}</p>\n"
+                    '    <p><textEntryInteraction responseIdentifier="RESPONSE" expectedLength="30"/></p>\n')
+            proc = ('  <responseProcessing template="http://www.imsglobal.org/question/qti_v2p1/rptemplates/map_response"/>\n')
+            items.append((ident, _qti_item(ident, titulo, body, decl, proc, pts)))
+        elif t in ("comment", "text"):
+            decl = '  <responseDeclaration identifier="RESPONSE" cardinality="single" baseType="string"/>\n'
+            body = (f'    <extendedTextInteraction responseIdentifier="RESPONSE" expectedLines="6">\n'
+                    f"      {prompt}\n    </extendedTextInteraction>\n")
+            items.append((ident, _qti_item(ident, titulo, body, decl, "", pts)))
+            if c.get("grader") == "llm":
+                avisos.append(f"«{titulo}»: abierta; se exporta sin corrección automática (la rúbrica no viaja).")
+        else:
+            avisos.append(f"«{titulo}»: el tipo {t} no tiene equivalente en QTI y no se exportó.")
+
+    recursos = "".join(
+        f'    <resource identifier="res_{i}" type="imsqti_item_xmlv2p1" href="{i}.xml"><file href="{i}.xml"/></resource>\n'
+        for i, _ in items
+    )
+    manifest = (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<manifest xmlns="http://www.imsglobal.org/xsd/imscp_v1p1" identifier="encuestum_export">\n'
+        f"  <metadata><schema>IMS Content</schema><schemaversion>1.1</schemaversion></metadata>\n"
+        "  <organizations/>\n"
+        f"  <resources>\n{recursos}  </resources>\n"
+        "</manifest>\n"
+    )
+    buf = io.BytesIO()
+    with zipfile.ZipFile(buf, "w", zipfile.ZIP_DEFLATED) as z:
+        z.writestr("imsmanifest.xml", manifest)
+        for ident, xml in items:
+            z.writestr(f"{ident}.xml", xml)
+    return buf.getvalue(), avisos

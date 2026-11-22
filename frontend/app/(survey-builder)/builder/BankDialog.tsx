@@ -86,7 +86,11 @@ export function BankDialog({
                 <a href={surveyApi.exportQuestionsUrl(surveyId, "moodle")} className="rounded-md border border-neutral-200 px-3 py-1.5 text-xs font-medium dark:border-neutral-700">
                   Moodle XML
                 </a>
+                <a href={surveyApi.exportQuestionsUrl(surveyId, "qti")} className="rounded-md border border-neutral-200 px-3 py-1.5 text-xs font-medium dark:border-neutral-700">
+                  QTI 2.1 (.zip)
+                </a>
               </div>
+              <p className="text-[11px] text-neutral-400">{t("builder.bank.qtiHint")}</p>
             </div>
           )}
         </div>

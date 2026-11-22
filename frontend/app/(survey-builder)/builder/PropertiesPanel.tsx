@@ -1115,6 +1115,19 @@ function ExamSettings({
           checked={!!evaluation.integrity.signals}
           onChange={(v) => setIntegrity({ signals: v })}
         />
+        <Field label={t("builder.exam.forms")}>
+          <select
+            value={evaluation.integrity.forms ?? 0}
+            onChange={(e) => setIntegrity({ forms: Number(e.target.value) })}
+            className="w-full rounded-md border border-neutral-200 bg-white px-2.5 py-2 text-sm dark:border-neutral-700 dark:bg-neutral-800 dark:text-neutral-100"
+          >
+            <option value={0}>{t("builder.exam.formsNone")}</option>
+            {[2, 3, 4].map((n) => (
+              <option key={n} value={n}>{t("builder.exam.formsN", { n, letters: "ABCD".slice(0, n).split("").join(", ") })}</option>
+            ))}
+          </select>
+          <p className="mt-1 text-[11px] text-neutral-400">{t("builder.exam.formsHint")}</p>
+        </Field>
         <GroupsEditor
           questions={questions}
           groups={evaluation.integrity.groups ?? {}}

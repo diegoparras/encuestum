@@ -1022,9 +1022,15 @@ async def export_questions(
     banco de preguntas de Moodle u otra plataforma."""
     from fastapi.responses import Response as RawResponse
 
-    from app.interchange import export_gift, export_moodle_xml
+    from app.interchange import export_gift, export_moodle_xml, export_qti
 
     s = await _survey_or_404(sid, ctx.org.id, session)
+    if format == "qti":
+        body, avisos = export_qti(s.json_schema or {}, s.evaluation, s.title or "Encuestum")
+        headers = {"Content-Disposition": f'attachment; filename="{s.slug or "preguntas"}-qti.zip"'}
+        if avisos:
+            headers["X-Encuestum-Warnings"] = str(len(avisos))
+        return RawResponse(content=body, media_type="application/zip", headers=headers)
     if format == "moodle":
         body, avisos = export_moodle_xml(s.json_schema or {}, s.evaluation)
         media, ext = "application/xml", "xml"
@@ -1032,7 +1038,7 @@ async def export_questions(
         body, avisos = export_gift(s.json_schema or {}, s.evaluation)
         media, ext = "text/plain", "gift.txt"
     else:
-        raise HTTPException(status_code=422, detail="Formato: gift o moodle")
+        raise HTTPException(status_code=422, detail="Formato: gift, moodle o qti")
     nombre = f"{s.slug or 'preguntas'}.{ext}"
     headers = {"Content-Disposition": f'attachment; filename="{nombre}"'}
     if avisos:

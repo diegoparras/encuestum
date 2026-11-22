@@ -1,12 +1,27 @@
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
-import { Model } from "survey-core";
+import { Model, surveyLocalization } from "survey-core";
 // Debe ir antes de instanciar el Model: desactiva el atajo "valor|etiqueta".
 import "@/lib/surveyjs";
 import { Survey } from "survey-react-ui";
 import "survey-core/survey-core.min.css";
 import "survey-core/i18n/spanish";
+// Textos propios de SurveyJS (botones, errores) en los idiomas a los que se
+// puede traducir una encuesta.
+import "survey-core/i18n/portuguese";
+import "survey-core/i18n/french";
+import "survey-core/i18n/italian";
+import "survey-core/i18n/german";
+import "survey-core/i18n/simplified-chinese";
+import "survey-core/i18n/japanese";
+import "survey-core/i18n/catalan";
+import "survey-core/i18n/basque";
+import "survey-core/i18n/dutch";
+import "survey-core/i18n/polish";
+import "survey-core/i18n/russian";
+import "survey-core/i18n/arabic";
+import "survey-core/i18n/korean";
 import { toast } from "sonner";
 import { Award, Check, Music, Volume2, VolumeX } from "lucide-react";
 import {
@@ -77,6 +92,7 @@ interface PublicSurvey {
   // Anti-bot: exige resolver un proof-of-work antes de enviar.
   require_captcha?: boolean;
   hidden_fields?: string[];
+  languages?: string[];
 }
 
 // Sólo permitimos redirigir a URLs http(s) absolutas; cualquier otra cosa se
@@ -179,6 +195,33 @@ function camposOcultos(nombres?: string[]): Record<string, string> {
     if (v) out[n] = v;
   }
   return out;
+}
+
+/** Idioma con que arranca la encuesta: ?lang= del link, si no el del
+ *  navegador (si está traducida a ese), si no el original. */
+function idiomaInicial(data: { language?: string | null; languages?: string[] }): string {
+  const base = data.language || "es";
+  const disp = data.languages ?? [];
+  if (!disp.length || typeof window === "undefined") return base;
+  const pedido = new URLSearchParams(window.location.search).get("lang");
+  if (pedido && disp.includes(pedido)) return pedido;
+  for (const l of navigator.languages ?? [navigator.language]) {
+    const c = (l || "").slice(0, 2).toLowerCase();
+    if (disp.includes(c)) return c;
+  }
+  return base;
+}
+
+/** En SurveyJS el texto `default` de una cadena traducida corresponde al
+ *  idioma por defecto (inglés, salvo que se cambie). Nuestro `default` es el
+ *  idioma ORIGINAL de la encuesta: sin esto, elegir inglés mostraba el
+ *  original en vez de la traducción. */
+function fijarIdiomaOriginal(code: string) {
+  surveyLocalization.defaultLocale = code;
+}
+
+function aplicarIdioma(model: Model, code: string) {
+  model.locale = code;
 }
 
 function trackVisit(slug: string, event: "view" | "progress", question?: string) {
@@ -389,7 +432,8 @@ export default function SurveyView({ slug }: { slug: string }) {
     const evalMeta = data.evaluation || {};
     const isExam = !!evalMeta.enabled;
     const survey = new Model(absolutizeAssets(examen?.schema || data.json_schema || {}));
-    survey.locale = data.language || "es";
+    fijarIdiomaOriginal(data.language || "es");
+    survey.locale = idiomaInicial(data);
     // The custom video-response recorder reads this to upload to the right survey.
     survey.setVariable("encSlug", slug);
     const themeDesign = themeToDesign(data.theme);
@@ -926,6 +970,9 @@ export default function SurveyView({ slug }: { slug: string }) {
           ENC_EMBED_CSS}
       </style>
       <FullscreenButton />
+      {model && (data?.languages?.length ?? 0) > 1 && (
+        <LanguagePicker model={model} languages={data!.languages!} />
+      )}
       {brandingHeader}
       {submitting && (
         <StateScreen
@@ -1556,6 +1603,36 @@ function Appeal({
       >
         {t("public.appeal.send")}
       </button>
+    </div>
+  );
+}
+
+/** Selector de idioma para quien responde (sólo si la encuesta está traducida). */
+function LanguagePicker({ model, languages }: { model: Model; languages: string[] }) {
+  const [actual, setActual] = useState(model.locale || languages[0]);
+  const nombre = (c: string) => {
+    try {
+      const n = new Intl.DisplayNames([c], { type: "language" }).of(c);
+      return n ? n.charAt(0).toUpperCase() + n.slice(1) : c;
+    } catch {
+      return c;
+    }
+  };
+  return (
+    <div className="flex justify-end px-4 pt-3">
+      <select
+        aria-label="Idioma / Language"
+        value={actual}
+        onChange={(e) => {
+          setActual(e.target.value);
+          aplicarIdioma(model, e.target.value);
+        }}
+        className="rounded-md border border-neutral-200 bg-white/80 px-2 py-1 text-sm text-neutral-700 backdrop-blur"
+      >
+        {languages.map((l) => (
+          <option key={l} value={l}>{nombre(l)}</option>
+        ))}
+      </select>
     </div>
   );
 }

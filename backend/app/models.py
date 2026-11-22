@@ -306,6 +306,8 @@ class Survey(SQLModel, table=True):
     hidden_fields: Optional[list] = Field(sa_column=Column(JSON), default=None)
     quotas: Optional[list] = Field(sa_column=Column(JSON), default=None)
     public_results: Optional[dict] = Field(sa_column=Column(JSON), default=None)
+    # Traducciones por idioma: {idioma: {texto original: traducción}} (app/translation.py).
+    translations: Optional[dict] = Field(sa_column=Column(JSON), default=None)
     # Papelera (soft-delete): al borrar se marca la fecha en vez de destruir la
     # encuesta y sus respuestas. Una encuesta en la papelera no se lista, no se
     # edita y — crítico — deja de responderse desde su link público. Se puede
@@ -888,6 +890,8 @@ class SurveyAttempt(SQLModel, table=True):
     )
     deadline: Optional[datetime] = Field(sa_column=Column(DateTime(timezone=True)), default=None)
     drawn: Optional[list] = Field(sa_column=Column(JSON), default=None)
+    # Forma fija del examen (A, B, …) si el examen usa formas (app/exam.py).
+    form: Optional[str] = Field(sa_column=Column(String), default=None)
     submitted_at: Optional[datetime] = Field(sa_column=Column(DateTime(timezone=True)), default=None)
     response_id: Optional[uuid.UUID] = Field(sa_column=Column(Uuid), default=None)
 

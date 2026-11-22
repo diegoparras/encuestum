@@ -181,6 +181,8 @@ class PublicSurvey(BaseModel):
     require_captcha: bool = False
     # Parámetros de la URL que se guardan con la respuesta (campos ocultos).
     hidden_fields: List[str] = []
+    # Idiomas en que se puede responder (el primero es el original).
+    languages: List[str] = []
 
 
 class SubmitResponseRequest(BaseModel):
